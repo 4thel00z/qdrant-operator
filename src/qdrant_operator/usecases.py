@@ -112,33 +112,24 @@ class ExecuteBackup:
     storage: StoragePort
     kubernetes: KubernetesPort
 
-    async def execute(self, spec: BackupSpec, cluster_endpoint: str) -> BackupStatus:
+    async def execute(self, spec: BackupSpec) -> BackupStatus:
         """Execute backup of collections to S3."""
         start_time = datetime.now(UTC)
-
-        api_key = None
-        if spec.cluster_ref:
-            pass
-
         credentials = await self.get_storage_credentials(spec.storage)
 
         collections = list(spec.collections)
         if not collections:
-            collections = await self.qdrant.list_collections(cluster_endpoint, api_key)
+            collections = await self.qdrant.list_collections()
 
         collection_statuses: list[CollectionBackupStatus] = []
         total_size = 0
 
         for collection in collections:
             try:
-                snapshot = await self.qdrant.create_snapshot(
-                    cluster_endpoint, collection, api_key
-                )
+                snapshot = await self.qdrant.create_snapshot(collection)
 
                 local_path = f"/tmp/{snapshot.name}"
-                await self.qdrant.download_snapshot(
-                    cluster_endpoint, collection, snapshot.name, local_path, api_key
-                )
+                await self.qdrant.download_snapshot(collection, snapshot.name, local_path)
 
                 remote_key = f"{spec.storage.prefix}/{spec.name}/{collection}/{snapshot.name}"
                 await self.storage.upload_file(
@@ -155,9 +146,7 @@ class ExecuteBackup:
                     )
                 )
 
-                await self.qdrant.delete_snapshot(
-                    cluster_endpoint, collection, snapshot.name, api_key
-                )
+                await self.qdrant.delete_snapshot(collection, snapshot.name)
 
             except Exception as e:
                 collection_statuses.append(
@@ -211,7 +200,7 @@ class ExecuteRestore:
     storage: StoragePort
     kubernetes: KubernetesPort
 
-    async def execute(self, spec: RestoreSpec, cluster_endpoint: str) -> RestoreStatus:
+    async def execute(self, spec: RestoreSpec) -> RestoreStatus:
         """Execute restore of collections from S3."""
         start_time = datetime.now(UTC)
 
@@ -226,28 +215,18 @@ class ExecuteRestore:
         collections = list(spec.collections) if spec.collections else extract_collections(files)
 
         restored: list[RestoredCollection] = []
-        progress = RestoreProgress(collections_total=len(collections))
 
         for i, collection in enumerate(collections):
             target_name = spec.collection_mapping.get(collection, collection)
-            progress = RestoreProgress(
-                collections_total=len(collections),
-                collections_completed=i,
-                current_collection=target_name,
-                percentage=int((i / len(collections)) * 100),
-            )
 
             try:
                 snapshot_key = find_snapshot_key(files, collection)
                 local_path = f"/tmp/{collection}_restore.snapshot"
 
                 await self.storage.download_file(storage, credentials, snapshot_key, local_path)
+                await self.qdrant.recover_from_snapshot(target_name, local_path)
 
-                await self.qdrant.recover_from_snapshot(
-                    cluster_endpoint, target_name, local_path
-                )
-
-                info = await self.qdrant.get_collection_info(cluster_endpoint, target_name)
+                info = await self.qdrant.get_collection_info(target_name)
 
                 restored.append(
                     RestoredCollection(
