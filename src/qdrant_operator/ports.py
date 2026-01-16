@@ -6,14 +6,9 @@ All methods are async-first as required by kopf operator patterns.
 
 from typing import Protocol
 
-from qdrant_operator.domain import (
-    BackupStatus,
-    ClusterSpec,
-    ClusterStatus,
-    S3StorageSpec,
-    SecretRef,
-    Snapshot,
-)
+from qdrant_operator.domain import S3StorageSpec
+from qdrant_operator.domain import SecretRef
+from qdrant_operator.domain import Snapshot
 
 
 class HelmPort(Protocol):
@@ -53,58 +48,45 @@ class HelmPort(Protocol):
 
 
 class QdrantPort(Protocol):
-    """Port for Qdrant REST API operations."""
+    """Port for Qdrant REST API operations.
 
-    async def list_collections(self, endpoint: str, api_key: str | None = None) -> list[str]:
+    Implementations are initialized with endpoint and api_key.
+    """
+
+    async def list_collections(self) -> list[str]:
         """List all collection names."""
         ...
 
-    async def create_snapshot(
-        self, endpoint: str, collection: str, api_key: str | None = None
-    ) -> Snapshot:
+    async def create_snapshot(self, collection: str) -> Snapshot:
         """Create a snapshot of a collection."""
         ...
 
-    async def list_snapshots(
-        self, endpoint: str, collection: str, api_key: str | None = None
-    ) -> list[Snapshot]:
+    async def list_snapshots(self, collection: str) -> list[Snapshot]:
         """List snapshots for a collection."""
         ...
 
-    async def delete_snapshot(
-        self, endpoint: str, collection: str, snapshot_name: str, api_key: str | None = None
-    ) -> None:
+    async def delete_snapshot(self, collection: str, snapshot_name: str) -> None:
         """Delete a snapshot."""
         ...
 
     async def download_snapshot(
         self,
-        endpoint: str,
         collection: str,
         snapshot_name: str,
         destination: str,
-        api_key: str | None = None,
     ) -> str:
         """Download a snapshot to local path. Returns file path."""
         ...
 
-    async def recover_from_snapshot(
-        self,
-        endpoint: str,
-        collection: str,
-        snapshot_path: str,
-        api_key: str | None = None,
-    ) -> None:
+    async def recover_from_snapshot(self, collection: str, snapshot_path: str) -> None:
         """Recover a collection from a snapshot file."""
         ...
 
-    async def get_collection_info(
-        self, endpoint: str, collection: str, api_key: str | None = None
-    ) -> dict:
+    async def get_collection_info(self, collection: str) -> dict:
         """Get collection info including point count and status."""
         ...
 
-    async def health_check(self, endpoint: str) -> bool:
+    async def health_check(self) -> bool:
         """Check if Qdrant is healthy and ready."""
         ...
 
@@ -230,32 +212,4 @@ class KubernetesPort(Protocol):
         port: int = 6333,
     ) -> str:
         """Get the internal endpoint URL for a service."""
-        ...
-
-
-class ClusterUseCase(Protocol):
-    """Use case interface for cluster operations."""
-
-    async def reconcile(self, spec: ClusterSpec) -> ClusterStatus:
-        """Reconcile a QdrantCluster to desired state."""
-        ...
-
-    async def delete(self, spec: ClusterSpec) -> None:
-        """Delete a QdrantCluster and its resources."""
-        ...
-
-
-class BackupUseCase(Protocol):
-    """Use case interface for backup operations."""
-
-    async def execute(
-        self,
-        name: str,
-        namespace: str,
-        cluster_endpoint: str,
-        storage: S3StorageSpec,
-        collections: tuple[str, ...],
-        api_key: str | None = None,
-    ) -> BackupStatus:
-        """Execute a backup operation."""
         ...
