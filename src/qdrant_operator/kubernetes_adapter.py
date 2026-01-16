@@ -18,7 +18,7 @@ class KubernetesAdapter:
 
     async def get_secret_value(self, secret_ref: SecretRef) -> str:
         """Get a value from a Kubernetes Secret."""
-        await config.load_incluster_config()
+        config.load_incluster_config()
         v1 = client.CoreV1Api()
 
         secret = await v1.read_namespaced_secret(
@@ -42,7 +42,7 @@ class KubernetesAdapter:
         status: dict,
     ) -> None:
         """Update the status subresource of a custom resource."""
-        await config.load_incluster_config()
+        config.load_incluster_config()
         custom = client.CustomObjectsApi()
 
         await custom.patch_namespaced_custom_object_status(
@@ -88,7 +88,7 @@ class KubernetesAdapter:
         namespace: str,
     ) -> dict | None:
         """Get a custom resource. Returns None if not found."""
-        await config.load_incluster_config()
+        config.load_incluster_config()
         custom = client.CustomObjectsApi()
 
         try:
@@ -113,7 +113,7 @@ class KubernetesAdapter:
         label_selector: str | None = None,
     ) -> list[dict]:
         """List custom resources in a namespace."""
-        await config.load_incluster_config()
+        config.load_incluster_config()
         custom = client.CustomObjectsApi()
 
         result = await custom.list_namespaced_custom_object(
@@ -135,7 +135,7 @@ class KubernetesAdapter:
         namespace: str,
     ) -> None:
         """Delete a custom resource."""
-        await config.load_incluster_config()
+        config.load_incluster_config()
         custom = client.CustomObjectsApi()
 
         await custom.delete_namespaced_custom_object(

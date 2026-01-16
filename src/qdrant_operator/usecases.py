@@ -290,7 +290,7 @@ class ExecuteRestore:
             namespace=secret_key_ref.namespace,
         )
         secret_key = await self.kubernetes.get_secret_value(secret_key_ref_for_secret)
-        return (access_key, secret_key)
+        return access_key, secret_key
 
 
 @dataclass

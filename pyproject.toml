@@ -1,0 +1,44 @@
+[project]
+name = "qdrant-operator"
+version = "0.1.0"
+description = "Kubernetes operator for Qdrant vector database"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "kopf[uvloop]>=1.40.0",
+    "kubernetes-asyncio>=31.0.0",
+    "httpx>=0.28.0",
+    "aioboto3>=13.0.0",
+    "croniter>=5.0.0",
+    "structlog>=24.4.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.9.0",
+    "pyright>=1.1.0",
+]
+
+[project.scripts]
+qdrant-operator = "qdrant_operator.main:main"
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM", "ARG"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

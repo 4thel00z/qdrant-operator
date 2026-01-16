@@ -117,7 +117,8 @@ class S3Adapter:
             try:
                 await s3.head_object(Bucket=storage.bucket, Key=remote_key)
                 return True
-            except Exception:
+            except Exception as err:
+                await log.aerror("s3_head_object_error", key=remote_key, error=str(err))
                 return False
 
     def client_config(self, storage: S3StorageSpec) -> dict:

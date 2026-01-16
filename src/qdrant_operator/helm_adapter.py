@@ -8,11 +8,13 @@ from pathlib import Path
 
 import structlog
 
+from qdrant_operator.ports import HelmPort
+
 log = structlog.get_logger()
 
 
 @dataclass
-class HelmAdapter:
+class HelmAdapter(HelmPort):
     """Adapter for Helm CLI operations."""
 
     kubeconfig: str | None = None
