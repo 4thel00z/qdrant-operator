@@ -5,8 +5,8 @@ They contain no I/O code directly - all external calls go through ports.
 """
 
 from dataclasses import dataclass
+from datetime import UTC
 from datetime import datetime
-from time import timezone
 
 from qdrant_operator.domain import (
     BackupPhase,
@@ -84,7 +84,7 @@ class ReconcileCluster:
                 Condition(
                     type="Reconciling",
                     status="True",
-                    last_transition_time=datetime.now(),
+                    last_transition_time=datetime.now(UTC),
                     reason="HelmReleaseUpdated",
                     message=f"Helm release {release_name} updated",
                 )
@@ -114,7 +114,7 @@ class ExecuteBackup:
 
     async def execute(self, spec: BackupSpec, cluster_endpoint: str) -> BackupStatus:
         """Execute backup of collections to S3."""
-        start_time = datetime.now()
+        start_time = datetime.now(UTC)
 
         api_key = None
         if spec.cluster_ref:
@@ -174,7 +174,7 @@ class ExecuteBackup:
         return BackupStatus(
             phase=phase,
             start_time=start_time,
-            completion_time=datetime.now(),
+            completion_time=datetime.now(UTC),
             s3_path=f"s3://{spec.storage.bucket}/{spec.storage.prefix}/{spec.name}",
             total_size=format_size(total_size),
             collections=collection_statuses,
@@ -183,7 +183,7 @@ class ExecuteBackup:
                 Condition(
                     type="Complete",
                     status="True" if phase == BackupPhase.COMPLETED else "False",
-                    last_transition_time=datetime.now(),
+                    last_transition_time=datetime.now(UTC),
                     reason="BackupCompleted" if phase == BackupPhase.COMPLETED else "BackupFailed",
                     message=f"Backed up {len(collections) - len(failed)}/{len(collections)} collections",
                 )
@@ -213,7 +213,7 @@ class ExecuteRestore:
 
     async def execute(self, spec: RestoreSpec, cluster_endpoint: str) -> RestoreStatus:
         """Execute restore of collections from S3."""
-        start_time = datetime.now()
+        start_time = datetime.now(UTC)
 
         source_path = await self.resolve_source(spec)
         storage = spec.source_s3
@@ -274,7 +274,7 @@ class ExecuteRestore:
         return RestoreStatus(
             phase=phase,
             start_time=start_time,
-            completion_time=datetime.now(),
+            completion_time=datetime.now(UTC),
             source_backup=source_path,
             restored_collections=restored,
             progress=RestoreProgress(
@@ -332,7 +332,7 @@ class ProcessSchedule:
                 next_backup_time=None,
             )
 
-        now = datetime.now()
+        now = datetime.now(UTC)
         next_run = compute_next_run(spec.schedule, status.last_backup_time)
 
         if next_run and now >= next_run:
@@ -393,7 +393,7 @@ def find_snapshot_key(files: list[str], collection: str) -> str:
 def compute_next_run(schedule: str, last_run: datetime | None) -> datetime | None:
     """Compute next scheduled run time."""
 
-    base = last_run or datetime.now()
+    base = last_run or datetime.now(UTC)
     cron = croniter(schedule, base)
     return cron.get_next(datetime)
 
