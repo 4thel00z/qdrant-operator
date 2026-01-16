@@ -59,7 +59,7 @@ def cluster_spec() -> ClusterSpec:
         name=TEST_CLUSTER_NAME,
         namespace=TEST_NAMESPACE,
         replicas=1,
-        version="1.12.4",
+         version="v1.16.3",
         resources=Resources(
             requests=ResourceRequirements(cpu="100m", memory="256Mi"),
             limits=ResourceRequirements(cpu="500m", memory="512Mi"),

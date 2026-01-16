@@ -626,9 +626,10 @@ def build_helm_values(spec: ClusterSpec) -> dict:
         }
         resources = {**resources, "limits": limits}
 
+    tag = spec.version if spec.version.startswith("v") else f"v{spec.version}"
     values: dict = {
         "replicaCount": spec.replicas,
-        "image": {"tag": spec.version},
+        "image": {"tag": tag},
         "persistence": persistence,
         "config": {"cluster": {"enabled": spec.cluster_enabled}},
     }
