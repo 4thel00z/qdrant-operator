@@ -1,0 +1,158 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: qdrantbackups.qdrant.io
+spec:
+  group: qdrant.io
+  names:
+    kind: QdrantBackup
+    listKind: QdrantBackupList
+    plural: qdrantbackups
+    singular: qdrantbackup
+    shortNames:
+      - qb
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Cluster
+          type: string
+          jsonPath: .spec.clusterRef.name
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Size
+          type: string
+          jsonPath: .status.totalSize
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - clusterRef
+                - storage
+              properties:
+                clusterRef:
+                  type: object
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                storage:
+                  type: object
+                  required:
+                    - s3
+                  properties:
+                    s3:
+                      type: object
+                      required:
+                        - bucket
+                        - credentialsSecretRef
+                      properties:
+                        bucket:
+                          type: string
+                        prefix:
+                          type: string
+                          default: ""
+                        region:
+                          type: string
+                          default: "us-east-1"
+                        endpoint:
+                          type: string
+                          description: Custom endpoint for S3-compatible storage (MinIO, etc.)
+                        forcePathStyle:
+                          type: boolean
+                          default: false
+                          description: Use path-style URLs (required for MinIO)
+                        credentialsSecretRef:
+                          type: object
+                          required:
+                            - name
+                          properties:
+                            name:
+                              type: string
+                            accessKeyIdKey:
+                              type: string
+                              default: "AWS_ACCESS_KEY_ID"
+                            secretAccessKeyKey:
+                              type: string
+                              default: "AWS_SECRET_ACCESS_KEY"
+                collections:
+                  type: array
+                  items:
+                    type: string
+                  description: List of collections to backup (empty = all)
+                retentionDays:
+                  type: integer
+                  minimum: 1
+                  description: Number of days to retain this backup
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: ["Pending", "InProgress", "Completed", "Failed"]
+                startTime:
+                  type: string
+                  format: date-time
+                completionTime:
+                  type: string
+                  format: date-time
+                s3Path:
+                  type: string
+                  description: Full S3 path where backup is stored
+                totalSize:
+                  type: string
+                  description: Total size of backup (human-readable)
+                collections:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      snapshotName:
+                        type: string
+                      size:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["Pending", "InProgress", "Completed", "Failed"]
+                      error:
+                        type: string
+                error:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

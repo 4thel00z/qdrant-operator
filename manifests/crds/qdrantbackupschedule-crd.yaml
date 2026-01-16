@@ -1,0 +1,193 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: qdrantbackupschedules.qdrant.io
+spec:
+  group: qdrant.io
+  names:
+    kind: QdrantBackupSchedule
+    listKind: QdrantBackupScheduleList
+    plural: qdrantbackupschedules
+    singular: qdrantbackupschedule
+    shortNames:
+      - qbs
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Schedule
+          type: string
+          jsonPath: .spec.schedule
+        - name: Cluster
+          type: string
+          jsonPath: .spec.clusterRef.name
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Last Backup
+          type: date
+          jsonPath: .status.lastBackupTime
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - schedule
+                - clusterRef
+                - storage
+              properties:
+                schedule:
+                  type: string
+                  description: Cron expression for backup schedule (e.g., "0 2 * * *")
+                clusterRef:
+                  type: object
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                storage:
+                  type: object
+                  required:
+                    - s3
+                  properties:
+                    s3:
+                      type: object
+                      required:
+                        - bucket
+                        - credentialsSecretRef
+                      properties:
+                        bucket:
+                          type: string
+                        prefix:
+                          type: string
+                          default: ""
+                        region:
+                          type: string
+                          default: "us-east-1"
+                        endpoint:
+                          type: string
+                        forcePathStyle:
+                          type: boolean
+                          default: false
+                        credentialsSecretRef:
+                          type: object
+                          required:
+                            - name
+                          properties:
+                            name:
+                              type: string
+                            accessKeyIdKey:
+                              type: string
+                              default: "AWS_ACCESS_KEY_ID"
+                            secretAccessKeyKey:
+                              type: string
+                              default: "AWS_SECRET_ACCESS_KEY"
+                collections:
+                  type: array
+                  items:
+                    type: string
+                  description: List of collections to backup (empty = all)
+                retentionPolicy:
+                  type: object
+                  properties:
+                    keepLast:
+                      type: integer
+                      minimum: 1
+                      description: Keep the last N backups regardless of age
+                    keepDaily:
+                      type: integer
+                      minimum: 0
+                      description: Keep one backup per day for N days
+                    keepWeekly:
+                      type: integer
+                      minimum: 0
+                      description: Keep one backup per week for N weeks
+                    keepMonthly:
+                      type: integer
+                      minimum: 0
+                      description: Keep one backup per month for N months
+                suspend:
+                  type: boolean
+                  default: false
+                  description: Suspend scheduled backups
+                concurrencyPolicy:
+                  type: string
+                  enum: ["Allow", "Forbid", "Replace"]
+                  default: "Forbid"
+                  description: How to handle concurrent backup runs
+                startingDeadlineSeconds:
+                  type: integer
+                  minimum: 0
+                  description: Deadline for starting a missed backup
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: ["Active", "Suspended"]
+                lastBackupTime:
+                  type: string
+                  format: date-time
+                lastBackupName:
+                  type: string
+                lastBackupStatus:
+                  type: string
+                  enum: ["Completed", "Failed"]
+                nextBackupTime:
+                  type: string
+                  format: date-time
+                activeBackup:
+                  type: string
+                  description: Name of currently running backup (if any)
+                recentBackups:
+                  type: array
+                  maxItems: 10
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      creationTime:
+                        type: string
+                        format: date-time
+                      completionTime:
+                        type: string
+                        format: date-time
+                      status:
+                        type: string
+                      size:
+                        type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
