@@ -1,0 +1,37 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "qdrant-operator.fullname" . }}
+  labels:
+    {{- include "qdrant-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["qdrant.io"]
+    resources: ["qdrantclusters", "qdrantbackups", "qdrantbackupschedules", "qdrantrestores"]
+    verbs: ["*"]
+  - apiGroups: ["qdrant.io"]
+    resources: ["qdrantclusters/status", "qdrantbackups/status", "qdrantbackupschedules/status", "qdrantrestores/status"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["kopf.dev"]
+    resources: ["clusterkopfpeerings"]
+    verbs: ["*"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services", "namespaces"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps", "persistentvolumeclaims", "serviceaccounts", "pods"]
+    verbs: ["*"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets", "deployments"]
+    verbs: ["*"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["*"]
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["servicemonitors"]
+    verbs: ["*"]

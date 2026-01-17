@@ -1,0 +1,7 @@
+apiVersion: v2
+name: qdrant-operator
+description: Kubernetes operator for managing Qdrant vector database clusters
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.26.0"

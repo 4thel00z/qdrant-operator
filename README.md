@@ -32,30 +32,54 @@
 - Kubernetes cluster (v1.26+)
 - Helm 3.x installed
 - kubectl configured with cluster access
-- Python 3.12+ (for local development)
 
-### Deploy CRDs
-
-```bash
-kubectl apply -f manifests/crds/
-```
-
-### Run Operator
-
-**In-cluster (recommended for production):**
+### Install with Helm (Recommended)
 
 ```bash
-# Build and deploy your operator image
-kubectl apply -f manifests/deployment.yaml
+# Install from local chart
+helm install qdrant-operator ./charts/qdrant-operator
+
+# Or install in a specific namespace
+helm install qdrant-operator ./charts/qdrant-operator -n qdrant-system --create-namespace
+
+# Verify installation
+kubectl get pods -l app.kubernetes.io/name=qdrant-operator
 ```
 
-**Locally (for development):**
+### Configuration
+
+Override default values:
+
+```bash
+helm install qdrant-operator ./charts/qdrant-operator \
+  --set operator.logLevel=DEBUG \
+  --set resources.limits.memory=512Mi
+```
+
+Or use a values file:
+
+```bash
+helm install qdrant-operator ./charts/qdrant-operator -f my-values.yaml
+```
+
+### Build Docker Image (Optional)
+
+```bash
+# Replace with your registry
+docker build -t ghcr.io/YOUR_ORG/qdrant-operator:0.1.0 .
+docker push ghcr.io/YOUR_ORG/qdrant-operator:0.1.0
+```
+
+### Local Development
 
 ```bash
 # Install dependencies
 uv sync
 
-# Run operator
+# Apply CRDs to cluster
+kubectl apply -f manifests/crds/
+
+# Run operator locally
 uv run kopf run src/qdrant_operator/main.py --verbose
 ```
 

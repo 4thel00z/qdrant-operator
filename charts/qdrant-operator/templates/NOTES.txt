@@ -1,0 +1,15 @@
+Qdrant Operator installed!
+
+Verify: kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "qdrant-operator.name" . }}
+Logs:   kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "qdrant-operator.name" . }} -f
+
+Create a cluster:
+  kubectl apply -f - <<EOF
+  apiVersion: qdrant.io/v1alpha1
+  kind: QdrantCluster
+  metadata:
+    name: my-qdrant
+  spec:
+    replicas: 1
+    version: v1.16.3
+  EOF
