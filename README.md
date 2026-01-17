@@ -110,10 +110,6 @@ spec:
     enabled: true
 ```
 
-```bash
-kubectl apply -f my-qdrant-cluster.yaml
-```
-
 ### Create a Backup
 
 ```yaml
