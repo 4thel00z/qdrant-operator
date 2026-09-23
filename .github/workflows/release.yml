@@ -48,6 +48,8 @@ jobs:
           ref: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
       - uses: astral-sh/setup-uv@v6
       - run: uv lock
+        env:
+          UV_FROZEN: ""
       - run: |
           git diff --quiet uv.lock && exit 0
           git config user.name "github-actions[bot]"
