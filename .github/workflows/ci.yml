@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       - run: helm lint charts/qdrant-operator
       - run: helm template qdrant-operator charts/qdrant-operator > /dev/null
       - run: diff -r manifests/crds charts/qdrant-operator/crds
@@ -71,7 +71,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       - uses: helm/kind-action@v1
         with:
           cluster_name: e2e
