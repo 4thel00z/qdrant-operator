@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/logo.svg" alt="Qdrant Operator logo" width="160">
+
 # Qdrant Operator
 
 **A Kubernetes operator for managing Qdrant vector database clusters**

@@ -5,3 +5,7 @@ type: application
 version: 0.1.0
 appVersion: "0.1.0"
 kubeVersion: ">=1.26.0"
+home: https://github.com/4thel00z/qdrant-operator
+icon: https://raw.githubusercontent.com/4thel00z/qdrant-operator/main/assets/logo.svg
+sources:
+  - https://github.com/4thel00z/qdrant-operator
