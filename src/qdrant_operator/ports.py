@@ -1,215 +1,116 @@
-"""Port interfaces using typing.Protocol.
+"""Port interfaces (typing.Protocol) between use cases and external systems."""
 
-Ports define the boundaries between the application and external systems.
-All methods are async-first as required by kopf operator patterns.
-"""
-
+from collections.abc import AsyncIterator
+from collections.abc import Mapping
+from typing import Any
 from typing import Protocol
 
+from qdrant_operator.domain import JsonDict
+from qdrant_operator.domain import QdrantNode
+from qdrant_operator.domain import ResourceKind
+from qdrant_operator.domain import ResourceRef
+from qdrant_operator.domain import RestorePriority
+from qdrant_operator.domain import S3Credentials
 from qdrant_operator.domain import S3StorageSpec
 from qdrant_operator.domain import SecretRef
 from qdrant_operator.domain import Snapshot
+from qdrant_operator.domain import StatefulSetStatus
 
 
 class HelmPort(Protocol):
-    """Port for Helm chart operations."""
-
-    async def install(
+    async def apply(
         self,
         release_name: str,
         namespace: str,
-        chart: str,
-        values: dict,
-        version: str | None = None,
-    ) -> str:
-        """Install a Helm release. Returns release name."""
+        chart_version: str,
+        values: Mapping[str, Any],
+    ) -> None:
+        """Install or upgrade a release to the given chart version and values."""
         ...
 
-    async def upgrade(
-        self,
-        release_name: str,
-        namespace: str,
-        chart: str,
-        values: dict,
-        version: str | None = None,
-    ) -> str:
-        """Upgrade an existing Helm release. Returns release name."""
-        ...
+    async def uninstall(self, release_name: str, namespace: str) -> None: ...
 
-    async def uninstall(self, release_name: str, namespace: str) -> None:
-        """Uninstall a Helm release."""
-        ...
-
-    async def get_release_status(
-        self, release_name: str, namespace: str
-    ) -> dict | None:
-        """Get status of a Helm release. Returns None if not found."""
-        ...
+    async def release_exists(self, release_name: str, namespace: str) -> bool: ...
 
 
 class QdrantPort(Protocol):
-    """Port for Qdrant REST API operations.
+    async def list_collections(self, node: QdrantNode) -> list[str]: ...
 
-    Implementations are initialized with endpoint and api_key.
-    """
+    async def create_snapshot(self, node: QdrantNode, collection: str) -> Snapshot: ...
 
-    async def list_collections(self) -> list[str]:
-        """List all collection names."""
-        ...
+    def stream_snapshot(
+        self, node: QdrantNode, collection: str, snapshot_name: str
+    ) -> AsyncIterator[bytes]: ...
 
-    async def create_snapshot(self, collection: str) -> Snapshot:
-        """Create a snapshot of a collection."""
-        ...
+    async def delete_snapshot(
+        self, node: QdrantNode, collection: str, snapshot_name: str
+    ) -> None: ...
 
-    async def list_snapshots(self, collection: str) -> list[Snapshot]:
-        """List snapshots for a collection."""
-        ...
-
-    async def delete_snapshot(self, collection: str, snapshot_name: str) -> None:
-        """Delete a snapshot."""
-        ...
-
-    async def download_snapshot(
+    async def recover_snapshot(
         self,
+        node: QdrantNode,
         collection: str,
-        snapshot_name: str,
-        destination: str,
-    ) -> str:
-        """Download a snapshot to local path. Returns file path."""
+        location: str,
+        priority: RestorePriority,
+        checksum: str | None,
+    ) -> None:
+        """Ask the node to fetch a snapshot from a URL and recover the collection from it."""
         ...
 
-    async def recover_from_snapshot(self, collection: str, snapshot_path: str) -> None:
-        """Recover a collection from a snapshot file."""
-        ...
+    async def collection_info(self, node: QdrantNode, collection: str) -> JsonDict: ...
 
-    async def get_collection_info(self, collection: str) -> dict:
-        """Get collection info including point count and status."""
-        ...
-
-    async def health_check(self) -> bool:
-        """Check if Qdrant is healthy and ready."""
-        ...
+    async def ready(self, node: QdrantNode) -> bool: ...
 
 
 class StoragePort(Protocol):
-    """Port for S3-compatible object storage operations."""
-
-    async def upload_file(
+    async def upload_stream(
         self,
         storage: S3StorageSpec,
-        credentials: tuple[str, str],
-        local_path: str,
-        remote_key: str,
-    ) -> str:
-        """Upload a file to storage. Returns the full S3 path."""
+        credentials: S3Credentials,
+        key: str,
+        chunks: AsyncIterator[bytes],
+    ) -> int:
+        """Stream chunks into an object. Returns the number of bytes written."""
         ...
 
-    async def download_file(
-        self,
-        storage: S3StorageSpec,
-        credentials: tuple[str, str],
-        remote_key: str,
-        local_path: str,
-    ) -> str:
-        """Download a file from storage. Returns local path."""
+    async def put_object(
+        self, storage: S3StorageSpec, credentials: S3Credentials, key: str, data: bytes
+    ) -> None: ...
+
+    async def get_object(
+        self, storage: S3StorageSpec, credentials: S3Credentials, key: str
+    ) -> bytes: ...
+
+    async def delete_prefix(
+        self, storage: S3StorageSpec, credentials: S3Credentials, prefix: str
+    ) -> int:
+        """Delete every object under a prefix. Returns how many were deleted."""
         ...
 
-    async def delete_file(
+    async def presigned_get_url(
         self,
         storage: S3StorageSpec,
-        credentials: tuple[str, str],
-        remote_key: str,
-    ) -> None:
-        """Delete a file from storage."""
-        ...
-
-    async def list_files(
-        self,
-        storage: S3StorageSpec,
-        credentials: tuple[str, str],
-        prefix: str,
-    ) -> list[str]:
-        """List files under a prefix."""
-        ...
-
-    async def file_exists(
-        self,
-        storage: S3StorageSpec,
-        credentials: tuple[str, str],
-        remote_key: str,
-    ) -> bool:
-        """Check if a file exists in storage."""
-        ...
+        credentials: S3Credentials,
+        key: str,
+        expires_seconds: int,
+    ) -> str: ...
 
 
 class KubernetesPort(Protocol):
-    """Port for Kubernetes API operations."""
+    async def get_secret_value(self, secret_ref: SecretRef) -> str: ...
 
-    async def get_secret_value(self, secret_ref: SecretRef) -> str:
-        """Get a value from a Kubernetes Secret."""
-        ...
+    async def get_custom_resource(self, ref: ResourceRef) -> JsonDict | None: ...
 
-    async def update_status(
-        self,
-        group: str,
-        version: str,
-        plural: str,
-        name: str,
-        namespace: str,
-        status: dict,
-    ) -> None:
-        """Update the status subresource of a custom resource."""
-        ...
+    async def list_custom_resources(
+        self, kind: ResourceKind, namespace: str, label_selector: str | None = None
+    ) -> list[JsonDict]: ...
 
-    async def create_resource(
-        self,
-        group: str,
-        version: str,
-        plural: str,
-        namespace: str,
-        body: dict,
-    ) -> dict:
-        """Create a custom resource."""
-        ...
+    async def create_custom_resource(self, body: JsonDict) -> JsonDict: ...
 
-    async def get_resource(
-        self,
-        group: str,
-        version: str,
-        plural: str,
-        name: str,
-        namespace: str,
-    ) -> dict | None:
-        """Get a custom resource. Returns None if not found."""
-        ...
+    async def delete_custom_resource(self, ref: ResourceRef) -> None: ...
 
-    async def list_resources(
-        self,
-        group: str,
-        version: str,
-        plural: str,
-        namespace: str,
-        label_selector: str | None = None,
-    ) -> list[dict]:
-        """List custom resources in a namespace."""
-        ...
+    async def patch_status(self, ref: ResourceRef, status: JsonDict) -> None: ...
 
-    async def delete_resource(
-        self,
-        group: str,
-        version: str,
-        plural: str,
-        name: str,
-        namespace: str,
-    ) -> None:
-        """Delete a custom resource."""
-        ...
-
-    async def get_service_endpoint(
-        self,
-        name: str,
-        namespace: str,
-        port: int = 6333,
-    ) -> str:
-        """Get the internal endpoint URL for a service."""
-        ...
+    async def get_statefulset_status(
+        self, name: str, namespace: str
+    ) -> StatefulSetStatus | None: ...
