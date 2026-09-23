@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="Qdrant Operator logo" width="160">
+<img src="https://raw.githubusercontent.com/4thel00z/qdrant-operator/main/assets/logo.png" alt="Qdrant Operator logo" width="160">
 
 # Qdrant Operator
 
