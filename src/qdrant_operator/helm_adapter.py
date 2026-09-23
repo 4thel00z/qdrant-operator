@@ -1,170 +1,85 @@
-"""Helm CLI adapter for chart operations."""
+"""Helm CLI adapter: stateless, one `helm upgrade --install` per reconcile, values over stdin."""
 
 import asyncio
 import json
-import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
+from typing import Any
 
-import structlog
+from loguru import logger
 
-from qdrant_operator.ports import HelmPort
+QDRANT_CHART = "qdrant"
+QDRANT_CHART_REPO = "https://qdrant.github.io/qdrant-helm"
 
-log = structlog.get_logger()
+
+class HelmError(RuntimeError):
+    """A helm invocation exited non-zero."""
 
 
 @dataclass
-class HelmAdapter(HelmPort):
-    """Adapter for Helm CLI operations."""
-
+class HelmAdapter:
+    chart: str = QDRANT_CHART
+    repo: str = QDRANT_CHART_REPO
     kubeconfig: str | None = None
+    timeout_seconds: float = 600.0
 
-    async def install(
+    async def apply(
         self,
         release_name: str,
         namespace: str,
-        chart: str,
-        values: dict,
-        version: str | None = None,
-    ) -> str:
-        """Install a Helm release."""
-        await self.ensure_repo()
-
-        cmd = [
-            "helm",
-            "install",
+        chart_version: str,
+        values: Mapping[str, Any],
+    ) -> None:
+        await self.run(
+            "upgrade",
+            "--install",
             release_name,
-            chart,
+            self.chart,
+            "--repo",
+            self.repo,
+            "--version",
+            chart_version,
             "--namespace",
             namespace,
             "--create-namespace",
-            "--wait",
-        ]
-
-        if version:
-            cmd.extend(["--version", version])
-
-        cmd = await self.add_values(cmd, values)
-        cmd = self.add_kubeconfig(cmd)
-
-        await self.run_command(cmd)
-        await log.ainfo("helm_install_complete", release=release_name, namespace=namespace)
-        return release_name
-
-    async def upgrade(
-        self,
-        release_name: str,
-        namespace: str,
-        chart: str,
-        values: dict,
-        version: str | None = None,
-    ) -> str:
-        """Upgrade an existing Helm release."""
-        await self.ensure_repo()
-
-        cmd = [
-            "helm",
-            "upgrade",
-            release_name,
-            chart,
-            "--namespace",
-            namespace,
-            "--wait",
-        ]
-
-        if version:
-            cmd.extend(["--version", version])
-
-        cmd = await self.add_values(cmd, values)
-        cmd = self.add_kubeconfig(cmd)
-
-        await self.run_command(cmd)
-        await log.ainfo("helm_upgrade_complete", release=release_name, namespace=namespace)
-        return release_name
+            "--values",
+            "-",
+            stdin=json.dumps(values).encode(),
+        )
+        logger.info("helm release applied", release=release_name, namespace=namespace)
 
     async def uninstall(self, release_name: str, namespace: str) -> None:
-        """Uninstall a Helm release."""
-        cmd = [
-            "helm",
-            "uninstall",
-            release_name,
-            "--namespace",
-            namespace,
-        ]
-        cmd = self.add_kubeconfig(cmd)
+        await self.run("uninstall", release_name, "--namespace", namespace, "--wait")
+        logger.info("helm release uninstalled", release=release_name, namespace=namespace)
 
-        await self.run_command(cmd)
-        await log.ainfo("helm_uninstall_complete", release=release_name, namespace=namespace)
-
-    async def get_release_status(
-        self, release_name: str, namespace: str
-    ) -> dict | None:
-        """Get status of a Helm release."""
-        cmd = [
-            "helm",
-            "status",
-            release_name,
-            "--namespace",
-            namespace,
-            "--output",
-            "json",
-        ]
-        cmd = self.add_kubeconfig(cmd)
-
+    async def release_exists(self, release_name: str, namespace: str) -> bool:
         try:
-            stdout = await self.run_command(cmd)
-            return json.loads(stdout)
-        except RuntimeError:
-            return None
+            await self.run("status", release_name, "--namespace", namespace, "--output", "json")
+        except HelmError:
+            return False
+        return True
 
-    async def ensure_repo(self) -> None:
-        """Ensure Qdrant Helm repo is added."""
-        cmd = ["helm", "repo", "add", "qdrant", "https://qdrant.github.io/qdrant-helm"]
-        cmd = self.add_kubeconfig(cmd)
-
-        try:
-            await self.run_command(cmd)
-        except RuntimeError:
-            pass
-
-        cmd = ["helm", "repo", "update"]
-        cmd = self.add_kubeconfig(cmd)
-        await self.run_command(cmd)
-
-    async def add_values(self, cmd: list[str], values: dict) -> list[str]:
-        """Add values file to command."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
-            json.dump(values, f)
-            values_path = f.name
-
-        return [*cmd, "--values", values_path]
-
-    def add_kubeconfig(self, cmd: list[str]) -> list[str]:
-        """Add kubeconfig to command if set."""
-        if self.kubeconfig:
-            return [*cmd, "--kubeconfig", self.kubeconfig]
-        return cmd
-
-    async def run_command(self, cmd: list[str]) -> str:
-        """Run a command and return stdout."""
-        await log.adebug("helm_command", cmd=" ".join(cmd))
-
+    async def run(self, *args: str, stdin: bytes | None = None) -> str:
+        command = ["helm", *args, *self.kubeconfig_args()]
+        logger.debug("helm command", command=" ".join(command))
         process = await asyncio.create_subprocess_exec(
-            *cmd,
+            *command,
+            stdin=asyncio.subprocess.PIPE if stdin is not None else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            await log.aerror(
-                "helm_command_failed",
-                cmd=" ".join(cmd),
-                returncode=process.returncode,
-                stderr=stderr.decode(),
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(stdin), timeout=self.timeout_seconds
             )
-            raise RuntimeError(f"Helm command failed: {stderr.decode()}")
-
+        except TimeoutError:
+            process.kill()
+            raise HelmError(f"helm {args[0]} timed out after {self.timeout_seconds}s") from None
+        if process.returncode != 0:
+            raise HelmError(f"helm {args[0]} failed: {stderr.decode().strip()}")
         return stdout.decode()
+
+    def kubeconfig_args(self) -> list[str]:
+        if not self.kubeconfig:
+            return []
+        return ["--kubeconfig", self.kubeconfig]
