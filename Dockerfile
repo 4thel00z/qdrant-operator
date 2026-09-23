@@ -22,15 +22,15 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 
 # Copy project files
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src/ ./src/
 
 # Install dependencies
 RUN uv sync --frozen --no-dev
 
 # Create non-root user
-RUN useradd -m -u 1000 operator
-USER operator
+RUN groupadd -g 1000 qdrant && useradd -m -u 1000 -g qdrant qdrant
+USER qdrant
 
 EXPOSE 8080
 ENTRYPOINT ["/app/.venv/bin/qdrant-operator"]
