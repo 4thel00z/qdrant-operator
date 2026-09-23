@@ -12,8 +12,8 @@ Kubernetes operator for Qdrant vector database using kopf framework. Manages Qdr
 # Install dependencies
 uv sync
 
-# Run operator locally
-uv run kopf run src/qdrant_operator/main.py --verbose
+# Run operator locally (uses your kubeconfig)
+make dev
 
 # Run tests
 uv run pytest
@@ -23,7 +23,7 @@ uv run pytest -k "test_backup" -v            # by name pattern
 # Lint and format
 uv run ruff check src tests
 uv run ruff format src tests
-uv run pyright src
+uv run pyright src tests
 
 # Apply CRDs to cluster
 kubectl apply -f manifests/crds/
@@ -35,8 +35,8 @@ DDD/Hexagonal architecture with flat file structure:
 
 ```
 src/qdrant_operator/
-├── main.py              # Entry point
-├── domain.py            # Entities, value objects (no deps)
+├── main.py              # Entry point, logging setup
+├── domain.py            # Entities, value objects, from_dict/to_dict, pure rules (no deps)
 ├── ports.py             # typing.Protocol interfaces
 ├── usecases.py          # Application logic (orchestrates ports)
 ├── handlers.py          # Kopf handlers (driving adapters)
@@ -49,6 +49,8 @@ src/qdrant_operator/
 
 **Data flow**: Handler → UseCase → Port → Adapter → External System
 
+Tests use the in-memory fakes in `tests/fakes.py`; never `mock.patch`.
+
 ## Coding Conventions
 
 **Python Style:**
@@ -59,6 +61,9 @@ src/qdrant_operator/
 - No `__future__` imports
 - Use dataclasses for entities and use cases
 - Modern type hints: `str | None`, `list[str]` (not `Optional`, `List`)
+- One import per line (`ruff` isort `force-single-line`); guard clauses instead of if/else
+- Fully annotated; `pyright --strict` must pass for `src` and `tests`
+- Write status with `patch.status.update(...)`; a handler's return value lands under `status.<handler-id>`
 
 **Architecture Rules:**
 - Handlers call use cases only (never adapters directly)
@@ -80,11 +85,11 @@ src/qdrant_operator/
 | httpx | Async HTTP for Qdrant API |
 | aioboto3 | Async S3 client |
 | croniter | Cron parsing for schedules |
-| structlog | Structured logging |
+| loguru | Logging (kopf's stdlib logs are intercepted into it) |
 
 ## CRDs
 
-Located in `manifests/crds/`:
+Source of truth is `manifests/crds/`; `make crds-sync` copies them into the chart and a test checks they match:
 - `qdrantcluster-crd.yaml` - Qdrant cluster management
 - `qdrantbackup-crd.yaml` - Point-in-time backups
 - `qdrantbackupschedule-crd.yaml` - Scheduled backups

@@ -20,9 +20,9 @@
 ## Features
 
 - **Cluster Management** - Deploy and manage Qdrant clusters via Helm
-- **Automated Backups** - Point-in-time snapshots to S3-compatible storage
-- **Scheduled Backups** - Cron-based backup schedules with retention policies
-- **Disaster Recovery** - Restore collections from backups with optional remapping
+- **Automated Backups** - Per-node snapshots streamed to S3-compatible storage, with a manifest
+- **Scheduled Backups** - CronJob-style schedules with concurrency and retention policies
+- **Disaster Recovery** - Restore collections node-by-node from presigned URLs, with optional remapping
 - **Async-First** - Built on kopf with fully async adapters for performance
 
 ## Installation
@@ -79,8 +79,8 @@ uv sync
 # Apply CRDs to cluster
 kubectl apply -f manifests/crds/
 
-# Run operator locally
-uv run kopf run src/qdrant_operator/main.py --verbose
+# Run operator locally against your kubeconfig
+make dev
 ```
 
 ## Usage
@@ -151,9 +151,10 @@ spec:
       credentialsSecretRef:
         name: s3-credentials
         accessKeyIdKey: AWS_ACCESS_KEY_ID
-  retention:
+  retentionPolicy:
     keepLast: 7
     keepDaily: 30
+  concurrencyPolicy: Forbid
 ```
 
 ### Restore from Backup
@@ -181,6 +182,7 @@ spec:
 |----------|-------------|---------|
 | `KUBECONFIG` | Path to kubeconfig file | In-cluster config |
 | `LOG_LEVEL` | Logging level | `INFO` |
+| `LOG_FORMAT` | `json` or `text` | `json` |
 
 ### S3 Credentials Secret
 
@@ -204,15 +206,15 @@ uv sync
 # Run tests
 uv run pytest
 
-# Run integration tests (requires k8s cluster)
-uv run pytest tests/test_integration.py -v -s
+# Run integration tests (requires k8s cluster + helm)
+make test-integration
 
 # Lint and format
 uv run ruff check src tests
 uv run ruff format src tests
 
 # Type checking
-uv run pyright src
+uv run pyright src tests
 ```
 
 ## License
