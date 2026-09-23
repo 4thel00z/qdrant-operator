@@ -1,131 +1,113 @@
-"""S3-compatible object storage adapter."""
+"""S3-compatible object storage adapter built on aioboto3."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from pathlib import Path
+from typing import Any
 
 import aioboto3
-import structlog
+from botocore.config import Config
+from loguru import logger
 
+from qdrant_operator.domain import S3Credentials
 from qdrant_operator.domain import S3StorageSpec
 
-log = structlog.get_logger()
+DELETE_BATCH_SIZE = 1000
+
+
+@dataclass
+class ChunkReader:
+    """Adapts an async byte iterator to the async `read(n)` aioboto3 expects."""
+
+    chunks: AsyncIterator[bytes]
+    buffer: bytearray
+    exhausted: bool = False
+    total: int = 0
+
+    async def read(self, size: int) -> bytes:
+        while len(self.buffer) < size and not self.exhausted:
+            chunk = await anext(self.chunks, None)
+            if chunk is None:
+                self.exhausted = True
+                break
+            self.buffer.extend(chunk)
+        data = bytes(self.buffer[:size])
+        del self.buffer[:size]
+        self.total += len(data)
+        return data
 
 
 @dataclass
 class S3Adapter:
-    """Adapter for S3-compatible object storage operations."""
-
-    async def upload_file(
-        self,
-        storage: S3StorageSpec,
-        credentials: tuple[str, str],
-        local_path: str,
-        remote_key: str,
-    ) -> str:
-        """Upload a file to storage."""
-        session = aioboto3.Session(
-            aws_access_key_id=credentials[0],
-            aws_secret_access_key=credentials[1],
+    @asynccontextmanager
+    async def client(
+        self, storage: S3StorageSpec, credentials: S3Credentials
+    ) -> AsyncIterator[Any]:
+        session: Any = aioboto3.Session(
+            aws_access_key_id=credentials.access_key_id,
+            aws_secret_access_key=credentials.secret_access_key,
             region_name=storage.region,
         )
+        addressing = {"addressing_style": "path"} if storage.force_path_style else {}
+        async with session.client(
+            "s3",
+            endpoint_url=storage.endpoint,
+            config=Config(s3=addressing),
+        ) as client:
+            yield client
 
-        async with session.client("s3", **self.client_config(storage)) as s3:
-            await s3.upload_file(local_path, storage.bucket, remote_key)
-
-        full_path = f"s3://{storage.bucket}/{remote_key}"
-        await log.ainfo("s3_upload_complete", path=full_path)
-        return full_path
-
-    async def download_file(
+    async def upload_stream(
         self,
         storage: S3StorageSpec,
-        credentials: tuple[str, str],
-        remote_key: str,
-        local_path: str,
-    ) -> str:
-        """Download a file from storage."""
-        session = aioboto3.Session(
-            aws_access_key_id=credentials[0],
-            aws_secret_access_key=credentials[1],
-            region_name=storage.region,
-        )
+        credentials: S3Credentials,
+        key: str,
+        chunks: AsyncIterator[bytes],
+    ) -> int:
+        reader = ChunkReader(chunks, bytearray())
+        async with self.client(storage, credentials) as s3:
+            await s3.upload_fileobj(reader, storage.bucket, key)
+        logger.info("s3 upload complete", uri=storage.uri(key), bytes=reader.total)
+        return reader.total
 
-        Path(local_path).parent.mkdir(parents=True, exist_ok=True)
-
-        async with session.client("s3", **self.client_config(storage)) as s3:
-            await s3.download_file(storage.bucket, remote_key, local_path)
-
-        await log.ainfo("s3_download_complete", key=remote_key, local=local_path)
-        return local_path
-
-    async def delete_file(
-        self,
-        storage: S3StorageSpec,
-        credentials: tuple[str, str],
-        remote_key: str,
+    async def put_object(
+        self, storage: S3StorageSpec, credentials: S3Credentials, key: str, data: bytes
     ) -> None:
-        """Delete a file from storage."""
-        session = aioboto3.Session(
-            aws_access_key_id=credentials[0],
-            aws_secret_access_key=credentials[1],
-            region_name=storage.region,
-        )
+        async with self.client(storage, credentials) as s3:
+            await s3.put_object(Bucket=storage.bucket, Key=key, Body=data)
 
-        async with session.client("s3", **self.client_config(storage)) as s3:
-            await s3.delete_object(Bucket=storage.bucket, Key=remote_key)
+    async def get_object(
+        self, storage: S3StorageSpec, credentials: S3Credentials, key: str
+    ) -> bytes:
+        async with self.client(storage, credentials) as s3:
+            response = await s3.get_object(Bucket=storage.bucket, Key=key)
+            async with response["Body"] as body:
+                return await body.read()
 
-        await log.ainfo("s3_delete_complete", key=remote_key)
-
-    async def list_files(
-        self,
-        storage: S3StorageSpec,
-        credentials: tuple[str, str],
-        prefix: str,
-    ) -> list[str]:
-        """List files under a prefix."""
-        session = aioboto3.Session(
-            aws_access_key_id=credentials[0],
-            aws_secret_access_key=credentials[1],
-            region_name=storage.region,
-        )
-
-        files: list[str] = []
-
-        async with session.client("s3", **self.client_config(storage)) as s3:
+    async def delete_prefix(
+        self, storage: S3StorageSpec, credentials: S3Credentials, prefix: str
+    ) -> int:
+        deleted = 0
+        async with self.client(storage, credentials) as s3:
             paginator = s3.get_paginator("list_objects_v2")
-            async for page in paginator.paginate(Bucket=storage.bucket, Prefix=prefix):
-                for obj in page.get("Contents", []):
-                    files.append(obj["Key"])
+            async for page in paginator.paginate(Bucket=storage.bucket, Prefix=f"{prefix}/"):
+                keys = [{"Key": item["Key"]} for item in page.get("Contents", [])]
+                for start in range(0, len(keys), DELETE_BATCH_SIZE):
+                    batch = keys[start : start + DELETE_BATCH_SIZE]
+                    await s3.delete_objects(Bucket=storage.bucket, Delete={"Objects": batch})
+                    deleted += len(batch)
+        logger.info("s3 prefix deleted", uri=storage.uri(prefix), objects=deleted)
+        return deleted
 
-        await log.ainfo("s3_list_complete", prefix=prefix, count=len(files))
-        return files
-
-    async def file_exists(
+    async def presigned_get_url(
         self,
         storage: S3StorageSpec,
-        credentials: tuple[str, str],
-        remote_key: str,
-    ) -> bool:
-        """Check if a file exists in storage."""
-        session = aioboto3.Session(
-            aws_access_key_id=credentials[0],
-            aws_secret_access_key=credentials[1],
-            region_name=storage.region,
-        )
-
-        async with session.client("s3", **self.client_config(storage)) as s3:
-            try:
-                await s3.head_object(Bucket=storage.bucket, Key=remote_key)
-                return True
-            except Exception as err:
-                await log.aerror("s3_head_object_error", key=remote_key, error=str(err))
-                return False
-
-    def client_config(self, storage: S3StorageSpec) -> dict:
-        """Build boto3 client configuration."""
-        config: dict = {}
-        if storage.endpoint:
-            config["endpoint_url"] = storage.endpoint
-        if storage.force_path_style:
-            config["config"] = {"s3": {"addressing_style": "path"}}
-        return config
+        credentials: S3Credentials,
+        key: str,
+        expires_seconds: int,
+    ) -> str:
+        async with self.client(storage, credentials) as s3:
+            return await s3.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": storage.bucket, "Key": key},
+                ExpiresIn=expires_seconds,
+            )
