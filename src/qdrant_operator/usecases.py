@@ -1,412 +1,597 @@
-"""Use cases implementing application logic.
+"""Application use cases: orchestrate ports, never touch I/O libraries directly."""
 
-Use cases orchestrate ports to implement business operations.
-They contain no I/O code directly - all external calls go through ports.
-"""
-
+import asyncio
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
+from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
+from typing import Any
 
-from qdrant_operator.domain import (
-    BackupPhase,
-    BackupScheduleSpec,
-    BackupScheduleStatus,
-    BackupSpec,
-    BackupStatus,
-    ClusterPhase,
-    ClusterSpec,
-    ClusterStatus,
-    CollectionBackupStatus,
-    Condition,
-    RestorePhase,
-    RestoreProgress,
-    RestoreSpec,
-    RestoreStatus,
-    RestoredCollection,
-    S3StorageSpec,
-    SchedulePhase,
-    build_helm_values,
-)
-from qdrant_operator.ports import HelmPort, KubernetesPort, QdrantPort, StoragePort
-from croniter import croniter
+from qdrant_operator.domain import BACKUPS
+from qdrant_operator.domain import MANIFEST_KEY
+from qdrant_operator.domain import BackupManifest
+from qdrant_operator.domain import BackupPhase
+from qdrant_operator.domain import BackupRecord
+from qdrant_operator.domain import BackupScheduleSpec
+from qdrant_operator.domain import BackupScheduleStatus
+from qdrant_operator.domain import BackupSpec
+from qdrant_operator.domain import BackupStatus
+from qdrant_operator.domain import ClusterConnection
+from qdrant_operator.domain import ClusterPhase
+from qdrant_operator.domain import ClusterRef
+from qdrant_operator.domain import ClusterSpec
+from qdrant_operator.domain import ClusterStatus
+from qdrant_operator.domain import CollectionBackup
+from qdrant_operator.domain import CollectionBackupStatus
+from qdrant_operator.domain import ConcurrencyPolicy
+from qdrant_operator.domain import Condition
+from qdrant_operator.domain import ConditionStatus
+from qdrant_operator.domain import CredentialsSecretRef
+from qdrant_operator.domain import QdrantNode
+from qdrant_operator.domain import ResourceRef
+from qdrant_operator.domain import RestoredCollection
+from qdrant_operator.domain import RestorePhase
+from qdrant_operator.domain import RestoreProgress
+from qdrant_operator.domain import RestoreSpec
+from qdrant_operator.domain import RestoreStatus
+from qdrant_operator.domain import S3Credentials
+from qdrant_operator.domain import S3StorageSpec
+from qdrant_operator.domain import SchedulePhase
+from qdrant_operator.domain import SnapshotRecord
+from qdrant_operator.domain import chart_version
+from qdrant_operator.domain import format_size
+from qdrant_operator.domain import join_key
+from qdrant_operator.domain import parse_time
+from qdrant_operator.domain import set_condition
+from qdrant_operator.ports import HelmPort
+from qdrant_operator.ports import KubernetesPort
+from qdrant_operator.ports import QdrantPort
+from qdrant_operator.ports import StoragePort
 
-QDRANT_HELM_CHART = "qdrant/qdrant"
-QDRANT_HELM_REPO = "https://qdrant.github.io/qdrant-helm"
+RECENT_BACKUPS_LIMIT = 10
+PRESIGNED_URL_TTL_SECONDS = 3600
+
+
+class ClusterNotFoundError(LookupError):
+    """The referenced QdrantCluster does not exist; callers retry rather than fail."""
+
+
+class SourceNotReadyError(RuntimeError):
+    """The referenced QdrantBackup has not completed yet; callers retry rather than fail."""
+
+
+def now_utc() -> datetime:
+    return datetime.now(UTC)
+
+
+async def read_credentials(kubernetes: KubernetesPort, ref: CredentialsSecretRef) -> S3Credentials:
+    return S3Credentials(
+        access_key_id=await kubernetes.get_secret_value(ref.access_key_ref()),
+        secret_access_key=await kubernetes.get_secret_value(ref.secret_key_ref()),
+    )
+
+
+@dataclass
+class ResolveCluster:
+    kubernetes: KubernetesPort
+
+    async def execute(self, ref: ClusterRef) -> ClusterConnection:
+        body = await self.kubernetes.get_custom_resource(ref.to_resource_ref())
+        if not body:
+            raise ClusterNotFoundError(f"QdrantCluster {ref.namespace}/{ref.name} not found")
+        spec = ClusterSpec.from_dict(body["spec"], body["metadata"])
+        api_key = await self.read_api_key(spec)
+        ca_cert = await self.read_ca_cert(spec)
+        return ClusterConnection(
+            service=QdrantNode(spec.service_url(), api_key, ca_cert),
+            nodes=tuple(QdrantNode(url, api_key, ca_cert) for url in spec.node_urls()),
+        )
+
+    async def read_api_key(self, spec: ClusterSpec) -> str | None:
+        secret_ref = spec.api_key.resolve_secret_ref(spec.name, spec.namespace)
+        if not secret_ref:
+            return None
+        return await self.kubernetes.get_secret_value(secret_ref)
+
+    async def read_ca_cert(self, spec: ClusterSpec) -> str | None:
+        secret_ref = spec.tls.ca_secret_ref(spec.namespace)
+        if not secret_ref:
+            return None
+        try:
+            return await self.kubernetes.get_secret_value(secret_ref)
+        except KeyError:
+            return None
 
 
 @dataclass
 class ReconcileCluster:
-    """Use case for reconciling a QdrantCluster."""
-
     helm: HelmPort
-    kubernetes: KubernetesPort
 
-    async def execute(self, spec: ClusterSpec) -> ClusterStatus:
-        """Reconcile cluster to desired state."""
-        release_name = f"qdrant-{spec.name}"
-        values = build_helm_values(spec)
-
-        existing = await self.helm.get_release_status(release_name, spec.namespace)
-
-        if not existing:
-            await self.helm.install(
-                release_name=release_name,
-                namespace=spec.namespace,
-                chart=QDRANT_HELM_CHART,
-                values=values,
-                version=spec.version,
-            )
-            phase = ClusterPhase.PENDING
-        else:
-            await self.helm.upgrade(
-                release_name=release_name,
-                namespace=spec.namespace,
-                chart=QDRANT_HELM_CHART,
-                values=values,
-                version=spec.version,
-            )
-            phase = ClusterPhase.UPGRADING
-
-        endpoint = await self.kubernetes.get_service_endpoint(
-            name=release_name,
+    async def execute(
+        self, spec: ClusterSpec, generation: int | None, current: ClusterStatus
+    ) -> ClusterStatus:
+        exists = await self.helm.release_exists(spec.release_name, spec.namespace)
+        await self.helm.apply(
+            release_name=spec.release_name,
             namespace=spec.namespace,
+            chart_version=chart_version(spec.version),
+            values=spec.to_helm_values(),
         )
-
-        return ClusterStatus(
+        phase = ClusterPhase.UPGRADING if exists else ClusterPhase.PENDING
+        conditions = set_condition(
+            current.conditions,
+            Condition(
+                type="Progressing",
+                status=ConditionStatus.TRUE,
+                last_transition_time=now_utc(),
+                reason="HelmReleaseApplied",
+                message=f"Helm release {spec.release_name} applied",
+            ),
+        )
+        return replace(
+            current,
             phase=phase,
             replicas=spec.replicas,
-            ready_replicas=0,
-            helm_release=release_name,
-            endpoint=endpoint,
+            helm_release=spec.release_name,
+            endpoint=spec.service_url(),
             version=spec.version,
-            conditions=[
-                Condition(
-                    type="Reconciling",
-                    status="True",
-                    last_transition_time=datetime.now(UTC),
-                    reason="HelmReleaseUpdated",
-                    message=f"Helm release {release_name} updated",
-                )
-            ],
+            conditions=tuple(conditions),
+            observed_generation=generation,
         )
+
+
+@dataclass
+class ObserveCluster:
+    """Lift StatefulSet readiness into the QdrantCluster status."""
+
+    kubernetes: KubernetesPort
+
+    async def execute(self, spec: ClusterSpec, current: ClusterStatus) -> ClusterStatus:
+        statefulset = await self.kubernetes.get_statefulset_status(
+            spec.release_name, spec.namespace
+        )
+        ready_replicas = statefulset.ready_replicas if statefulset else 0
+        ready = ready_replicas >= spec.replicas
+        phase = ClusterPhase.RUNNING if ready else self.pending_phase(current)
+        conditions = set_condition(
+            current.conditions,
+            Condition(
+                type="Ready",
+                status=ConditionStatus.TRUE if ready else ConditionStatus.FALSE,
+                last_transition_time=now_utc(),
+                reason="AllReplicasReady" if ready else "ReplicasNotReady",
+                message=f"{ready_replicas}/{spec.replicas} replicas ready",
+            ),
+        )
+        if ready:
+            conditions = set_condition(
+                conditions,
+                Condition(
+                    type="Progressing",
+                    status=ConditionStatus.FALSE,
+                    last_transition_time=now_utc(),
+                    reason="RolloutComplete",
+                    message="StatefulSet rollout complete",
+                ),
+            )
+        return replace(
+            current,
+            phase=phase,
+            replicas=spec.replicas,
+            ready_replicas=ready_replicas,
+            endpoint=spec.service_url(),
+            conditions=tuple(conditions),
+        )
+
+    @staticmethod
+    def pending_phase(current: ClusterStatus) -> ClusterPhase:
+        if current.phase in (ClusterPhase.UPGRADING, ClusterPhase.FAILED):
+            return current.phase
+        return ClusterPhase.PENDING
 
 
 @dataclass
 class DeleteCluster:
-    """Use case for deleting a QdrantCluster."""
-
     helm: HelmPort
 
     async def execute(self, spec: ClusterSpec) -> None:
-        """Delete cluster resources."""
-        release_name = f"qdrant-{spec.name}"
-        await self.helm.uninstall(release_name, spec.namespace)
+        if not await self.helm.release_exists(spec.release_name, spec.namespace):
+            return
+        await self.helm.uninstall(spec.release_name, spec.namespace)
 
 
 @dataclass
 class ExecuteBackup:
-    """Use case for executing a backup."""
-
     qdrant: QdrantPort
     storage: StoragePort
     kubernetes: KubernetesPort
 
-    async def execute(self, spec: BackupSpec) -> BackupStatus:
-        """Execute backup of collections to S3."""
-        start_time = datetime.now(UTC)
-        credentials = await self.get_storage_credentials(spec.storage)
+    async def execute(self, spec: BackupSpec, ref: ResourceRef) -> BackupStatus:
+        start_time = now_utc()
+        connection = await ResolveCluster(self.kubernetes).execute(spec.cluster_ref)
+        credentials = await read_credentials(self.kubernetes, spec.storage.credentials_secret_ref)
+        await self.kubernetes.patch_status(
+            ref, BackupStatus(phase=BackupPhase.IN_PROGRESS, start_time=start_time).to_dict()
+        )
 
-        collections = list(spec.collections)
-        if not collections:
-            collections = await self.qdrant.list_collections()
+        collections = spec.collections or tuple(
+            await self.qdrant.list_collections(connection.service)
+        )
+        statuses = [
+            await self.backup_collection(spec, credentials, connection, collection)
+            for collection in collections
+        ]
+        completed = [s for s in statuses if s.status == BackupPhase.COMPLETED]
+        failed = [s for s in statuses if s.status == BackupPhase.FAILED]
 
-        collection_statuses: list[CollectionBackupStatus] = []
-        total_size = 0
+        manifest = BackupManifest(
+            backup_name=spec.name,
+            cluster=spec.cluster_ref,
+            node_count=len(connection.nodes),
+            created_at=start_time,
+            collections=tuple(CollectionBackup(s.name, s.snapshots) for s in completed),
+        )
+        await self.storage.put_object(
+            spec.storage,
+            credentials,
+            join_key(spec.root_key, MANIFEST_KEY),
+            json.dumps(manifest.to_dict()).encode(),
+        )
 
-        for collection in collections:
-            try:
-                snapshot = await self.qdrant.create_snapshot(collection)
-
-                local_path = f"/tmp/{snapshot.name}"
-                await self.qdrant.download_snapshot(collection, snapshot.name, local_path)
-
-                remote_key = f"{spec.storage.prefix}/{spec.name}/{collection}/{snapshot.name}"
-                await self.storage.upload_file(
-                    spec.storage, credentials, local_path, remote_key
-                )
-
-                total_size += snapshot.size_bytes
-                collection_statuses.append(
-                    CollectionBackupStatus(
-                        name=collection,
-                        snapshot_name=snapshot.name,
-                        size=format_size(snapshot.size_bytes),
-                        status="Completed",
-                    )
-                )
-
-                await self.qdrant.delete_snapshot(collection, snapshot.name)
-
-            except Exception as e:
-                collection_statuses.append(
-                    CollectionBackupStatus(
-                        name=collection,
-                        status="Failed",
-                        error=str(e),
-                    )
-                )
-
-        failed = [c for c in collection_statuses if c.status == "Failed"]
+        completion_time = now_utc()
         phase = BackupPhase.FAILED if failed else BackupPhase.COMPLETED
-
         return BackupStatus(
             phase=phase,
             start_time=start_time,
-            completion_time=datetime.now(UTC),
-            s3_path=f"s3://{spec.storage.bucket}/{spec.storage.prefix}/{spec.name}",
-            total_size=format_size(total_size),
-            collections=collection_statuses,
+            completion_time=completion_time,
+            expires_at=spec.expires_at(completion_time),
+            s3_path=spec.storage.uri(spec.name),
+            total_size=format_size(manifest.size_bytes),
+            collections=tuple(statuses),
             error=failed[0].error if failed else None,
-            conditions=[
+            conditions=(
                 Condition(
                     type="Complete",
-                    status="True" if phase == BackupPhase.COMPLETED else "False",
-                    last_transition_time=datetime.now(UTC),
-                    reason="BackupCompleted" if phase == BackupPhase.COMPLETED else "BackupFailed",
-                    message=f"Backed up {len(collections) - len(failed)}/{len(collections)} collections",
-                )
-            ],
+                    status=ConditionStatus.FALSE if failed else ConditionStatus.TRUE,
+                    last_transition_time=completion_time,
+                    reason="BackupFailed" if failed else "BackupCompleted",
+                    message=f"Backed up {len(completed)}/{len(collections)} collections",
+                ),
+            ),
         )
 
-    async def get_storage_credentials(self, storage: S3StorageSpec) -> tuple[str, str]:
-        """Get S3 credentials from secret."""
-        access_key = await self.kubernetes.get_secret_value(storage.credentials_secret_ref)
-        secret_key_ref = storage.credentials_secret_ref
-        secret_key_ref_for_secret = type(secret_key_ref)(
-            name=secret_key_ref.name,
-            key="AWS_SECRET_ACCESS_KEY",
-            namespace=secret_key_ref.namespace,
+    async def backup_collection(
+        self,
+        spec: BackupSpec,
+        credentials: S3Credentials,
+        connection: ClusterConnection,
+        collection: str,
+    ) -> CollectionBackupStatus:
+        try:
+            records = [
+                await self.backup_node(spec, credentials, node, index, collection)
+                for index, node in enumerate(connection.nodes)
+            ]
+        except Exception as error:
+            return CollectionBackupStatus(
+                name=collection, status=BackupPhase.FAILED, error=str(error)
+            )
+        return CollectionBackupStatus(
+            name=collection, status=BackupPhase.COMPLETED, snapshots=tuple(records)
         )
-        secret_key = await self.kubernetes.get_secret_value(secret_key_ref_for_secret)
-        return access_key, secret_key
+
+    async def backup_node(
+        self,
+        spec: BackupSpec,
+        credentials: S3Credentials,
+        node: QdrantNode,
+        index: int,
+        collection: str,
+    ) -> SnapshotRecord:
+        """Snapshot one node's shards of a collection and stream them straight into the bucket."""
+        snapshot = await self.qdrant.create_snapshot(node, collection)
+        key = spec.snapshot_key(collection, index, snapshot.name)
+        try:
+            size = await self.storage.upload_stream(
+                spec.storage,
+                credentials,
+                key,
+                self.qdrant.stream_snapshot(node, collection, snapshot.name),
+            )
+        finally:
+            await self.qdrant.delete_snapshot(node, collection, snapshot.name)
+        return SnapshotRecord(
+            node_index=index,
+            key=key,
+            snapshot_name=snapshot.name,
+            size_bytes=size,
+            checksum=snapshot.checksum,
+        )
+
+
+@dataclass
+class DeleteBackupData:
+    storage: StoragePort
+    kubernetes: KubernetesPort
+
+    async def execute(self, spec: BackupSpec) -> int:
+        credentials = await read_credentials(self.kubernetes, spec.storage.credentials_secret_ref)
+        return await self.storage.delete_prefix(spec.storage, credentials, spec.root_key)
+
+
+@dataclass
+class ExpireBackup:
+    """Delete a QdrantBackup once its retentionDays have passed."""
+
+    kubernetes: KubernetesPort
+
+    async def execute(self, ref: ResourceRef, status: BackupStatus, now: datetime) -> bool:
+        if not status.expires_at or status.expires_at > now:
+            return False
+        await self.kubernetes.delete_custom_resource(ref)
+        return True
+
+
+@dataclass(frozen=True)
+class RestoreSource:
+    storage: S3StorageSpec
+    root_key: str
+    description: str
 
 
 @dataclass
 class ExecuteRestore:
-    """Use case for restoring from backup."""
-
     qdrant: QdrantPort
     storage: StoragePort
     kubernetes: KubernetesPort
+    indexing_poll_seconds: float = 5.0
+    indexing_timeout_seconds: float = 3600.0
 
-    async def execute(self, spec: RestoreSpec) -> RestoreStatus:
-        """Execute restore of collections from S3."""
-        start_time = datetime.now(UTC)
+    async def execute(self, spec: RestoreSpec, ref: ResourceRef) -> RestoreStatus:
+        start_time = now_utc()
+        source = await self.resolve_source(spec)
+        credentials = await read_credentials(self.kubernetes, source.storage.credentials_secret_ref)
+        connection = await ResolveCluster(self.kubernetes).execute(spec.target_cluster_ref)
 
-        source_path = await self.resolve_source(spec)
-        storage = spec.source_s3
-        if not storage:
-            raise ValueError("No storage configuration found")
-
-        credentials = await self.get_storage_credentials(storage)
-        files = await self.storage.list_files(storage, credentials, source_path)
-
-        collections = list(spec.collections) if spec.collections else extract_collections(files)
+        await self.kubernetes.patch_status(
+            ref,
+            RestoreStatus(
+                phase=RestorePhase.DOWNLOADING,
+                start_time=start_time,
+                source_backup=source.description,
+            ).to_dict(),
+        )
+        manifest = BackupManifest.from_dict(
+            json.loads(
+                await self.storage.get_object(
+                    source.storage, credentials, join_key(source.root_key, MANIFEST_KEY)
+                )
+            )
+        )
+        if manifest.node_count != len(connection.nodes):
+            raise ValueError(
+                f"Backup was taken from {manifest.node_count} nodes but target cluster has "
+                f"{len(connection.nodes)}; node counts must match"
+            )
+        collections = spec.select_collections(manifest.collection_names)
 
         restored: list[RestoredCollection] = []
-
-        for i, collection in enumerate(collections):
-            target_name = spec.collection_mapping.get(collection, collection)
-
-            try:
-                snapshot_key = find_snapshot_key(files, collection)
-                local_path = f"/tmp/{collection}_restore.snapshot"
-
-                await self.storage.download_file(storage, credentials, snapshot_key, local_path)
-                await self.qdrant.recover_from_snapshot(target_name, local_path)
-
-                info = await self.qdrant.get_collection_info(target_name)
-
-                restored.append(
-                    RestoredCollection(
-                        name=target_name,
-                        original_name=collection if collection != target_name else None,
-                        status="Completed",
-                        points_count=info.get("points_count"),
-                    )
-                )
-
-            except Exception as e:
-                restored.append(
-                    RestoredCollection(
-                        name=target_name,
-                        original_name=collection if collection != target_name else None,
-                        status="Failed",
-                        error=str(e),
-                    )
-                )
-
-        failed = [r for r in restored if r.status == "Failed"]
-        phase = RestorePhase.FAILED if failed else RestorePhase.COMPLETED
-
-        return RestoreStatus(
-            phase=phase,
-            start_time=start_time,
-            completion_time=datetime.now(UTC),
-            source_backup=source_path,
-            restored_collections=restored,
-            progress=RestoreProgress(
-                collections_total=len(collections),
-                collections_completed=len(collections) - len(failed),
-                percentage=100,
-            ),
-            error=failed[0].error if failed else None,
-        )
-
-    async def resolve_source(self, spec: RestoreSpec) -> str:
-        """Resolve the backup source path."""
-        if spec.backup_ref:
-            backup = await self.kubernetes.get_resource(
-                group="qdrant.io",
-                version="v1alpha1",
-                plural="qdrantbackups",
-                name=spec.backup_ref.name,
-                namespace=spec.backup_ref.namespace,
+        for index, collection in enumerate(collections):
+            await self.kubernetes.patch_status(
+                ref,
+                RestoreStatus(
+                    phase=RestorePhase.RESTORING,
+                    start_time=start_time,
+                    source_backup=source.description,
+                    restored_collections=tuple(restored),
+                    progress=RestoreProgress(len(collections), index, collection),
+                ).to_dict(),
             )
-            if backup and backup.get("status", {}).get("s3Path"):
-                return backup["status"]["s3Path"]
-        if spec.source_s3:
-            return f"{spec.source_s3.prefix}"
-        raise ValueError("No valid backup source found")
+            restored.append(
+                await self.restore_collection(
+                    spec, source, credentials, connection, manifest, collection
+                )
+            )
 
-    async def get_storage_credentials(self, storage: S3StorageSpec) -> tuple[str, str]:
-        """Get S3 credentials from secret."""
-        access_key = await self.kubernetes.get_secret_value(storage.credentials_secret_ref)
-        secret_key_ref = storage.credentials_secret_ref
-        secret_key_ref_for_secret = type(secret_key_ref)(
-            name=secret_key_ref.name,
-            key="AWS_SECRET_ACCESS_KEY",
-            namespace=secret_key_ref.namespace,
+        failed = [r for r in restored if r.status == RestorePhase.FAILED]
+        completion_time = now_utc()
+        return RestoreStatus(
+            phase=RestorePhase.FAILED if failed else RestorePhase.COMPLETED,
+            start_time=start_time,
+            completion_time=completion_time,
+            source_backup=source.description,
+            restored_collections=tuple(restored),
+            progress=RestoreProgress(len(collections), len(collections) - len(failed)),
+            error=failed[0].error if failed else None,
+            conditions=(
+                Condition(
+                    type="Complete",
+                    status=ConditionStatus.FALSE if failed else ConditionStatus.TRUE,
+                    last_transition_time=completion_time,
+                    reason="RestoreFailed" if failed else "RestoreCompleted",
+                    message=f"Restored {len(restored) - len(failed)}/{len(collections)}",
+                ),
+            ),
         )
-        secret_key = await self.kubernetes.get_secret_value(secret_key_ref_for_secret)
-        return access_key, secret_key
+
+    async def resolve_source(self, spec: RestoreSpec) -> RestoreSource:
+        if spec.source_s3:
+            return RestoreSource(
+                storage=spec.source_s3,
+                root_key=spec.source_s3.prefix,
+                description=spec.source_s3.uri(),
+            )
+        if not spec.backup_ref:
+            raise ValueError("QdrantRestore needs either spec.backupRef or spec.source.s3")
+        body = await self.kubernetes.get_custom_resource(spec.backup_ref.to_resource_ref())
+        if not body:
+            raise LookupError(
+                f"QdrantBackup {spec.backup_ref.namespace}/{spec.backup_ref.name} not found"
+            )
+        status = BackupStatus.from_dict(body.get("status", {}))
+        if status.phase != BackupPhase.COMPLETED:
+            raise SourceNotReadyError(
+                f"QdrantBackup {spec.backup_ref.name} is {status.phase.value}, not Completed"
+            )
+        backup = BackupSpec.from_dict(body["spec"], body["metadata"])
+        return RestoreSource(
+            storage=backup.storage, root_key=backup.root_key, description=spec.backup_ref.name
+        )
+
+    async def restore_collection(
+        self,
+        spec: RestoreSpec,
+        source: RestoreSource,
+        credentials: S3Credentials,
+        connection: ClusterConnection,
+        manifest: BackupManifest,
+        collection: str,
+    ) -> RestoredCollection:
+        target = spec.target_name(collection)
+        original = collection if collection != target else None
+        backup = manifest.collection(collection)
+        if not backup:
+            return RestoredCollection(
+                name=target,
+                original_name=original,
+                status=RestorePhase.FAILED,
+                error=f"Collection {collection} missing from manifest",
+            )
+        try:
+            for record in backup.snapshots:
+                await self.recover_node(spec, source, credentials, connection, target, record)
+            points = await self.await_indexing(spec, connection.service, target)
+        except Exception as error:
+            return RestoredCollection(
+                name=target, original_name=original, status=RestorePhase.FAILED, error=str(error)
+            )
+        return RestoredCollection(
+            name=target,
+            original_name=original,
+            status=RestorePhase.COMPLETED,
+            size=format_size(backup.size_bytes),
+            points_count=points,
+        )
+
+    async def recover_node(
+        self,
+        spec: RestoreSpec,
+        source: RestoreSource,
+        credentials: S3Credentials,
+        connection: ClusterConnection,
+        target: str,
+        record: SnapshotRecord,
+    ) -> None:
+        """Hand the node a presigned URL so the snapshot flows bucket → node without touching us."""
+        location = await self.storage.presigned_get_url(
+            source.storage, credentials, record.key, PRESIGNED_URL_TTL_SECONDS
+        )
+        await self.qdrant.recover_snapshot(
+            connection.nodes[record.node_index], target, location, spec.priority, record.checksum
+        )
+
+    async def await_indexing(
+        self, spec: RestoreSpec, node: QdrantNode, collection: str
+    ) -> int | None:
+        deadline = asyncio.get_running_loop().time() + self.indexing_timeout_seconds
+        while True:
+            info = await self.qdrant.collection_info(node, collection)
+            if not spec.wait_for_indexing or info.get("status") == "green":
+                return info.get("points_count")
+            if asyncio.get_running_loop().time() >= deadline:
+                raise TimeoutError(f"Collection {collection} did not turn green in time")
+            await asyncio.sleep(self.indexing_poll_seconds)
 
 
 @dataclass
 class ProcessSchedule:
-    """Use case for processing backup schedules."""
-
     kubernetes: KubernetesPort
 
     async def execute(
-        self, spec: BackupScheduleSpec, status: BackupScheduleStatus
+        self,
+        spec: BackupScheduleSpec,
+        status: BackupScheduleStatus,
+        owner: Mapping[str, Any],
+        now: datetime,
     ) -> BackupScheduleStatus:
-        """Check schedule and create backup if due."""
+        records = await self.list_backups(spec)
+        await self.apply_retention(spec, records)
+        active = [r for r in records if not r.finished]
+        finished = [r for r in records if r.finished]
+
         if spec.suspend:
-            return BackupScheduleStatus(
-                phase=SchedulePhase.SUSPENDED,
-                last_backup_time=status.last_backup_time,
-                last_backup_name=status.last_backup_name,
-                next_backup_time=None,
-            )
+            return self.status_for(SchedulePhase.SUSPENDED, status, records, active, None)
 
-        now = datetime.now(UTC)
-        next_run = compute_next_run(spec.schedule, status.last_backup_time)
-
-        if next_run and now >= next_run:
-            backup_name = f"{spec.name}-{now.strftime('%Y%m%d-%H%M%S')}"
-
-            backup_body = build_backup_resource(spec, backup_name)
-            await self.kubernetes.create_resource(
-                group="qdrant.io",
-                version="v1alpha1",
-                plural="qdrantbackups",
-                namespace=spec.namespace,
-                body=backup_body,
-            )
-
-            return BackupScheduleStatus(
-                phase=SchedulePhase.ACTIVE,
-                last_backup_time=now,
-                last_backup_name=backup_name,
-                next_backup_time=compute_next_run(spec.schedule, now),
-                active_backup=backup_name,
-            )
-
-        return BackupScheduleStatus(
-            phase=SchedulePhase.ACTIVE,
-            last_backup_time=status.last_backup_time,
-            last_backup_name=status.last_backup_name,
-            next_backup_time=next_run,
+        baseline = status.last_schedule_time or parse_time(
+            owner["metadata"].get("creationTimestamp")
+        )
+        slot = spec.due(now, baseline)
+        launched = await self.launch(spec, owner, slot, active) if slot else None
+        last_schedule_time = slot if launched else status.last_schedule_time
+        next_time = spec.next_slot(now)
+        result = self.status_for(SchedulePhase.ACTIVE, status, records, active, next_time)
+        if not launched:
+            return replace(result, last_schedule_time=last_schedule_time)
+        return replace(
+            result,
+            last_schedule_time=last_schedule_time,
+            active_backup=launched,
+            last_backup_name=launched if not finished else result.last_backup_name,
         )
 
+    async def list_backups(self, spec: BackupScheduleSpec) -> list[BackupRecord]:
+        bodies = await self.kubernetes.list_custom_resources(
+            BACKUPS, spec.namespace, spec.label_selector
+        )
+        return sorted(
+            (BackupRecord.from_resource(b) for b in bodies),
+            key=lambda r: r.creation_time,
+            reverse=True,
+        )
 
-def format_size(size_bytes: int) -> str:
-    """Format bytes as human-readable size."""
-    for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if size_bytes < 1024:
-            return f"{size_bytes:.1f}{unit}"
-        size_bytes = size_bytes // 1024
-    return f"{size_bytes:.1f}PB"
+    async def apply_retention(self, spec: BackupScheduleSpec, records: list[BackupRecord]) -> None:
+        for expired in spec.retention_policy.expired(r for r in records if r.finished):
+            await self.kubernetes.delete_custom_resource(
+                ResourceRef(BACKUPS, expired.name, spec.namespace)
+            )
+            records.remove(expired)
 
+    async def launch(
+        self,
+        spec: BackupScheduleSpec,
+        owner: Mapping[str, Any],
+        slot: datetime,
+        active: list[BackupRecord],
+    ) -> str | None:
+        if active and spec.concurrency_policy == ConcurrencyPolicy.FORBID:
+            return None
+        if active and spec.concurrency_policy == ConcurrencyPolicy.REPLACE:
+            for record in active:
+                await self.kubernetes.delete_custom_resource(
+                    ResourceRef(BACKUPS, record.name, spec.namespace)
+                )
+        name = spec.backup_name(slot)
+        await self.kubernetes.create_custom_resource(spec.to_backup_resource(name, owner))
+        return name
 
-def extract_collections(files: list[str]) -> list[str]:
-    """Extract collection names from file paths."""
-    collections = set()
-    for f in files:
-        parts = f.split("/")
-        if len(parts) >= 2:
-            collections.add(parts[-2])
-    return sorted(collections)
-
-
-def find_snapshot_key(files: list[str], collection: str) -> str:
-    """Find the snapshot file key for a collection."""
-    for f in files:
-        if f"/{collection}/" in f and f.endswith(".snapshot"):
-            return f
-    raise ValueError(f"No snapshot found for collection {collection}")
-
-
-def compute_next_run(schedule: str, last_run: datetime | None) -> datetime | None:
-    """Compute next scheduled run time."""
-
-    base = last_run or datetime.now(UTC)
-    cron = croniter(schedule, base)
-    return cron.get_next(datetime)
-
-
-def build_backup_resource(spec: BackupScheduleSpec, backup_name: str) -> dict:
-    """Build a QdrantBackup resource body."""
-    return {
-        "apiVersion": "qdrant.io/v1alpha1",
-        "kind": "QdrantBackup",
-        "metadata": {
-            "name": backup_name,
-            "namespace": spec.namespace,
-            "labels": {
-                "qdrant.io/schedule": spec.name,
-            },
-        },
-        "spec": {
-            "clusterRef": {
-                "name": spec.cluster_ref.name,
-                "namespace": spec.cluster_ref.namespace,
-            },
-            "storage": {
-                "s3": {
-                    "bucket": spec.storage.bucket,
-                    "prefix": f"{spec.storage.prefix}/{backup_name}",
-                    "region": spec.storage.region,
-                    "endpoint": spec.storage.endpoint,
-                    "forcePathStyle": spec.storage.force_path_style,
-                    "credentialsSecretRef": {
-                        "name": spec.storage.credentials_secret_ref.name,
-                        "accessKeyIdKey": spec.storage.credentials_secret_ref.key,
-                    },
-                },
-            },
-            "collections": list(spec.collections) if spec.collections else None,
-        },
-    }
+    @staticmethod
+    def status_for(
+        phase: SchedulePhase,
+        status: BackupScheduleStatus,
+        records: list[BackupRecord],
+        active: list[BackupRecord],
+        next_time: datetime | None,
+    ) -> BackupScheduleStatus:
+        latest = next((r for r in records if r.finished), None)
+        return BackupScheduleStatus(
+            phase=phase,
+            last_schedule_time=status.last_schedule_time,
+            last_backup_time=latest.completion_time if latest else None,
+            last_backup_name=latest.name if latest else None,
+            last_backup_status=latest.phase.value if latest else None,
+            next_backup_time=next_time,
+            active_backup=active[0].name if active else None,
+            recent_backups=tuple(records[:RECENT_BACKUPS_LIMIT]),
+        )
