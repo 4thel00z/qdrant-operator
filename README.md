@@ -6,6 +6,8 @@
 
 **A Kubernetes operator for managing Qdrant vector database clusters**
 
+[![CI](https://github.com/4thel00z/qdrant-operator/actions/workflows/ci.yml/badge.svg)](https://github.com/4thel00z/qdrant-operator/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/qdrant-operator.svg)](https://pypi.org/project/qdrant-operator/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-%3E%3D1.26-326ce5.svg)](https://kubernetes.io/)
@@ -38,7 +40,10 @@
 ### Install with Helm (Recommended)
 
 ```bash
-# Install from local chart
+# From the OCI registry (published on every release)
+helm install qdrant-operator oci://ghcr.io/4thel00z/charts/qdrant-operator -n qdrant-system --create-namespace
+
+# Or from the local chart
 helm install qdrant-operator ./charts/qdrant-operator
 
 # Or install in a specific namespace
@@ -64,6 +69,14 @@ Or use a values file:
 helm install qdrant-operator ./charts/qdrant-operator -f my-values.yaml
 ```
 
+### Install from PyPI
+The operator is also a Python package; the `qdrant-operator` command runs it against your kubeconfig,
+forwarding any extra flags to `kopf run` (for example `--namespace team-a`).
+```bash
+uv tool install qdrant-operator   # or: pipx install qdrant-operator
+qdrant-operator --help
+```
+Container images: `ghcr.io/4thel00z/qdrant-operator:<version>` (linux/amd64, linux/arm64, signed provenance).
 ### Build Docker Image (Optional)
 
 ```bash
@@ -219,6 +232,16 @@ uv run ruff format src tests
 uv run pyright src tests
 ```
 
+## Releasing
+CI (`.github/workflows/ci.yml`) runs lint, pyright, unit tests, chart lint, a wheel/image build and the
+kind-based end-to-end suite on every push and pull request. A release is a tag:
+```bash
+uv version 0.2.0            # bumps pyproject.toml
+git commit -sam "chore: release 0.2.0" && git tag v0.2.0 && git push --follow-tags
+```
+`release.yml` checks the tag against the project version, then publishes the wheel and sdist to PyPI
+(trusted publishing, no token), pushes the multi-arch image and the Helm chart to ghcr.io, and creates
+a GitHub release with the artifacts and CRDs attached.
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
