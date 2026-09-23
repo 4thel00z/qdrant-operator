@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Helm 3 (multi-arch support)
-ARG HELM_VERSION=v3.14.0
+ARG HELM_VERSION=v3.16.4
 ARG TARGETARCH
 RUN ARCH=${TARGETARCH:-amd64} && \
     curl -fsSL https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz | tar xz && \
@@ -32,5 +32,5 @@ RUN uv sync --frozen --no-dev
 RUN useradd -m -u 1000 operator
 USER operator
 
-# Run the operator
-ENTRYPOINT ["uv", "run", "kopf", "run", "src/qdrant_operator/main.py", "--verbose"]
+EXPOSE 8080
+ENTRYPOINT ["/app/.venv/bin/qdrant-operator"]

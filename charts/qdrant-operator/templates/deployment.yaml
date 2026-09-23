@@ -28,6 +28,23 @@ spec:
           env:
             - name: LOG_LEVEL
               value: {{ .Values.operator.logLevel | quote }}
+            - name: LOG_FORMAT
+              value: {{ .Values.operator.logFormat | quote }}
+            - name: HELM_CACHE_HOME
+              value: /tmp/helm/cache
+            - name: HELM_CONFIG_HOME
+              value: /tmp/helm/config
+            - name: HELM_DATA_HOME
+              value: /tmp/helm/data
+          ports:
+            - name: health
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 30
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:

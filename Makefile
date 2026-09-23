@@ -1,7 +1,7 @@
-.PHONY: help build push install uninstall lint test clean
+.PHONY: help dev lint format test test-integration dist logo build push install uninstall crds-sync clean
 
 # Variables
-IMAGE_REPO ?= ghcr.io/qdrant/qdrant-operator
+IMAGE_REPO ?= ghcr.io/4thel00z/qdrant-operator
 IMAGE_TAG ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 NAMESPACE ?= qdrant-system
 HELM_RELEASE ?= qdrant-operator
@@ -10,24 +10,35 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 # Development
-dev: ## Run operator locally
-	uv run kopf run src/qdrant_operator/main.py --verbose
+dev: ## Run operator locally against the current kubeconfig
+	LOG_FORMAT=text uv run qdrant-operator
 
 lint: ## Run linters
 	uv run ruff check src tests
 	uv run ruff format --check src tests
-	uv run pyright src
+	uv run pyright src tests
 	helm lint charts/qdrant-operator
 
 format: ## Format code
 	uv run ruff format src tests
 	uv run ruff check --fix src tests
 
-test: ## Run tests
+test: ## Run unit tests
 	uv run pytest -v
+
+test-integration: ## Run integration tests against the current kubeconfig
+	QDRANT_OPERATOR_INTEGRATION=1 uv run pytest -v -m integration
 
 test-cov: ## Run tests with coverage
 	uv run pytest --cov=src --cov-report=term-missing
+
+# Packaging
+dist: ## Build wheel and sdist into dist/
+	uv build
+
+logo: ## Render PNG logos from assets/logo.svg
+	rsvg-convert -w 512 -h 512 assets/logo.svg -o assets/logo.png
+	rsvg-convert -w 128 -h 128 assets/logo.svg -o assets/logo-128.png
 
 # Docker
 build: ## Build Docker image
@@ -63,6 +74,9 @@ uninstall: ## Uninstall operator
 	helm uninstall $(HELM_RELEASE) --namespace $(NAMESPACE)
 
 # CRDs
+crds-sync: ## Copy manifests/crds into the Helm chart
+	cp manifests/crds/*.yaml charts/qdrant-operator/crds/
+
 crds-install: ## Install CRDs only
 	kubectl apply -f manifests/crds/
 

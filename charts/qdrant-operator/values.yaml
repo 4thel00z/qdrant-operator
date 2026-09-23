@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/qdrant/qdrant-operator
+  repository: ghcr.io/4thel00z/qdrant-operator
   tag: ""
   pullPolicy: IfNotPresent
 
@@ -19,3 +19,4 @@ resources:
 
 operator:
   logLevel: INFO
+  logFormat: json  # json | text
