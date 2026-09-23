@@ -49,7 +49,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv lock
         env:
-          UV_FROZEN: ""
+          UV_FROZEN: "0"
       - run: |
           git diff --quiet uv.lock && exit 0
           git config user.name "github-actions[bot]"
