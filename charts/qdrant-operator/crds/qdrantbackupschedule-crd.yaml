@@ -139,6 +139,10 @@ spec:
                 phase:
                   type: string
                   enum: ["Active", "Suspended"]
+                lastScheduleTime:
+                  type: string
+                  format: date-time
+                  description: Cron slot the most recent backup was created for
                 lastBackupTime:
                   type: string
                   format: date-time
@@ -146,7 +150,7 @@ spec:
                   type: string
                 lastBackupStatus:
                   type: string
-                  enum: ["Completed", "Failed"]
+                  enum: ["Pending", "InProgress", "Completed", "Failed"]
                 nextBackupTime:
                   type: string
                   format: date-time

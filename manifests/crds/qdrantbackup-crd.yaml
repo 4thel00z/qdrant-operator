@@ -95,7 +95,7 @@ spec:
                   type: array
                   items:
                     type: string
-                  description: List of collections to backup (empty = all)
+                  description: Collections to back up (empty = all). Every node is snapshotted.
                 retentionDays:
                   type: integer
                   minimum: 1
@@ -112,6 +112,10 @@ spec:
                 completionTime:
                   type: string
                   format: date-time
+                expiresAt:
+                  type: string
+                  format: date-time
+                  description: When retentionDays elapse and the operator deletes this backup
                 s3Path:
                   type: string
                   description: Full S3 path where backup is stored
@@ -125,13 +129,23 @@ spec:
                     properties:
                       name:
                         type: string
-                      snapshotName:
-                        type: string
                       size:
                         type: string
                       status:
                         type: string
                         enum: ["Pending", "InProgress", "Completed", "Failed"]
+                      snapshots:
+                        type: array
+                        description: One snapshot per cluster node; each holds that node's shards
+                        items:
+                          type: object
+                          properties:
+                            node:
+                              type: string
+                            snapshotName:
+                              type: string
+                            key:
+                              type: string
                       error:
                         type: string
                 error:

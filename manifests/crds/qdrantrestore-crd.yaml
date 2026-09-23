@@ -65,7 +65,7 @@ spec:
                           type: string
                         path:
                           type: string
-                          description: Path within the bucket to the backup
+                          description: Key prefix of the backup root (holds manifest.json)
                         region:
                           type: string
                           default: "us-east-1"
@@ -108,7 +108,7 @@ spec:
                   description: Rename collections during restore (source -> target)
                 priority:
                   type: string
-                  enum: ["snapshot", "replica"]
+                  enum: ["snapshot", "replica", "no_sync"]
                   default: "snapshot"
                   description: Recovery priority mode
                 waitForIndexing:
