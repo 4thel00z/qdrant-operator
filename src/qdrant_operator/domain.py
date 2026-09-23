@@ -1,18 +1,34 @@
-"""Domain entities and value objects.
+"""Domain entities and value objects for the Qdrant operator."""
 
-This module contains pure business logic with no external dependencies.
-All entities are immutable dataclasses representing the core domain concepts.
-"""
-
+from collections.abc import Callable
+from collections.abc import Iterable
+from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
+from dataclasses import replace
+from datetime import UTC
 from datetime import datetime
-from enum import Enum
+from datetime import timedelta
+from enum import StrEnum
+from typing import Any
+from typing import cast
+
+from croniter import croniter
+
+GROUP = "qdrant.io"
+VERSION = "v1alpha1"
+API_VERSION = f"{GROUP}/{VERSION}"
+SCHEDULE_LABEL = f"{GROUP}/schedule"
+QDRANT_HTTP_PORT = 6333
+CLUSTER_DOMAIN = "cluster.local"
+MANIFEST_KEY = "manifest.json"
+AUTO_GENERATED_API_KEY_KEY = "api-key"
+TLS_MOUNT_PATH = "/qdrant/tls"
+
+JsonDict = dict[str, Any]
 
 
-class ClusterPhase(Enum):
-    """Phase of a QdrantCluster lifecycle."""
-
+class ClusterPhase(StrEnum):
     PENDING = "Pending"
     RUNNING = "Running"
     FAILED = "Failed"
@@ -20,18 +36,14 @@ class ClusterPhase(Enum):
     TERMINATING = "Terminating"
 
 
-class BackupPhase(Enum):
-    """Phase of a QdrantBackup lifecycle."""
-
+class BackupPhase(StrEnum):
     PENDING = "Pending"
     IN_PROGRESS = "InProgress"
     COMPLETED = "Completed"
     FAILED = "Failed"
 
 
-class RestorePhase(Enum):
-    """Phase of a QdrantRestore lifecycle."""
-
+class RestorePhase(StrEnum):
     PENDING = "Pending"
     DOWNLOADING = "Downloading"
     RESTORING = "Restoring"
@@ -40,178 +52,534 @@ class RestorePhase(Enum):
     FAILED = "Failed"
 
 
-class SchedulePhase(Enum):
-    """Phase of a QdrantBackupSchedule."""
-
+class SchedulePhase(StrEnum):
     ACTIVE = "Active"
     SUSPENDED = "Suspended"
 
 
+class ConcurrencyPolicy(StrEnum):
+    ALLOW = "Allow"
+    FORBID = "Forbid"
+    REPLACE = "Replace"
+
+
+class RestorePriority(StrEnum):
+    SNAPSHOT = "snapshot"
+    REPLICA = "replica"
+    NO_SYNC = "no_sync"
+
+
+class ConditionStatus(StrEnum):
+    TRUE = "True"
+    FALSE = "False"
+    UNKNOWN = "Unknown"
+
+
+@dataclass(frozen=True)
+class ResourceKind:
+    """Identifies one of the operator's custom resource kinds."""
+
+    kind: str
+    plural: str
+
+    @property
+    def group(self) -> str:
+        return GROUP
+
+    @property
+    def version(self) -> str:
+        return VERSION
+
+
+CLUSTERS = ResourceKind("QdrantCluster", "qdrantclusters")
+BACKUPS = ResourceKind("QdrantBackup", "qdrantbackups")
+SCHEDULES = ResourceKind("QdrantBackupSchedule", "qdrantbackupschedules")
+RESTORES = ResourceKind("QdrantRestore", "qdrantrestores")
+
+
+@dataclass(frozen=True)
+class ResourceRef:
+    """Namespaced name of a custom resource."""
+
+    kind: ResourceKind
+    name: str
+    namespace: str
+
+
+def join_key(*parts: str) -> str:
+    """Join S3 key parts, dropping empty segments and stray slashes."""
+    return "/".join(segment for part in parts for segment in part.split("/") if segment)
+
+
+def format_size(size_bytes: int) -> str:
+    size = float(size_bytes)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024:
+            return f"{size:.1f}{unit}"
+        size /= 1024
+    return f"{size:.1f}PB"
+
+
+def parse_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def format_time(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def release_name(cluster_name: str) -> str:
+    return f"qdrant-{cluster_name}"
+
+
+def chart_version(version: str) -> str:
+    return version.removeprefix("v")
+
+
+def drop_empty(values: Mapping[str, Any]) -> JsonDict:
+    """Return a copy without None values, so serialized status dicts stay sparse."""
+    return {key: value for key, value in values.items() if value is not None}
+
+
 @dataclass(frozen=True)
 class ResourceRequirements:
-    """Kubernetes resource requirements."""
-
     cpu: str | None = None
     memory: str | None = None
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "ResourceRequirements":
+        return ResourceRequirements(cpu=data.get("cpu"), memory=data.get("memory"))
+
+    def to_dict(self) -> JsonDict:
+        return drop_empty({"cpu": self.cpu, "memory": self.memory})
 
 
 @dataclass(frozen=True)
 class Resources:
-    """Container resource requests and limits."""
-
     requests: ResourceRequirements = field(default_factory=ResourceRequirements)
     limits: ResourceRequirements = field(default_factory=ResourceRequirements)
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "Resources":
+        return Resources(
+            requests=ResourceRequirements.from_dict(data.get("requests", {})),
+            limits=ResourceRequirements.from_dict(data.get("limits", {})),
+        )
+
+    def to_dict(self) -> JsonDict:
+        return {
+            key: value
+            for key, value in (
+                ("requests", self.requests.to_dict()),
+                ("limits", self.limits.to_dict()),
+            )
+            if value
+        }
+
+
+@dataclass(frozen=True)
+class ImageSpec:
+    repository: str = "docker.io/qdrant/qdrant"
+    pull_policy: str = "IfNotPresent"
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "ImageSpec":
+        return ImageSpec(
+            repository=data.get("repository", ImageSpec.repository),
+            pull_policy=data.get("pullPolicy", ImageSpec.pull_policy),
+        )
 
 
 @dataclass(frozen=True)
 class PersistenceSpec:
-    """Storage persistence configuration."""
-
     size: str = "10Gi"
     storage_class: str | None = None
     access_modes: tuple[str, ...] = ("ReadWriteOnce",)
 
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "PersistenceSpec":
+        return PersistenceSpec(
+            size=data.get("size", PersistenceSpec.size),
+            storage_class=data.get("storageClassName"),
+            access_modes=tuple(data.get("accessModes", PersistenceSpec.access_modes)),
+        )
+
+    def to_helm_values(self) -> JsonDict:
+        return drop_empty(
+            {
+                "size": self.size,
+                "accessModes": list(self.access_modes),
+                "storageClassName": self.storage_class,
+            }
+        )
+
+
+@dataclass(frozen=True)
+class SnapshotPersistenceSpec:
+    enabled: bool = False
+    size: str = "10Gi"
+    storage_class: str | None = None
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "SnapshotPersistenceSpec":
+        return SnapshotPersistenceSpec(
+            enabled=data.get("enabled", False),
+            size=data.get("size", SnapshotPersistenceSpec.size),
+            storage_class=data.get("storageClassName"),
+        )
+
+    def to_helm_values(self) -> JsonDict:
+        return drop_empty(
+            {"enabled": self.enabled, "size": self.size, "storageClassName": self.storage_class}
+        )
+
 
 @dataclass(frozen=True)
 class SecretRef:
-    """Reference to a Kubernetes Secret key."""
+    """Reference to one key of a Kubernetes Secret."""
 
     name: str
     key: str
-    namespace: str = "default"
+    namespace: str
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any], namespace: str) -> "SecretRef":
+        return SecretRef(name=data["name"], key=data["key"], namespace=namespace)
+
+    def to_helm_value_from(self) -> JsonDict:
+        return {"valueFrom": {"secretKeyRef": {"name": self.name, "key": self.key}}}
 
 
 @dataclass(frozen=True)
-class S3StorageSpec:
-    """S3-compatible storage configuration."""
+class ApiKeySpec:
+    secret_ref: SecretRef | None = None
+    auto_generate: bool = False
 
-    bucket: str
-    credentials_secret_ref: SecretRef
-    prefix: str = ""
-    region: str = "us-east-1"
-    endpoint: str | None = None
-    force_path_style: bool = False
+    @staticmethod
+    def from_dict(data: Mapping[str, Any], namespace: str) -> "ApiKeySpec":
+        secret_ref = data.get("secretRef")
+        return ApiKeySpec(
+            secret_ref=SecretRef.from_dict(secret_ref, namespace) if secret_ref else None,
+            auto_generate=data.get("autoGenerate", False),
+        )
+
+    def to_helm_value(self) -> JsonDict | bool:
+        if self.secret_ref:
+            return self.secret_ref.to_helm_value_from()
+        return self.auto_generate
+
+    def resolve_secret_ref(self, cluster_name: str, namespace: str) -> SecretRef | None:
+        """Where the operator reads the key from: the user's secret or the chart-generated one."""
+        if self.secret_ref:
+            return self.secret_ref
+        if not self.auto_generate:
+            return None
+        return SecretRef(
+            name=f"{release_name(cluster_name)}-apikey",
+            key=AUTO_GENERATED_API_KEY_KEY,
+            namespace=namespace,
+        )
 
 
 @dataclass(frozen=True)
-class ClusterRef:
-    """Reference to a QdrantCluster."""
+class TlsSpec:
+    enabled: bool = False
+    secret_name: str | None = None
 
-    name: str
-    namespace: str = "default"
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "TlsSpec":
+        return TlsSpec(
+            enabled=data.get("enabled", False),
+            secret_name=data.get("secretRef", {}).get("name"),
+        )
+
+    def ca_secret_ref(self, namespace: str) -> SecretRef | None:
+        if not self.enabled or not self.secret_name:
+            return None
+        return SecretRef(name=self.secret_name, key="ca.crt", namespace=namespace)
 
 
 @dataclass(frozen=True)
-class BackupRef:
-    """Reference to a QdrantBackup."""
+class ServiceSpec:
+    type: str = "ClusterIP"
+    annotations: Mapping[str, str] = field(default_factory=dict[str, str])
 
-    name: str
-    namespace: str = "default"
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "ServiceSpec":
+        return ServiceSpec(
+            type=data.get("type", ServiceSpec.type),
+            annotations=dict[str, str](data.get("annotations", {})),
+        )
+
+    def to_helm_values(self) -> JsonDict:
+        return {"type": self.type, "annotations": dict(self.annotations)}
 
 
 @dataclass(frozen=True)
-class RetentionPolicy:
-    """Backup retention policy."""
+class ServiceMonitorSpec:
+    enabled: bool = False
+    interval: str = "30s"
+    labels: Mapping[str, str] = field(default_factory=dict[str, str])
 
-    keep_last: int | None = None
-    keep_daily: int | None = None
-    keep_weekly: int | None = None
-    keep_monthly: int | None = None
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "ServiceMonitorSpec":
+        return ServiceMonitorSpec(
+            enabled=data.get("enabled", False),
+            interval=data.get("interval", ServiceMonitorSpec.interval),
+            labels=dict[str, str](data.get("labels", {})),
+        )
+
+
+@dataclass(frozen=True)
+class MetricsSpec:
+    enabled: bool = False
+    service_monitor: ServiceMonitorSpec = field(default_factory=ServiceMonitorSpec)
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "MetricsSpec":
+        return MetricsSpec(
+            enabled=data.get("enabled", False),
+            service_monitor=ServiceMonitorSpec.from_dict(data.get("serviceMonitor", {})),
+        )
+
+    def to_helm_values(self) -> JsonDict:
+        monitor_enabled = self.enabled and self.service_monitor.enabled
+        return {
+            "serviceMonitor": {
+                "enabled": monitor_enabled,
+                "scrapeInterval": self.service_monitor.interval,
+                "additionalLabels": dict(self.service_monitor.labels),
+            }
+        }
+
+
+@dataclass(frozen=True)
+class SchedulingSpec:
+    node_selector: Mapping[str, str] = field(default_factory=dict[str, str])
+    tolerations: tuple[JsonDict, ...] = ()
+    affinity: JsonDict = field(default_factory=dict[str, Any])
+
+    @staticmethod
+    def from_dict(spec: Mapping[str, Any]) -> "SchedulingSpec":
+        return SchedulingSpec(
+            node_selector=dict[str, str](spec.get("nodeSelector", {})),
+            tolerations=tuple[JsonDict, ...](spec.get("tolerations", [])),
+            affinity=dict[str, Any](spec.get("affinity", {})),
+        )
+
+
+@dataclass(frozen=True)
+class DistributedSpec:
+    enabled: bool = True
+    p2p_port: int = 6335
+    p2p_tls: bool = False
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "DistributedSpec":
+        p2p = data.get("p2p", {})
+        return DistributedSpec(
+            enabled=data.get("enabled", True),
+            p2p_port=p2p.get("port", DistributedSpec.p2p_port),
+            p2p_tls=p2p.get("enableTls", False),
+        )
 
 
 @dataclass(frozen=True)
 class ClusterSpec:
-    """Specification for a QdrantCluster."""
-
     name: str
     namespace: str
     version: str
     replicas: int = 1
+    image: ImageSpec = field(default_factory=ImageSpec)
     resources: Resources = field(default_factory=Resources)
     persistence: PersistenceSpec = field(default_factory=PersistenceSpec)
-    cluster_enabled: bool = True
-    api_key_secret_ref: SecretRef | None = None
-    metrics_enabled: bool = False
+    snapshot_persistence: SnapshotPersistenceSpec = field(default_factory=SnapshotPersistenceSpec)
+    distributed: DistributedSpec = field(default_factory=DistributedSpec)
+    service: ServiceSpec = field(default_factory=ServiceSpec)
+    api_key: ApiKeySpec = field(default_factory=ApiKeySpec)
+    read_only_api_key: ApiKeySpec = field(default_factory=ApiKeySpec)
+    tls: TlsSpec = field(default_factory=TlsSpec)
+    metrics: MetricsSpec = field(default_factory=MetricsSpec)
+    scheduling: SchedulingSpec = field(default_factory=SchedulingSpec)
+    config: JsonDict = field(default_factory=dict[str, Any])
 
     @staticmethod
-    def from_dict(spec: dict, meta: dict) -> "ClusterSpec":
-        """Create ClusterSpec from Kubernetes resource dicts."""
-        resources_dict = spec.get("resources", {})
-        requests = resources_dict.get("requests", {})
-        limits = resources_dict.get("limits", {})
-
-        persistence_dict = spec.get("persistence", {})
-        api_key_dict = spec.get("apiKey", {}).get("secretRef")
-
+    def from_dict(spec: Mapping[str, Any], meta: Mapping[str, Any]) -> "ClusterSpec":
+        namespace = meta["namespace"]
         return ClusterSpec(
             name=meta["name"],
-            namespace=meta["namespace"],
+            namespace=namespace,
             version=spec["version"],
             replicas=spec.get("replicas", 1),
-            resources=Resources(
-                requests=ResourceRequirements(
-                    cpu=requests.get("cpu"),
-                    memory=requests.get("memory"),
-                ),
-                limits=ResourceRequirements(
-                    cpu=limits.get("cpu"),
-                    memory=limits.get("memory"),
-                ),
+            image=ImageSpec.from_dict(spec.get("image", {})),
+            resources=Resources.from_dict(spec.get("resources", {})),
+            persistence=PersistenceSpec.from_dict(spec.get("persistence", {})),
+            snapshot_persistence=SnapshotPersistenceSpec.from_dict(
+                spec.get("snapshotPersistence", {})
             ),
-            persistence=PersistenceSpec(
-                size=persistence_dict.get("size", "10Gi"),
-                storage_class=persistence_dict.get("storageClassName"),
-                access_modes=tuple(persistence_dict.get("accessModes", ["ReadWriteOnce"])),
-            ),
-            cluster_enabled=spec.get("cluster", {}).get("enabled", True),
-            api_key_secret_ref=(
-                SecretRef(
-                    name=api_key_dict["name"],
-                    key=api_key_dict["key"],
-                )
-                if api_key_dict
-                else None
-            ),
-            metrics_enabled=spec.get("metrics", {}).get("enabled", False),
+            distributed=DistributedSpec.from_dict(spec.get("cluster", {})),
+            service=ServiceSpec.from_dict(spec.get("service", {})),
+            api_key=ApiKeySpec.from_dict(spec.get("apiKey", {}), namespace),
+            read_only_api_key=ApiKeySpec.from_dict(spec.get("readOnlyApiKey", {}), namespace),
+            tls=TlsSpec.from_dict(spec.get("tls", {})),
+            metrics=MetricsSpec.from_dict(spec.get("metrics", {})),
+            scheduling=SchedulingSpec.from_dict(spec),
+            config=dict[str, Any](spec.get("config", {})),
         )
 
+    @property
+    def release_name(self) -> str:
+        return release_name(self.name)
 
-@dataclass
+    @property
+    def scheme(self) -> str:
+        return "https" if self.tls.enabled else "http"
+
+    def service_url(self) -> str:
+        host = f"{self.release_name}.{self.namespace}.svc.{CLUSTER_DOMAIN}"
+        return f"{self.scheme}://{host}:{QDRANT_HTTP_PORT}"
+
+    def node_urls(self) -> tuple[str, ...]:
+        """One URL per StatefulSet pod via the chart's headless service."""
+        headless = f"{self.release_name}-headless.{self.namespace}.svc.{CLUSTER_DOMAIN}"
+        return tuple(
+            f"{self.scheme}://{self.release_name}-{ordinal}.{headless}:{QDRANT_HTTP_PORT}"
+            for ordinal in range(self.replicas)
+        )
+
+    def to_helm_values(self) -> JsonDict:
+        config = merge_dicts(
+            {
+                "cluster": {
+                    "enabled": self.distributed.enabled,
+                    "p2p": {
+                        "port": self.distributed.p2p_port,
+                        "enable_tls": self.distributed.p2p_tls,
+                    },
+                },
+                "service": {"enable_tls": self.tls.enabled},
+            },
+            self.tls_config(),
+            self.config,
+        )
+        values: JsonDict = {
+            "replicaCount": self.replicas,
+            "image": {"repository": self.image.repository, "pullPolicy": self.image.pull_policy},
+            "resources": self.resources.to_dict(),
+            "persistence": self.persistence.to_helm_values(),
+            "snapshotPersistence": self.snapshot_persistence.to_helm_values(),
+            "service": self.service.to_helm_values(),
+            "apiKey": self.api_key.to_helm_value(),
+            "readOnlyApiKey": self.read_only_api_key.to_helm_value(),
+            "metrics": self.metrics.to_helm_values(),
+            "nodeSelector": dict(self.scheduling.node_selector),
+            "tolerations": list(self.scheduling.tolerations),
+            "affinity": dict(self.scheduling.affinity),
+            "config": config,
+        }
+        return {**values, **self.tls_volumes()}
+
+    def tls_config(self) -> JsonDict:
+        if not self.tls.enabled:
+            return {}
+        return {"tls": {"cert": f"{TLS_MOUNT_PATH}/tls.crt", "key": f"{TLS_MOUNT_PATH}/tls.key"}}
+
+    def tls_volumes(self) -> JsonDict:
+        if not self.tls.enabled or not self.tls.secret_name:
+            return {}
+        return {
+            "additionalVolumes": [{"name": "tls", "secret": {"secretName": self.tls.secret_name}}],
+            "additionalVolumeMounts": [
+                {"name": "tls", "mountPath": TLS_MOUNT_PATH, "readOnly": True}
+            ],
+        }
+
+
+def merge_dicts(*layers: Mapping[str, Any]) -> JsonDict:
+    """Deep-merge mappings left to right; later layers win on scalar conflicts."""
+    merged: JsonDict = {}
+    for layer in layers:
+        for key, value in layer.items():
+            current = merged.get(key)
+            if isinstance(current, Mapping) and isinstance(value, Mapping):
+                merged[key] = merge_dicts(cast(JsonDict, current), cast(JsonDict, value))
+                continue
+            merged[key] = value
+    return merged
+
+
+@dataclass(frozen=True)
 class Condition:
-    """Kubernetes condition."""
-
     type: str
-    status: str
+    status: ConditionStatus
     last_transition_time: datetime
     reason: str = ""
     message: str = ""
 
-    def to_dict(self) -> dict:
-        """Convert to Kubernetes condition dict."""
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "Condition":
+        return Condition(
+            type=data["type"],
+            status=ConditionStatus(data["status"]),
+            last_transition_time=parse_time(data.get("lastTransitionTime")) or datetime.now(UTC),
+            reason=data.get("reason", ""),
+            message=data.get("message", ""),
+        )
+
+    def to_dict(self) -> JsonDict:
         return {
             "type": self.type,
-            "status": self.status,
-            "lastTransitionTime": self.last_transition_time.isoformat(),
+            "status": self.status.value,
+            "lastTransitionTime": format_time(self.last_transition_time),
             "reason": self.reason,
             "message": self.message,
         }
 
 
-@dataclass
-class ClusterStatus:
-    """Status of a QdrantCluster."""
+def set_condition(conditions: Iterable[Condition], update: Condition) -> list[Condition]:
+    """Replace the same-typed condition; keep its transition time when the status did not change."""
+    existing = {condition.type: condition for condition in conditions}
+    previous = existing.get(update.type)
+    unchanged = previous is not None and previous.status == update.status
+    merged = (
+        replace(update, last_transition_time=previous.last_transition_time)
+        if previous and unchanged
+        else update
+    )
+    return [*(c for c in existing.values() if c.type != update.type), merged]
 
+
+def conditions_from_dict(data: Mapping[str, Any]) -> list[Condition]:
+    return [Condition.from_dict(item) for item in data.get("conditions", [])]
+
+
+@dataclass(frozen=True)
+class ClusterStatus:
     phase: ClusterPhase
     replicas: int = 0
     ready_replicas: int = 0
     helm_release: str | None = None
     endpoint: str | None = None
     version: str | None = None
-    conditions: list[Condition] = field(default_factory=list)
+    conditions: tuple[Condition, ...] = ()
     observed_generation: int | None = None
 
-    def to_dict(self) -> dict:
-        """Convert to Kubernetes status dict."""
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "ClusterStatus":
+        return ClusterStatus(
+            phase=ClusterPhase(data.get("phase", ClusterPhase.PENDING)),
+            replicas=data.get("replicas", 0),
+            ready_replicas=data.get("readyReplicas", 0),
+            helm_release=data.get("helmRelease"),
+            endpoint=data.get("endpoint"),
+            version=data.get("version"),
+            conditions=tuple(conditions_from_dict(data)),
+            observed_generation=data.get("observedGeneration"),
+        )
+
+    def to_dict(self) -> JsonDict:
         return {
             "phase": self.phase.value,
             "replicas": self.replicas,
@@ -225,19 +593,132 @@ class ClusterStatus:
 
 
 @dataclass(frozen=True)
-class Snapshot:
-    """Qdrant collection snapshot."""
+class StatefulSetStatus:
+    replicas: int
+    ready_replicas: int
 
+
+@dataclass(frozen=True)
+class Snapshot:
     name: str
     collection: str
     size_bytes: int
-    created_at: datetime
+    checksum: str | None = None
+
+
+@dataclass(frozen=True)
+class QdrantNode:
+    """One reachable Qdrant HTTP endpoint together with what it takes to talk to it."""
+
+    url: str
+    api_key: str | None = None
+    ca_cert: str | None = None
+
+
+@dataclass(frozen=True)
+class ClusterConnection:
+    """Resolved addresses of a QdrantCluster: the Service plus every StatefulSet pod."""
+
+    service: QdrantNode
+    nodes: tuple[QdrantNode, ...]
+
+
+@dataclass(frozen=True)
+class ClusterRef:
+    name: str
+    namespace: str
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any], default_namespace: str) -> "ClusterRef":
+        return ClusterRef(name=data["name"], namespace=data.get("namespace", default_namespace))
+
+    def to_dict(self) -> JsonDict:
+        return {"name": self.name, "namespace": self.namespace}
+
+    def to_resource_ref(self) -> ResourceRef:
+        return ResourceRef(CLUSTERS, self.name, self.namespace)
+
+
+@dataclass(frozen=True)
+class CredentialsSecretRef:
+    """Secret holding both halves of an S3 credential pair."""
+
+    name: str
+    namespace: str
+    access_key_id_key: str = "AWS_ACCESS_KEY_ID"
+    secret_access_key_key: str = "AWS_SECRET_ACCESS_KEY"
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any], namespace: str) -> "CredentialsSecretRef":
+        return CredentialsSecretRef(
+            name=data["name"],
+            namespace=namespace,
+            access_key_id_key=data.get("accessKeyIdKey", CredentialsSecretRef.access_key_id_key),
+            secret_access_key_key=data.get(
+                "secretAccessKeyKey", CredentialsSecretRef.secret_access_key_key
+            ),
+        )
+
+    def to_dict(self) -> JsonDict:
+        return {
+            "name": self.name,
+            "accessKeyIdKey": self.access_key_id_key,
+            "secretAccessKeyKey": self.secret_access_key_key,
+        }
+
+    def access_key_ref(self) -> SecretRef:
+        return SecretRef(self.name, self.access_key_id_key, self.namespace)
+
+    def secret_key_ref(self) -> SecretRef:
+        return SecretRef(self.name, self.secret_access_key_key, self.namespace)
+
+
+@dataclass(frozen=True)
+class S3Credentials:
+    access_key_id: str
+    secret_access_key: str
+
+
+@dataclass(frozen=True)
+class S3StorageSpec:
+    bucket: str
+    credentials_secret_ref: CredentialsSecretRef
+    prefix: str = ""
+    region: str = "us-east-1"
+    endpoint: str | None = None
+    force_path_style: bool = False
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any], namespace: str) -> "S3StorageSpec":
+        return S3StorageSpec(
+            bucket=data["bucket"],
+            credentials_secret_ref=CredentialsSecretRef.from_dict(
+                data["credentialsSecretRef"], namespace
+            ),
+            prefix=data.get("path", data.get("prefix", "")),
+            region=data.get("region", S3StorageSpec.region),
+            endpoint=data.get("endpoint"),
+            force_path_style=data.get("forcePathStyle", False),
+        )
+
+    def to_dict(self) -> JsonDict:
+        return drop_empty(
+            {
+                "bucket": self.bucket,
+                "prefix": self.prefix,
+                "region": self.region,
+                "endpoint": self.endpoint,
+                "forcePathStyle": self.force_path_style,
+                "credentialsSecretRef": self.credentials_secret_ref.to_dict(),
+            }
+        )
+
+    def uri(self, *parts: str) -> str:
+        return f"s3://{join_key(self.bucket, self.prefix, *parts)}"
 
 
 @dataclass(frozen=True)
 class BackupSpec:
-    """Specification for a QdrantBackup."""
-
     name: str
     namespace: str
     cluster_ref: ClusterRef
@@ -246,94 +727,273 @@ class BackupSpec:
     retention_days: int | None = None
 
     @staticmethod
-    def from_dict(spec: dict, meta: dict) -> "BackupSpec":
-        """Create BackupSpec from Kubernetes resource dicts."""
-        cluster_ref = spec["clusterRef"]
-        s3_spec = spec["storage"]["s3"]
-        creds_ref = s3_spec["credentialsSecretRef"]
-
+    def from_dict(spec: Mapping[str, Any], meta: Mapping[str, Any]) -> "BackupSpec":
+        namespace = meta["namespace"]
         return BackupSpec(
             name=meta["name"],
-            namespace=meta["namespace"],
-            cluster_ref=ClusterRef(
-                name=cluster_ref["name"],
-                namespace=cluster_ref.get("namespace", "default"),
-            ),
-            storage=S3StorageSpec(
-                bucket=s3_spec["bucket"],
-                prefix=s3_spec.get("prefix", ""),
-                region=s3_spec.get("region", "us-east-1"),
-                endpoint=s3_spec.get("endpoint"),
-                force_path_style=s3_spec.get("forcePathStyle", False),
-                credentials_secret_ref=SecretRef(
-                    name=creds_ref["name"],
-                    key=creds_ref.get("accessKeyIdKey", "AWS_ACCESS_KEY_ID"),
-                ),
-            ),
+            namespace=namespace,
+            cluster_ref=ClusterRef.from_dict(spec["clusterRef"], namespace),
+            storage=S3StorageSpec.from_dict(spec["storage"]["s3"], namespace),
             collections=tuple(spec.get("collections", [])),
             retention_days=spec.get("retentionDays"),
         )
 
+    @property
+    def root_key(self) -> str:
+        return join_key(self.storage.prefix, self.name)
 
-@dataclass
-class CollectionBackupStatus:
-    """Status of a single collection backup."""
+    def snapshot_key(self, collection: str, node_index: int, snapshot_name: str) -> str:
+        return join_key(self.root_key, collection, f"node-{node_index}", snapshot_name)
 
+    def expires_at(self, completion_time: datetime) -> datetime | None:
+        if not self.retention_days:
+            return None
+        return completion_time + timedelta(days=self.retention_days)
+
+
+@dataclass(frozen=True)
+class SnapshotRecord:
+    """One stored snapshot: which node it came from and where it lives in the bucket."""
+
+    node_index: int
+    key: str
+    snapshot_name: str
+    size_bytes: int
+    checksum: str | None = None
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "SnapshotRecord":
+        return SnapshotRecord(
+            node_index=data["nodeIndex"],
+            key=data["key"],
+            snapshot_name=data["snapshotName"],
+            size_bytes=data["sizeBytes"],
+            checksum=data.get("checksum"),
+        )
+
+    def to_dict(self) -> JsonDict:
+        return drop_empty(
+            {
+                "nodeIndex": self.node_index,
+                "key": self.key,
+                "snapshotName": self.snapshot_name,
+                "sizeBytes": self.size_bytes,
+                "checksum": self.checksum,
+            }
+        )
+
+
+@dataclass(frozen=True)
+class CollectionBackup:
     name: str
-    snapshot_name: str | None = None
-    size: str | None = None
-    status: str = "Pending"
+    snapshots: tuple[SnapshotRecord, ...]
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "CollectionBackup":
+        return CollectionBackup(
+            name=data["name"],
+            snapshots=tuple(SnapshotRecord.from_dict(s) for s in data.get("snapshots", [])),
+        )
+
+    def to_dict(self) -> JsonDict:
+        return {"name": self.name, "snapshots": [s.to_dict() for s in self.snapshots]}
+
+    @property
+    def size_bytes(self) -> int:
+        return sum(s.size_bytes for s in self.snapshots)
+
+
+@dataclass(frozen=True)
+class BackupManifest:
+    """Index of a completed backup, stored next to the snapshots so restores need no guessing."""
+
+    backup_name: str
+    cluster: ClusterRef
+    node_count: int
+    created_at: datetime
+    collections: tuple[CollectionBackup, ...]
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "BackupManifest":
+        cluster = data["cluster"]
+        return BackupManifest(
+            backup_name=data["backupName"],
+            cluster=ClusterRef.from_dict(cluster, cluster["namespace"]),
+            node_count=data["nodeCount"],
+            created_at=parse_time(data["createdAt"]) or datetime.now(UTC),
+            collections=tuple(CollectionBackup.from_dict(c) for c in data.get("collections", [])),
+        )
+
+    def to_dict(self) -> JsonDict:
+        return {
+            "backupName": self.backup_name,
+            "cluster": self.cluster.to_dict(),
+            "nodeCount": self.node_count,
+            "createdAt": format_time(self.created_at),
+            "collections": [c.to_dict() for c in self.collections],
+        }
+
+    def collection(self, name: str) -> CollectionBackup | None:
+        return next((c for c in self.collections if c.name == name), None)
+
+    @property
+    def collection_names(self) -> tuple[str, ...]:
+        return tuple(c.name for c in self.collections)
+
+    @property
+    def size_bytes(self) -> int:
+        return sum(c.size_bytes for c in self.collections)
+
+
+@dataclass(frozen=True)
+class CollectionBackupStatus:
+    name: str
+    status: str
+    snapshots: tuple[SnapshotRecord, ...] = ()
     error: str | None = None
 
-    def to_dict(self) -> dict:
-        """Convert to dict."""
-        result: dict = {"name": self.name, "status": self.status}
-        if self.snapshot_name:
-            result["snapshotName"] = self.snapshot_name
-        if self.size:
-            result["size"] = self.size
-        if self.error:
-            result["error"] = self.error
-        return result
+    def to_dict(self) -> JsonDict:
+        return {
+            "name": self.name,
+            "status": self.status,
+            "size": format_size(sum(s.size_bytes for s in self.snapshots)),
+            "snapshots": [
+                {"node": f"node-{s.node_index}", "snapshotName": s.snapshot_name, "key": s.key}
+                for s in self.snapshots
+            ],
+            "error": self.error,
+        }
 
 
-@dataclass
+@dataclass(frozen=True)
 class BackupStatus:
-    """Status of a QdrantBackup."""
-
     phase: BackupPhase
     start_time: datetime | None = None
     completion_time: datetime | None = None
+    expires_at: datetime | None = None
     s3_path: str | None = None
     total_size: str | None = None
-    collections: list[CollectionBackupStatus] = field(default_factory=list)
+    collections: tuple[CollectionBackupStatus, ...] = ()
     error: str | None = None
-    conditions: list[Condition] = field(default_factory=list)
+    conditions: tuple[Condition, ...] = ()
 
-    def to_dict(self) -> dict:
-        """Convert to Kubernetes status dict."""
-        result: dict = {"phase": self.phase.value}
-        if self.start_time:
-            result["startTime"] = self.start_time.isoformat()
-        if self.completion_time:
-            result["completionTime"] = self.completion_time.isoformat()
-        if self.s3_path:
-            result["s3Path"] = self.s3_path
-        if self.total_size:
-            result["totalSize"] = self.total_size
-        if self.collections:
-            result["collections"] = [c.to_dict() for c in self.collections]
-        if self.error:
-            result["error"] = self.error
-        if self.conditions:
-            result["conditions"] = [c.to_dict() for c in self.conditions]
-        return result
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "BackupStatus":
+        return BackupStatus(
+            phase=BackupPhase(data.get("phase", BackupPhase.PENDING)),
+            start_time=parse_time(data.get("startTime")),
+            completion_time=parse_time(data.get("completionTime")),
+            expires_at=parse_time(data.get("expiresAt")),
+            s3_path=data.get("s3Path"),
+            total_size=data.get("totalSize"),
+            error=data.get("error"),
+            conditions=tuple(conditions_from_dict(data)),
+        )
+
+    def to_dict(self) -> JsonDict:
+        return {
+            "phase": self.phase.value,
+            "startTime": format_time(self.start_time) if self.start_time else None,
+            "completionTime": (format_time(self.completion_time) if self.completion_time else None),
+            "expiresAt": format_time(self.expires_at) if self.expires_at else None,
+            "s3Path": self.s3_path,
+            "totalSize": self.total_size,
+            "collections": [c.to_dict() for c in self.collections],
+            "error": self.error,
+            "conditions": [c.to_dict() for c in self.conditions],
+        }
+
+    @property
+    def finished(self) -> bool:
+        return self.phase in (BackupPhase.COMPLETED, BackupPhase.FAILED)
+
+
+@dataclass(frozen=True)
+class RetentionPolicy:
+    keep_last: int | None = None
+    keep_daily: int | None = None
+    keep_weekly: int | None = None
+    keep_monthly: int | None = None
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "RetentionPolicy":
+        return RetentionPolicy(
+            keep_last=data.get("keepLast"),
+            keep_daily=data.get("keepDaily"),
+            keep_weekly=data.get("keepWeekly"),
+            keep_monthly=data.get("keepMonthly"),
+        )
+
+    @property
+    def configured(self) -> bool:
+        return any(
+            value is not None
+            for value in (self.keep_last, self.keep_daily, self.keep_weekly, self.keep_monthly)
+        )
+
+    def expired(self, backups: Iterable["BackupRecord"]) -> list["BackupRecord"]:
+        """Backups no bucket of the policy keeps, newest-first grandfather-father-son selection."""
+        if not self.configured:
+            return []
+        ordered = sorted(backups, key=lambda b: b.creation_time, reverse=True)
+        keep = {b.name for b in ordered[: self.keep_last or 0]}
+        keep |= newest_per_bucket(ordered, self.keep_daily, lambda t: t.strftime("%Y-%m-%d"))
+        keep |= newest_per_bucket(ordered, self.keep_weekly, lambda t: t.strftime("%G-W%V"))
+        keep |= newest_per_bucket(ordered, self.keep_monthly, lambda t: t.strftime("%Y-%m"))
+        return [b for b in ordered if b.name not in keep]
+
+
+def newest_per_bucket(
+    ordered: list["BackupRecord"],
+    count: int | None,
+    bucket_of: Callable[[datetime], str],
+) -> set[str]:
+    if not count:
+        return set()
+    winners: dict[str, str] = {}
+    for backup in ordered:
+        winners.setdefault(bucket_of(backup.creation_time), backup.name)
+    return set(list(winners.values())[:count])
+
+
+@dataclass(frozen=True)
+class BackupRecord:
+    """What a schedule needs to know about one of its QdrantBackups."""
+
+    name: str
+    creation_time: datetime
+    phase: BackupPhase
+    completion_time: datetime | None = None
+    total_size: str | None = None
+
+    @staticmethod
+    def from_resource(body: Mapping[str, Any]) -> "BackupRecord":
+        status = BackupStatus.from_dict(body.get("status", {}))
+        return BackupRecord(
+            name=body["metadata"]["name"],
+            creation_time=parse_time(body["metadata"].get("creationTimestamp"))
+            or datetime.now(UTC),
+            phase=status.phase,
+            completion_time=status.completion_time,
+            total_size=status.total_size,
+        )
+
+    @property
+    def finished(self) -> bool:
+        return self.phase in (BackupPhase.COMPLETED, BackupPhase.FAILED)
+
+    def to_dict(self) -> JsonDict:
+        return {
+            "name": self.name,
+            "creationTime": format_time(self.creation_time),
+            "completionTime": (format_time(self.completion_time) if self.completion_time else None),
+            "status": self.phase.value,
+            "size": self.total_size,
+        }
 
 
 @dataclass(frozen=True)
 class BackupScheduleSpec:
-    """Specification for a QdrantBackupSchedule."""
-
     name: str
     namespace: str
     schedule: str
@@ -342,302 +1002,244 @@ class BackupScheduleSpec:
     collections: tuple[str, ...] = ()
     retention_policy: RetentionPolicy = field(default_factory=RetentionPolicy)
     suspend: bool = False
+    concurrency_policy: ConcurrencyPolicy = ConcurrencyPolicy.FORBID
+    starting_deadline_seconds: int | None = None
 
     @staticmethod
-    def from_dict(spec: dict, meta: dict) -> "BackupScheduleSpec":
-        """Create BackupScheduleSpec from Kubernetes resource dicts."""
-        cluster_ref = spec["clusterRef"]
-        s3_spec = spec["storage"]["s3"]
-        creds_ref = s3_spec["credentialsSecretRef"]
-        retention = spec.get("retentionPolicy", {})
-
+    def from_dict(spec: Mapping[str, Any], meta: Mapping[str, Any]) -> "BackupScheduleSpec":
+        namespace = meta["namespace"]
         return BackupScheduleSpec(
             name=meta["name"],
-            namespace=meta["namespace"],
+            namespace=namespace,
             schedule=spec["schedule"],
-            cluster_ref=ClusterRef(
-                name=cluster_ref["name"],
-                namespace=cluster_ref.get("namespace", "default"),
-            ),
-            storage=S3StorageSpec(
-                bucket=s3_spec["bucket"],
-                prefix=s3_spec.get("prefix", ""),
-                region=s3_spec.get("region", "us-east-1"),
-                endpoint=s3_spec.get("endpoint"),
-                force_path_style=s3_spec.get("forcePathStyle", False),
-                credentials_secret_ref=SecretRef(
-                    name=creds_ref["name"],
-                    key=creds_ref.get("accessKeyIdKey", "AWS_ACCESS_KEY_ID"),
-                ),
-            ),
+            cluster_ref=ClusterRef.from_dict(spec["clusterRef"], namespace),
+            storage=S3StorageSpec.from_dict(spec["storage"]["s3"], namespace),
             collections=tuple(spec.get("collections", [])),
-            retention_policy=RetentionPolicy(
-                keep_last=retention.get("keepLast"),
-                keep_daily=retention.get("keepDaily"),
-                keep_weekly=retention.get("keepWeekly"),
-                keep_monthly=retention.get("keepMonthly"),
-            ),
+            retention_policy=RetentionPolicy.from_dict(spec.get("retentionPolicy", {})),
             suspend=spec.get("suspend", False),
+            concurrency_policy=ConcurrencyPolicy(spec.get("concurrencyPolicy", "Forbid")),
+            starting_deadline_seconds=spec.get("startingDeadlineSeconds"),
         )
 
+    @property
+    def label_selector(self) -> str:
+        return f"{SCHEDULE_LABEL}={self.name}"
 
-@dataclass
-class RecentBackup:
-    """Recent backup entry for schedule status."""
+    def backup_name(self, at: datetime) -> str:
+        return f"{self.name}-{at.strftime('%Y%m%d-%H%M%S')}"
 
-    name: str
-    creation_time: datetime
-    completion_time: datetime | None = None
-    status: str = "Pending"
-    size: str | None = None
+    def previous_slot(self, now: datetime) -> datetime:
+        return croniter(self.schedule, now).get_prev(datetime)
 
-    def to_dict(self) -> dict:
-        """Convert to dict."""
-        result: dict = {
-            "name": self.name,
-            "creationTime": self.creation_time.isoformat(),
-            "status": self.status,
+    def next_slot(self, now: datetime) -> datetime:
+        return croniter(self.schedule, now).get_next(datetime)
+
+    def due(self, now: datetime, baseline: datetime | None) -> datetime | None:
+        """The missed slot after `baseline` (last run or creation), or None when up to date."""
+        slot = self.previous_slot(now)
+        if baseline and baseline >= slot:
+            return None
+        if self.starting_deadline_seconds is None:
+            return slot
+        if now - slot > timedelta(seconds=self.starting_deadline_seconds):
+            return None
+        return slot
+
+    def to_backup_resource(self, backup_name: str, owner: Mapping[str, Any]) -> JsonDict:
+        """Body of the QdrantBackup this schedule spawns; owned by the schedule for GC."""
+        spec: JsonDict = {
+            "clusterRef": self.cluster_ref.to_dict(),
+            "storage": {"s3": self.storage.to_dict()},
         }
-        if self.completion_time:
-            result["completionTime"] = self.completion_time.isoformat()
-        if self.size:
-            result["size"] = self.size
-        return result
+        if self.collections:
+            spec["collections"] = list(self.collections)
+        return {
+            "apiVersion": API_VERSION,
+            "kind": BACKUPS.kind,
+            "metadata": {
+                "name": backup_name,
+                "namespace": self.namespace,
+                "labels": {SCHEDULE_LABEL: self.name},
+                "ownerReferences": [owner_reference(owner)],
+            },
+            "spec": spec,
+        }
 
 
-@dataclass
+def owner_reference(owner: Mapping[str, Any]) -> JsonDict:
+    metadata = owner["metadata"]
+    return {
+        "apiVersion": owner["apiVersion"],
+        "kind": owner["kind"],
+        "name": metadata["name"],
+        "uid": metadata["uid"],
+        "controller": True,
+        "blockOwnerDeletion": True,
+    }
+
+
+@dataclass(frozen=True)
 class BackupScheduleStatus:
-    """Status of a QdrantBackupSchedule."""
-
     phase: SchedulePhase
+    last_schedule_time: datetime | None = None
     last_backup_time: datetime | None = None
     last_backup_name: str | None = None
     last_backup_status: str | None = None
     next_backup_time: datetime | None = None
     active_backup: str | None = None
-    recent_backups: list[RecentBackup] = field(default_factory=list)
-    conditions: list[Condition] = field(default_factory=list)
+    recent_backups: tuple[BackupRecord, ...] = ()
+    conditions: tuple[Condition, ...] = ()
 
     @staticmethod
-    def from_dict(status: dict) -> "BackupScheduleStatus":
-        """Create from Kubernetes status dict."""
-        phase_str = status.get("phase", "Active")
+    def from_dict(data: Mapping[str, Any]) -> "BackupScheduleStatus":
         return BackupScheduleStatus(
-            phase=SchedulePhase(phase_str) if phase_str else SchedulePhase.ACTIVE,
-            last_backup_time=(
-                datetime.fromisoformat(status["lastBackupTime"])
-                if status.get("lastBackupTime")
-                else None
-            ),
-            last_backup_name=status.get("lastBackupName"),
-            last_backup_status=status.get("lastBackupStatus"),
-            next_backup_time=(
-                datetime.fromisoformat(status["nextBackupTime"])
-                if status.get("nextBackupTime")
-                else None
-            ),
-            active_backup=status.get("activeBackup"),
+            phase=SchedulePhase(data.get("phase", SchedulePhase.ACTIVE)),
+            last_schedule_time=parse_time(data.get("lastScheduleTime")),
+            last_backup_time=parse_time(data.get("lastBackupTime")),
+            last_backup_name=data.get("lastBackupName"),
+            last_backup_status=data.get("lastBackupStatus"),
+            next_backup_time=parse_time(data.get("nextBackupTime")),
+            active_backup=data.get("activeBackup"),
+            conditions=tuple(conditions_from_dict(data)),
         )
 
-    def to_dict(self) -> dict:
-        """Convert to Kubernetes status dict."""
-        result: dict = {"phase": self.phase.value}
-        if self.last_backup_time:
-            result["lastBackupTime"] = self.last_backup_time.isoformat()
-        if self.last_backup_name:
-            result["lastBackupName"] = self.last_backup_name
-        if self.last_backup_status:
-            result["lastBackupStatus"] = self.last_backup_status
-        if self.next_backup_time:
-            result["nextBackupTime"] = self.next_backup_time.isoformat()
-        if self.active_backup:
-            result["activeBackup"] = self.active_backup
-        if self.recent_backups:
-            result["recentBackups"] = [b.to_dict() for b in self.recent_backups]
-        if self.conditions:
-            result["conditions"] = [c.to_dict() for c in self.conditions]
-        return result
+    def to_dict(self) -> JsonDict:
+        return {
+            "phase": self.phase.value,
+            "lastScheduleTime": (
+                format_time(self.last_schedule_time) if self.last_schedule_time else None
+            ),
+            "lastBackupTime": (
+                format_time(self.last_backup_time) if self.last_backup_time else None
+            ),
+            "lastBackupName": self.last_backup_name,
+            "lastBackupStatus": self.last_backup_status,
+            "nextBackupTime": (
+                format_time(self.next_backup_time) if self.next_backup_time else None
+            ),
+            "activeBackup": self.active_backup,
+            "recentBackups": [b.to_dict() for b in self.recent_backups],
+            "conditions": [c.to_dict() for c in self.conditions],
+        }
+
+
+@dataclass(frozen=True)
+class BackupRef:
+    name: str
+    namespace: str
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any], default_namespace: str) -> "BackupRef":
+        return BackupRef(name=data["name"], namespace=data.get("namespace", default_namespace))
+
+    def to_resource_ref(self) -> ResourceRef:
+        return ResourceRef(BACKUPS, self.name, self.namespace)
 
 
 @dataclass(frozen=True)
 class RestoreSpec:
-    """Specification for a QdrantRestore."""
-
     name: str
     namespace: str
     target_cluster_ref: ClusterRef
     backup_ref: BackupRef | None = None
     source_s3: S3StorageSpec | None = None
     collections: tuple[str, ...] = ()
-    collection_mapping: dict[str, str] = field(default_factory=dict)
+    collection_mapping: Mapping[str, str] = field(default_factory=dict[str, str])
+    priority: RestorePriority = RestorePriority.SNAPSHOT
     wait_for_indexing: bool = True
 
     @staticmethod
-    def from_dict(spec: dict, meta: dict) -> "RestoreSpec":
-        """Create RestoreSpec from Kubernetes resource dicts."""
-        target_ref = spec["targetClusterRef"]
-        backup_ref_dict = spec.get("backupRef")
-        source_dict = spec.get("source", {}).get("s3")
-
-        source_s3 = None
-        if source_dict:
-            creds_ref = source_dict["credentialsSecretRef"]
-            source_s3 = S3StorageSpec(
-                bucket=source_dict["bucket"],
-                prefix=source_dict.get("path", ""),
-                region=source_dict.get("region", "us-east-1"),
-                endpoint=source_dict.get("endpoint"),
-                force_path_style=source_dict.get("forcePathStyle", False),
-                credentials_secret_ref=SecretRef(
-                    name=creds_ref["name"],
-                    key=creds_ref.get("accessKeyIdKey", "AWS_ACCESS_KEY_ID"),
-                ),
-            )
-
+    def from_dict(spec: Mapping[str, Any], meta: Mapping[str, Any]) -> "RestoreSpec":
+        namespace = meta["namespace"]
+        backup_ref = spec.get("backupRef")
+        source_s3 = spec.get("source", {}).get("s3")
+        if not backup_ref and not source_s3:
+            raise ValueError("QdrantRestore needs either spec.backupRef or spec.source.s3")
         return RestoreSpec(
             name=meta["name"],
-            namespace=meta["namespace"],
-            target_cluster_ref=ClusterRef(
-                name=target_ref["name"],
-                namespace=target_ref.get("namespace", "default"),
-            ),
-            backup_ref=(
-                BackupRef(
-                    name=backup_ref_dict["name"],
-                    namespace=backup_ref_dict.get("namespace", "default"),
-                )
-                if backup_ref_dict
-                else None
-            ),
-            source_s3=source_s3,
+            namespace=namespace,
+            target_cluster_ref=ClusterRef.from_dict(spec["targetClusterRef"], namespace),
+            backup_ref=BackupRef.from_dict(backup_ref, namespace) if backup_ref else None,
+            source_s3=S3StorageSpec.from_dict(source_s3, namespace) if source_s3 else None,
             collections=tuple(spec.get("collections", [])),
-            collection_mapping=spec.get("collectionMapping", {}),
+            collection_mapping=dict[str, str](spec.get("collectionMapping", {})),
+            priority=RestorePriority(spec.get("priority", RestorePriority.SNAPSHOT)),
             wait_for_indexing=spec.get("waitForIndexing", True),
         )
 
+    def target_name(self, collection: str) -> str:
+        return self.collection_mapping.get(collection, collection)
 
-@dataclass
+    def select_collections(self, available: Iterable[str]) -> tuple[str, ...]:
+        names = tuple(available)
+        if not self.collections:
+            return names
+        missing = [c for c in self.collections if c not in names]
+        if missing:
+            raise ValueError(f"Collections not present in backup: {', '.join(missing)}")
+        return self.collections
+
+
+@dataclass(frozen=True)
 class RestoredCollection:
-    """Status of a restored collection."""
-
     name: str
+    status: str
     original_name: str | None = None
-    status: str = "Pending"
     size: str | None = None
     points_count: int | None = None
     error: str | None = None
 
-    def to_dict(self) -> dict:
-        """Convert to dict."""
-        result: dict = {"name": self.name, "status": self.status}
-        if self.original_name:
-            result["originalName"] = self.original_name
-        if self.size:
-            result["size"] = self.size
-        if self.points_count is not None:
-            result["pointsCount"] = self.points_count
-        if self.error:
-            result["error"] = self.error
-        return result
+    def to_dict(self) -> JsonDict:
+        return {
+            "name": self.name,
+            "originalName": self.original_name,
+            "status": self.status,
+            "size": self.size,
+            "pointsCount": self.points_count,
+            "error": self.error,
+        }
 
 
-@dataclass
+@dataclass(frozen=True)
 class RestoreProgress:
-    """Progress of a restore operation."""
-
     collections_total: int = 0
     collections_completed: int = 0
     current_collection: str | None = None
-    percentage: int = 0
 
-    def to_dict(self) -> dict:
-        """Convert to dict."""
-        result: dict = {
+    @property
+    def percentage(self) -> int:
+        if not self.collections_total:
+            return 0
+        return round(100 * self.collections_completed / self.collections_total)
+
+    def to_dict(self) -> JsonDict:
+        return {
             "collectionsTotal": self.collections_total,
             "collectionsCompleted": self.collections_completed,
+            "currentCollection": self.current_collection,
             "percentage": self.percentage,
         }
-        if self.current_collection:
-            result["currentCollection"] = self.current_collection
-        return result
 
 
-@dataclass
+@dataclass(frozen=True)
 class RestoreStatus:
-    """Status of a QdrantRestore."""
-
     phase: RestorePhase
     start_time: datetime | None = None
     completion_time: datetime | None = None
     source_backup: str | None = None
-    restored_collections: list[RestoredCollection] = field(default_factory=list)
+    restored_collections: tuple[RestoredCollection, ...] = ()
     progress: RestoreProgress = field(default_factory=RestoreProgress)
     error: str | None = None
-    conditions: list[Condition] = field(default_factory=list)
+    conditions: tuple[Condition, ...] = ()
 
-    def to_dict(self) -> dict:
-        """Convert to Kubernetes status dict."""
-        result: dict = {"phase": self.phase.value}
-        if self.start_time:
-            result["startTime"] = self.start_time.isoformat()
-        if self.completion_time:
-            result["completionTime"] = self.completion_time.isoformat()
-        if self.source_backup:
-            result["sourceBackup"] = self.source_backup
-        if self.restored_collections:
-            result["restoredCollections"] = [c.to_dict() for c in self.restored_collections]
-        result["progress"] = self.progress.to_dict()
-        if self.error:
-            result["error"] = self.error
-        if self.conditions:
-            result["conditions"] = [c.to_dict() for c in self.conditions]
-        return result
-
-
-def build_helm_values(spec: ClusterSpec) -> dict:
-    """Build Helm values dict from ClusterSpec."""
-    persistence: dict = {
-        "size": spec.persistence.size,
-        "accessModes": list(spec.persistence.access_modes),
-    }
-    if spec.persistence.storage_class:
-        persistence = {**persistence, "storageClassName": spec.persistence.storage_class}
-
-    resources: dict = {}
-    if spec.resources.requests.cpu or spec.resources.requests.memory:
-        requests = {
-            k: v
-            for k, v in [
-                ("cpu", spec.resources.requests.cpu),
-                ("memory", spec.resources.requests.memory),
-            ]
-            if v
+    def to_dict(self) -> JsonDict:
+        return {
+            "phase": self.phase.value,
+            "startTime": format_time(self.start_time) if self.start_time else None,
+            "completionTime": (format_time(self.completion_time) if self.completion_time else None),
+            "sourceBackup": self.source_backup,
+            "restoredCollections": [c.to_dict() for c in self.restored_collections],
+            "progress": self.progress.to_dict(),
+            "error": self.error,
+            "conditions": [c.to_dict() for c in self.conditions],
         }
-        resources = {"requests": requests}
-
-    if spec.resources.limits.cpu or spec.resources.limits.memory:
-        limits = {
-            k: v
-            for k, v in [
-                ("cpu", spec.resources.limits.cpu),
-                ("memory", spec.resources.limits.memory),
-            ]
-            if v
-        }
-        resources = {**resources, "limits": limits}
-
-    tag = spec.version if spec.version.startswith("v") else f"v{spec.version}"
-    values: dict = {
-        "replicaCount": spec.replicas,
-        "image": {"tag": tag},
-        "persistence": persistence,
-        "config": {"cluster": {"enabled": spec.cluster_enabled}},
-    }
-
-    if resources:
-        values = {**values, "resources": resources}
-
-    if spec.metrics_enabled:
-        values = {**values, "metrics": {"serviceMonitor": {"enabled": True}}}
-
-    return values
