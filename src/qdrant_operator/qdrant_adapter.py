@@ -1,169 +1,124 @@
-"""Qdrant REST API adapter."""
+"""Qdrant REST API adapter. Stateless: every call opens its own client against the given node."""
 
+import ssl
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import UTC
-from datetime import datetime
-from pathlib import Path
+from typing import Any
 
 import httpx
-import structlog
+from loguru import logger
 
+from qdrant_operator.domain import JsonDict
+from qdrant_operator.domain import QdrantNode
+from qdrant_operator.domain import RestorePriority
 from qdrant_operator.domain import Snapshot
 
-log = structlog.get_logger()
+STREAM_CHUNK_BYTES = 1024 * 1024
 
 
 @dataclass
 class QdrantAdapter:
-    """Adapter for Qdrant REST API operations."""
+    timeout_seconds: float = 30.0
+    snapshot_timeout_seconds: float = 3600.0
 
-    endpoint: str
-    api_key: str | None = None
-    timeout: float = 30.0
-
-    async def list_collections(self) -> list[str]:
-        """List all collection names."""
+    @asynccontextmanager
+    async def client(self, node: QdrantNode, timeout: float) -> AsyncIterator[httpx.AsyncClient]:
         async with httpx.AsyncClient(
-            base_url=self.endpoint,
-            headers=self.headers(),
-            timeout=self.timeout,
+            base_url=node.url,
+            headers={"api-key": node.api_key} if node.api_key else {},
+            timeout=timeout,
+            verify=self.ssl_context(node),
         ) as client:
-            response = await client.get("/collections")
-            response.raise_for_status()
-            data = response.json()
-            return [c["name"] for c in data["result"]["collections"]]
+            yield client
 
-    async def create_snapshot(self, collection: str) -> Snapshot:
-        """Create a snapshot of a collection."""
-        async with httpx.AsyncClient(
-            base_url=self.endpoint,
-            headers=self.headers(),
-            timeout=300.0,
-        ) as client:
-            response = await client.post(f"/collections/{collection}/snapshots")
-            response.raise_for_status()
-            data = response.json()["result"]
+    @staticmethod
+    def ssl_context(node: QdrantNode) -> ssl.SSLContext | bool:
+        if not node.ca_cert:
+            return True
+        context = ssl.create_default_context()
+        context.load_verify_locations(cadata=node.ca_cert)
+        return context
 
-            await log.ainfo("snapshot_created", collection=collection, snapshot=data["name"])
+    async def list_collections(self, node: QdrantNode) -> list[str]:
+        async with self.client(node, self.timeout_seconds) as client:
+            result = await self.result(client.get("/collections"))
+            return [c["name"] for c in result["collections"]]
 
-            return Snapshot(
-                name=data["name"],
-                collection=collection,
-                size_bytes=data.get("size", 0),
-                created_at=datetime.now(UTC),
+    async def create_snapshot(self, node: QdrantNode, collection: str) -> Snapshot:
+        async with self.client(node, self.snapshot_timeout_seconds) as client:
+            result = await self.result(
+                client.post(f"/collections/{collection}/snapshots", params={"wait": "true"})
             )
-
-    async def list_snapshots(self, collection: str) -> list[Snapshot]:
-        """List snapshots for a collection."""
-        async with httpx.AsyncClient(
-            base_url=self.endpoint,
-            headers=self.headers(),
-            timeout=self.timeout,
-        ) as client:
-            response = await client.get(f"/collections/{collection}/snapshots")
-            response.raise_for_status()
-            data = response.json()["result"]
-
-            return [
-                Snapshot(
-                    name=s["name"],
-                    collection=collection,
-                    size_bytes=s.get("size", 0),
-                    created_at=(
-                        datetime.fromisoformat(s["creation_time"])
-                        if s.get("creation_time")
-                        else datetime.now(UTC)
-                    ),
-                )
-                for s in data
-            ]
-
-    async def delete_snapshot(self, collection: str, snapshot_name: str) -> None:
-        """Delete a snapshot."""
-        async with httpx.AsyncClient(
-            base_url=self.endpoint,
-            headers=self.headers(),
-            timeout=self.timeout,
-        ) as client:
-            response = await client.delete(
-                f"/collections/{collection}/snapshots/{snapshot_name}"
-            )
-            response.raise_for_status()
-            await log.ainfo("snapshot_deleted", collection=collection, snapshot=snapshot_name)
-
-    async def download_snapshot(
-        self,
-        collection: str,
-        snapshot_name: str,
-        destination: str,
-    ) -> str:
-        """Download a snapshot to local path."""
-        async with httpx.AsyncClient(
-            base_url=self.endpoint,
-            headers=self.headers(),
-            timeout=600.0,
-        ) as client:
-            async with client.stream(
-                "GET",
-                f"/collections/{collection}/snapshots/{snapshot_name}",
-            ) as response:
-                response.raise_for_status()
-                path = Path(destination)
-                path.parent.mkdir(parents=True, exist_ok=True)
-
-                with path.open("wb") as f:
-                    async for chunk in response.aiter_bytes(chunk_size=8192):
-                        f.write(chunk)
-
-        await log.ainfo(
-            "snapshot_downloaded",
-            collection=collection,
-            snapshot=snapshot_name,
-            destination=destination,
+        logger.info(
+            "snapshot created", node=node.url, collection=collection, snapshot=result["name"]
         )
-        return destination
+        return Snapshot(
+            name=result["name"],
+            collection=collection,
+            size_bytes=result.get("size", 0),
+            checksum=result.get("checksum"),
+        )
 
-    async def recover_from_snapshot(self, collection: str, snapshot_path: str) -> None:
-        """Recover a collection from a snapshot file."""
-        async with httpx.AsyncClient(
-            base_url=self.endpoint,
-            headers=self.headers(),
-            timeout=600.0,
-        ) as client:
-            with Path(snapshot_path).open("rb") as f:
-                response = await client.post(
-                    f"/collections/{collection}/snapshots/upload",
-                    content=f.read(),
-                    headers={"Content-Type": "application/octet-stream"},
+    async def stream_snapshot(
+        self, node: QdrantNode, collection: str, snapshot_name: str
+    ) -> AsyncIterator[bytes]:
+        path = f"/collections/{collection}/snapshots/{snapshot_name}"
+        async with (
+            self.client(node, self.snapshot_timeout_seconds) as client,
+            client.stream("GET", path) as response,
+        ):
+            response.raise_for_status()
+            async for chunk in response.aiter_bytes(STREAM_CHUNK_BYTES):
+                yield chunk
+
+    async def delete_snapshot(self, node: QdrantNode, collection: str, snapshot_name: str) -> None:
+        async with self.client(node, self.timeout_seconds) as client:
+            await self.result(
+                client.delete(
+                    f"/collections/{collection}/snapshots/{snapshot_name}",
+                    params={"wait": "true"},
                 )
-            response.raise_for_status()
-            await log.ainfo("snapshot_recovered", collection=collection, snapshot=snapshot_path)
+            )
+        logger.info(
+            "snapshot deleted", node=node.url, collection=collection, snapshot=snapshot_name
+        )
 
-    async def get_collection_info(self, collection: str) -> dict:
-        """Get collection info including point count and status."""
-        async with httpx.AsyncClient(
-            base_url=self.endpoint,
-            headers=self.headers(),
-            timeout=self.timeout,
-        ) as client:
-            response = await client.get(f"/collections/{collection}")
-            response.raise_for_status()
-            return response.json()["result"]
+    async def recover_snapshot(
+        self,
+        node: QdrantNode,
+        collection: str,
+        location: str,
+        priority: RestorePriority,
+        checksum: str | None,
+    ) -> None:
+        body: JsonDict = {"location": location, "priority": priority.value}
+        if checksum:
+            body["checksum"] = checksum
+        async with self.client(node, self.snapshot_timeout_seconds) as client:
+            await self.result(
+                client.put(
+                    f"/collections/{collection}/snapshots/recover",
+                    params={"wait": "true"},
+                    json=body,
+                )
+            )
+        logger.info("snapshot recovered", node=node.url, collection=collection)
 
-    async def health_check(self) -> bool:
-        """Check if Qdrant is healthy and ready."""
+    async def collection_info(self, node: QdrantNode, collection: str) -> JsonDict:
+        async with self.client(node, self.timeout_seconds) as client:
+            return await self.result(client.get(f"/collections/{collection}"))
+
+    async def ready(self, node: QdrantNode) -> bool:
         try:
-            async with httpx.AsyncClient(
-                base_url=self.endpoint,
-                timeout=5.0,
-            ) as client:
-                response = await client.get("/healthz")
+            async with self.client(node, 5.0) as client:
+                response = await client.get("/readyz")
                 return response.status_code == 200
-        except httpx.RequestError:
+        except httpx.HTTPError:
             return False
 
-    def headers(self) -> dict[str, str]:
-        """Build request headers."""
-        if self.api_key:
-            return {"api-key": self.api_key}
-        return {}
+    @staticmethod
+    async def result(request: Any) -> JsonDict:
+        response: httpx.Response = await request
+        response.raise_for_status()
+        return response.json()["result"]
