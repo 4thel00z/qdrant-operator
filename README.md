@@ -237,15 +237,16 @@ CI (`.github/workflows/ci.yml`) runs lint, pyright, unit tests, chart lint, a wh
 kind-based end-to-end suite on every push and pull request.
 
 Releases are driven by [release-please](https://github.com/googleapis/release-please) from the
-conventional commit history: every push to `main` maintains a release PR that bumps
-`pyproject.toml`, `Chart.yaml`, refreshes `uv.lock` and updates `CHANGELOG.md`. Merging that PR
-creates the `vX.Y.Z` tag and the GitHub release; `release.yml` then publishes the wheel and sdist to
-PyPI (trusted publishing, no token), pushes the multi-arch image and the Helm chart to ghcr.io, and
-attaches the artifacts and CRDs to the release.
+conventional commit history, all inside `.github/workflows/release.yml` on pushes to `main`:
 
-The workflow needs a `RELEASE_PLEASE_TOKEN` repository secret (a fine-grained PAT with *Contents*
-and *Pull requests* read/write), because tags pushed with the default `GITHUB_TOKEN` do not trigger
-other workflows.
+1. A release PR is kept up to date that bumps `pyproject.toml` and `Chart.yaml`, refreshes `uv.lock`
+   and updates `CHANGELOG.md`.
+2. Merging that PR creates the `vX.Y.Z` tag and the GitHub release, and the same run publishes the
+   wheel and sdist to PyPI (trusted publishing, no token), pushes the multi-arch image and the Helm
+   chart to ghcr.io, and attaches the artifacts and CRDs to the release.
+
+No secrets are involved beyond the default `GITHUB_TOKEN`; the repository setting *Allow GitHub
+Actions to create and approve pull requests* must be on for the release PR to appear.
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

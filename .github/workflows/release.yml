@@ -2,10 +2,14 @@ name: Release
 
 on:
   push:
-    tags: ["v*.*.*"]
+    branches: [main]
 
 permissions:
   contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
   UV_FROZEN: "1"
@@ -13,32 +17,59 @@ env:
   CHART_OCI: oci://ghcr.io/${{ github.repository_owner }}/charts
 
 jobs:
-  verify:
-    name: Tag matches project version
+  release-please:
+    name: Release PR or tag
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      pr: ${{ steps.release.outputs.pr }}
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  refresh-lock:
+    name: Refresh uv.lock on the release PR
+    runs-on: ubuntu-latest
+    needs: release-please
+    if: ${{ needs.release-please.outputs.pr }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
       - uses: astral-sh/setup-uv@v6
-      - id: version
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          project="$(uv version --short)"
-          test "$tag" = "$project" || { echo "tag v$tag but pyproject says $project" >&2; exit 1; }
-          echo "version=$tag" >> "$GITHUB_OUTPUT"
+      - run: uv lock
+      - run: |
+          git diff --quiet uv.lock && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -s -am "chore: refresh uv.lock for release"
+          git push
 
   pypi:
     name: Publish to PyPI
     runs-on: ubuntu-latest
-    needs: verify
+    needs: release-please
+    if: ${{ needs.release-please.outputs.created == 'true' }}
     environment: pypi
     permissions:
       id-token: write
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
       - uses: astral-sh/setup-uv@v6
+      - run: test "$(uv version --short)" = "${{ needs.release-please.outputs.version }}"
       - run: uv build
       - run: uv run --isolated --no-project --with dist/*.whl qdrant-operator --help
       - uses: pypa/gh-action-pypi-publish@release/v1
@@ -52,7 +83,8 @@ jobs:
   image:
     name: Push container image
     runs-on: ubuntu-latest
-    needs: verify
+    needs: release-please
+    if: ${{ needs.release-please.outputs.created == 'true' }}
     permissions:
       contents: read
       packages: write
@@ -60,6 +92,8 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -72,8 +106,8 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{version}},value=${{ needs.release-please.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.release-please.outputs.tag }}
             type=raw,value=latest
       - id: build
         uses: docker/build-push-action@v6
@@ -96,37 +130,41 @@ jobs:
   chart:
     name: Push Helm chart
     runs-on: ubuntu-latest
-    needs: [verify, image]
+    needs: [release-please, image]
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
       - uses: azure/setup-helm@v4
       - run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
       - run: |
           helm package charts/qdrant-operator \
-            --version "${{ needs.verify.outputs.version }}" \
-            --app-version "${{ needs.verify.outputs.version }}" \
+            --version "${{ needs.release-please.outputs.version }}" \
+            --app-version "${{ needs.release-please.outputs.version }}" \
             --destination dist/
-          helm push dist/qdrant-operator-${{ needs.verify.outputs.version }}.tgz "$CHART_OCI"
+          helm push dist/qdrant-operator-${{ needs.release-please.outputs.version }}.tgz "$CHART_OCI"
       - uses: actions/upload-artifact@v4
         with:
           name: chart
           path: dist/
 
-  github-release:
+  assets:
     name: Attach artifacts to the GitHub release
     runs-on: ubuntu-latest
-    needs: [verify, pypi, chart]
+    needs: [release-please, pypi, chart]
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
-      - run: gh release upload "$GITHUB_REF_NAME" artifacts/* manifests/crds/*.yaml --clobber
+      - run: gh release upload "${{ needs.release-please.outputs.tag }}" artifacts/* manifests/crds/*.yaml --clobber
         env:
           GH_TOKEN: ${{ github.token }}
