@@ -1,6 +1,6 @@
 [project]
 name = "qdrant-operator"
-version = "0.2.0"
+version = "0.2.1"
 description = "Kubernetes operator for Qdrant vector database"
 readme = "README.md"
 license = "MIT"
