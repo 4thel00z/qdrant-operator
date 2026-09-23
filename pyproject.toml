@@ -3,6 +3,23 @@ name = "qdrant-operator"
 version = "0.1.0"
 description = "Kubernetes operator for Qdrant vector database"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Mohamed Tahrioui" }]
+keywords = ["kubernetes", "operator", "qdrant", "kopf", "vector-database"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: No Input/Output (Daemon)",
+    "Framework :: AsyncIO",
+    "Intended Audience :: System Administrators",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: System :: Clustering",
+    "Typing :: Typed",
+]
 requires-python = ">=3.12"
 dependencies = [
     "kopf[uvloop]>=1.40.0",
@@ -10,7 +27,7 @@ dependencies = [
     "httpx>=0.28.0",
     "aioboto3>=13.0.0",
     "croniter>=5.0.0",
-    "structlog>=24.4.0",
+    "loguru>=0.7.3",
 ]
 
 [dependency-groups]
@@ -22,8 +39,18 @@ dev = [
     "pyright>=1.1.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/4thel00z/qdrant-operator"
+Repository = "https://github.com/4thel00z/qdrant-operator"
+Issues = "https://github.com/4thel00z/qdrant-operator/issues"
+Changelog = "https://github.com/4thel00z/qdrant-operator/releases"
+
 [project.scripts]
-qdrant-operator = "qdrant_operator.main:main"
+qdrant-operator = "qdrant_operator.main:run"
+
+[build-system]
+requires = ["uv_build>=0.8,<1.0"]
+build-backend = "uv_build"
 
 [tool.uv]
 package = true
@@ -35,10 +62,18 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM", "ARG"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/fakes.py" = ["ARG002"]
+
+[tool.ruff.lint.isort]
+force-single-line = true
+
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
+reportMissingTypeStubs = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = ["integration: needs a reachable Kubernetes cluster and helm (set QDRANT_OPERATOR_INTEGRATION=1)"]
