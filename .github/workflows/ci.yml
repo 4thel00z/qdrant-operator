@@ -30,7 +30,7 @@ jobs:
       - run: uv run ruff format --check src tests
       - run: uv run pyright src tests
       - run: uv run pytest -q --cov=src --cov-report=xml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage.xml

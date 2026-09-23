@@ -75,7 +75,7 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           attestations: true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -146,7 +146,7 @@ jobs:
             --app-version "${{ needs.release-please.outputs.version }}" \
             --destination dist/
           helm push dist/qdrant-operator-${{ needs.release-please.outputs.version }}.tgz "$CHART_OCI"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: chart
           path: dist/
