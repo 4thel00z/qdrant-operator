@@ -234,14 +234,18 @@ uv run pyright src tests
 
 ## Releasing
 CI (`.github/workflows/ci.yml`) runs lint, pyright, unit tests, chart lint, a wheel/image build and the
-kind-based end-to-end suite on every push and pull request. A release is a tag:
-```bash
-uv version 0.2.0            # bumps pyproject.toml
-git commit -sam "chore: release 0.2.0" && git tag v0.2.0 && git push --follow-tags
-```
-`release.yml` checks the tag against the project version, then publishes the wheel and sdist to PyPI
-(trusted publishing, no token), pushes the multi-arch image and the Helm chart to ghcr.io, and creates
-a GitHub release with the artifacts and CRDs attached.
+kind-based end-to-end suite on every push and pull request.
+
+Releases are driven by [release-please](https://github.com/googleapis/release-please) from the
+conventional commit history: every push to `main` maintains a release PR that bumps
+`pyproject.toml`, `Chart.yaml`, refreshes `uv.lock` and updates `CHANGELOG.md`. Merging that PR
+creates the `vX.Y.Z` tag and the GitHub release; `release.yml` then publishes the wheel and sdist to
+PyPI (trusted publishing, no token), pushes the multi-arch image and the Helm chart to ghcr.io, and
+attaches the artifacts and CRDs to the release.
+
+The workflow needs a `RELEASE_PLEASE_TOKEN` repository secret (a fine-grained PAT with *Contents*
+and *Pull requests* read/write), because tags pushed with the default `GITHUB_TOKEN` do not trigger
+other workflows.
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
