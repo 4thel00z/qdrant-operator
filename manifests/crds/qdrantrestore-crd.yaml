@@ -41,6 +41,11 @@ spec:
               type: object
               required:
                 - targetClusterRef
+              x-kubernetes-validations:
+                - rule: "has(self.backupRef) != has(self.source)"
+                  message: "set exactly one of backupRef or source"
+                - rule: "self == oldSelf"
+                  message: "spec is immutable; create a new QdrantRestore instead"
               properties:
                 backupRef:
                   type: object

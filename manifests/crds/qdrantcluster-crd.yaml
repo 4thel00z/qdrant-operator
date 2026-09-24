@@ -44,6 +44,13 @@ spec:
               type: object
               required:
                 - version
+              x-kubernetes-validations:
+                - rule: "self.replicas == 1 || !has(self.cluster) || self.cluster.enabled"
+                  message: "replicas > 1 requires cluster.enabled"
+                - rule: "(has(self.persistence) ? self.persistence.size : '10Gi') == (has(oldSelf.persistence) ? oldSelf.persistence.size : '10Gi')"
+                  message: "persistence.size is immutable (StatefulSet volume claim templates cannot change)"
+                - rule: "(has(self.persistence) && has(self.persistence.storageClassName) ? self.persistence.storageClassName : '') == (has(oldSelf.persistence) && has(oldSelf.persistence.storageClassName) ? oldSelf.persistence.storageClassName : '')"
+                  message: "persistence.storageClassName is immutable"
               properties:
                 replicas:
                   type: integer
@@ -51,6 +58,8 @@ spec:
                   default: 1
                 version:
                   type: string
+                  pattern: '^v?[0-9]+\.[0-9]+\.[0-9]+$'
+                  description: Qdrant version, also the qdrant-helm chart version (e.g. v1.16.3)
                 image:
                   type: object
                   properties:
@@ -130,6 +139,9 @@ spec:
                         type: string
                 apiKey:
                   type: object
+                  x-kubernetes-validations:
+                    - rule: "!(has(self.secretRef) && self.autoGenerate)"
+                      message: "set either secretRef or autoGenerate, not both"
                   properties:
                     secretRef:
                       type: object
@@ -146,6 +158,9 @@ spec:
                       default: false
                 readOnlyApiKey:
                   type: object
+                  x-kubernetes-validations:
+                    - rule: "!(has(self.secretRef) && self.autoGenerate)"
+                      message: "set either secretRef or autoGenerate, not both"
                   properties:
                     secretRef:
                       type: object
@@ -159,6 +174,9 @@ spec:
                       default: false
                 tls:
                   type: object
+                  x-kubernetes-validations:
+                    - rule: "!self.enabled || (has(self.secretRef) && has(self.secretRef.name))"
+                      message: "tls.enabled requires tls.secretRef.name (a kubernetes.io/tls secret)"
                   properties:
                     enabled:
                       type: boolean

@@ -42,6 +42,9 @@ spec:
               required:
                 - clusterRef
                 - storage
+              x-kubernetes-validations:
+                - rule: "self == oldSelf"
+                  message: "spec is immutable; create a new QdrantBackup instead"
               properties:
                 clusterRef:
                   type: object

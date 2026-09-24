@@ -105,3 +105,38 @@ async def test_delete_cluster_uninstalls_release(spec: ClusterSpec) -> None:
     helm = HelmAdapter()
     await DeleteCluster(helm).execute(spec)
     assert not await helm.release_exists(spec.release_name, NAMESPACE)
+
+
+def dry_run_apply(manifest: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["kubectl", "apply", "--dry-run=server", "-n", NAMESPACE, "-f", "-"],
+        input=manifest,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_admission_rejects_restore_without_a_source() -> None:
+    result = dry_run_apply(
+        "apiVersion: qdrant.io/v1alpha1\nkind: QdrantRestore\nmetadata:\n  name: no-source\n"
+        "spec:\n  targetClusterRef:\n    name: db\n"
+    )
+    assert result.returncode != 0
+    assert "exactly one of backupRef or source" in result.stderr
+
+
+def test_admission_rejects_multi_replica_single_node_cluster() -> None:
+    result = dry_run_apply(
+        "apiVersion: qdrant.io/v1alpha1\nkind: QdrantCluster\nmetadata:\n  name: lonely\n"
+        "spec:\n  version: v1.16.3\n  replicas: 3\n  cluster:\n    enabled: false\n"
+    )
+    assert result.returncode != 0
+    assert "requires cluster.enabled" in result.stderr
+
+
+def test_admission_accepts_a_valid_cluster() -> None:
+    result = dry_run_apply(
+        "apiVersion: qdrant.io/v1alpha1\nkind: QdrantCluster\nmetadata:\n  name: fine\n"
+        "spec:\n  version: v1.16.3\n  replicas: 3\n"
+    )
+    assert result.returncode == 0, result.stderr
