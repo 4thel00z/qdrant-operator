@@ -166,7 +166,7 @@ async def test_collection_calls_round_trip_against_real_qdrant(spec: ClusterSpec
         assert await adapter.list_aliases(node) == {"docs-live": "docs"}
 
         tuned = replace(collection, optimizers={"indexing_threshold": 5000})
-        await adapter.update_collection(node, "docs", tuned.update_body())
+        await adapter.update_collection(node, "docs", tuned.update_body(info["config"]))
         info = await adapter.collection_info(node, "docs")
         assert not is_subset(collection.mutable_config(), info["config"])
         assert is_subset(tuned.mutable_config(), info["config"])

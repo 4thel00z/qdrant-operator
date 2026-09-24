@@ -1489,20 +1489,32 @@ class CollectionSpec:
             }
         )
 
-    def update_body(self) -> JsonDict:
-        """Body of PATCH /collections/{name}: only what Qdrant lets a live collection change."""
-        vector_diffs = {v.key: v.mutable_params() for v in self.vectors if v.mutable_params()}
-        return drop_empty(
-            {
-                "vectors": vector_diffs or None,
-                "sparse_vectors": self.sparse_config(),
-                "params": self.collection_params() or None,
-                "hnsw_config": self.hnsw or None,
-                "optimizers_config": self.optimizers or None,
-                "quantization_config": self.quantization or None,
-                "strict_mode_config": self.strict_mode or None,
+    def update_body(self, config: Mapping[str, Any]) -> JsonDict:
+        """Body of PATCH /collections/{name}: only the declared blocks the live config misses.
+
+        Sending a block Qdrant already satisfies is not free: optimizers_config blocks until
+        running optimizations finish, so an unchanged block is left out.
+        """
+        live_params: Mapping[str, Any] = config.get("params", {})
+        blocks: dict[str, tuple[Any, Any]] = {
+            "vectors": (self.vectors_config(VectorSpec.mutable_params), live_params.get("vectors")),
+            "sparse_vectors": (self.sparse_config(), live_params.get("sparse_vectors")),
+            "params": (self.collection_params() or None, live_params),
+            "hnsw_config": (self.hnsw or None, config.get("hnsw_config")),
+            "optimizers_config": (self.optimizers or None, config.get("optimizer_config")),
+            "quantization_config": (self.quantization or None, config.get("quantization_config")),
+            "strict_mode_config": (self.strict_mode or None, config.get("strict_mode_config")),
+        }
+        body = {
+            key: desired
+            for key, (desired, live) in blocks.items()
+            if desired is not None and not is_subset(desired, live)
+        }
+        if "vectors" in body:
+            body["vectors"] = {
+                v.key: v.mutable_params() for v in self.vectors if v.mutable_params()
             }
-        )
+        return body
 
     def immutable_config(self) -> JsonDict:
         """The part of GET /collections/{name} `config` that only a re-creation can change."""

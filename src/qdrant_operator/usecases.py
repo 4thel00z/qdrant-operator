@@ -662,8 +662,9 @@ class ReconcileCollection:
                 message="vectors, shardNumber or shardingMethod differ from the live collection; "
                 "only re-creating the collection can change them",
             )
-        if not is_subset(spec.mutable_config(), config):
-            await self.qdrant.update_collection(node, name, spec.update_body())
+        update = spec.update_body(config)
+        if update:
+            await self.qdrant.update_collection(node, name, update)
 
         indexes = await self.reconcile_indexes(
             node, spec, info.get("payload_schema", {}), current.payload_indexes

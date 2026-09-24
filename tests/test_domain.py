@@ -270,7 +270,9 @@ def test_collection_single_unnamed_vector_becomes_bare_params() -> None:
     assert spec.collection_name == "docs"
     assert spec.deletion_policy == DeletionPolicy.RETAIN
     assert spec.create_body() == {"vectors": {"size": 768, "distance": "Cosine", "on_disk": True}}
-    assert spec.update_body() == {"vectors": {"": {"on_disk": True}}}
+    live = {"params": {"vectors": {"size": 768, "distance": "Cosine"}}}
+    assert spec.update_body(live) == {"vectors": {"": {"on_disk": True}}}
+    assert spec.update_body({"params": {"vectors": {"on_disk": True}}}) == {}
     assert spec.immutable_config() == {"params": {"vectors": {"size": 768, "distance": "Cosine"}}}
 
 
@@ -305,8 +307,25 @@ def test_collection_named_vectors_and_tuning_blocks_map_to_qdrant_names() -> Non
     )
     assert body["optimizers_config"] == {"indexing_threshold": 10000}
     assert body["wal_config"] == {"wal_capacity_mb": 64}
-    assert "wal_config" not in spec.update_body()
-    assert spec.update_body()["params"] == {"replication_factor": 2, "on_disk_payload": False}
+    live = {
+        "params": {
+            "vectors": {"text": {"size": 384, "distance": "Dot"}},
+            "replication_factor": 1,
+            "on_disk_payload": True,
+        },
+        "optimizer_config": {"indexing_threshold": 10000},
+    }
+    patch = spec.update_body(live)
+    assert set(patch) == {
+        "vectors",
+        "sparse_vectors",
+        "params",
+        "quantization_config",
+        "strict_mode_config",
+    }
+    assert "wal_config" not in patch and "optimizers_config" not in patch
+    assert patch["params"] == {"replication_factor": 2, "on_disk_payload": False}
+    assert patch["vectors"] == {"text": {"hnsw_config": {"m": 32}}}
     assert spec.mutable_config()["optimizer_config"] == {"indexing_threshold": 10000}
     assert spec.mutable_config()["params"]["vectors"] == {"text": {"hnsw_config": {"m": 32}}}
 

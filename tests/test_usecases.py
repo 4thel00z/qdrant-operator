@@ -518,14 +518,10 @@ async def test_reconcile_collection_is_idempotent_and_patches_only_mutable_drift
 
     first = await use_case.execute(spec, 1, CollectionStatus(CollectionPhase.PENDING))
     second = await use_case.execute(spec, 1, first)
-    changed = replace(spec, optimizers={"indexing_threshold": 20000}, replication_factor=2)
+    changed = replace(spec, replication_factor=2)
     third = await use_case.execute(changed, 2, second)
 
-    expected_patch = {
-        "params": {"replication_factor": 2},
-        "optimizers_config": {"indexing_threshold": 20000},
-    }
-    assert qdrant.updates == [("docs", expected_patch)]
+    assert qdrant.updates == [("docs", {"params": {"replication_factor": 2}})]
     assert qdrant.alias_changes == [
         [{"create_alias": {"collection_name": "docs", "alias_name": "docs-live"}}]
     ]
