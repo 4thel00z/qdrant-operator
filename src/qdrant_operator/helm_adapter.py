@@ -30,6 +30,7 @@ class HelmAdapter:
         chart_version: str,
         values: Mapping[str, Any],
     ) -> None:
+        await self.recover_pending(release_name, namespace)
         await self.run(
             "upgrade",
             "--install",
@@ -53,11 +54,31 @@ class HelmAdapter:
         logger.info("helm release uninstalled", release=release_name, namespace=namespace)
 
     async def release_exists(self, release_name: str, namespace: str) -> bool:
+        return bool(await self.release_status(release_name, namespace))
+
+    async def release_status(self, release_name: str, namespace: str) -> str:
+        """Helm's release status (deployed, failed, pending-upgrade, ...), empty when absent."""
         try:
-            await self.run("status", release_name, "--namespace", namespace, "--output", "json")
+            output = await self.run(
+                "status", release_name, "--namespace", namespace, "--output", "json"
+            )
         except HelmError:
-            return False
-        return True
+            return ""
+        return str(json.loads(output).get("info", {}).get("status", ""))
+
+    async def recover_pending(self, release_name: str, namespace: str) -> None:
+        """Roll back a release another helm process left mid-operation, or every upgrade fails.
+
+        Helm refuses to touch a release in a pending-* state ("another operation is in
+        progress"); that state is what a killed operator leaves behind.
+        """
+        status = await self.release_status(release_name, namespace)
+        if not status.startswith("pending-"):
+            return
+        logger.warning(
+            "helm release left pending, rolling back", release=release_name, status=status
+        )
+        await self.run("rollback", release_name, "--namespace", namespace)
 
     async def run(self, *args: str, stdin: bytes | None = None) -> str:
         command = ["helm", *args, *self.kubeconfig_args()]

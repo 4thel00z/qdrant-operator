@@ -12,7 +12,7 @@ serviceAccount:
 resources:
   limits:
     cpu: 500m
-    memory: 256Mi
+    memory: 512Mi   # snapshot streaming buffers up to ~32MiB of multipart parts on top of the interpreter
   requests:
     cpu: 100m
     memory: 128Mi

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import aioboto3
+from boto3.s3.transfer import TransferConfig
 from botocore.config import Config
 from loguru import logger
 
@@ -14,6 +15,8 @@ from qdrant_operator.domain import S3Credentials
 from qdrant_operator.domain import S3StorageSpec
 
 DELETE_BATCH_SIZE = 1000
+UPLOAD_PART_BYTES = 8 * 1024 * 1024
+UPLOAD_CONCURRENCY = 2
 
 
 @dataclass
@@ -66,7 +69,17 @@ class S3Adapter:
     ) -> int:
         reader = ChunkReader(chunks, bytearray())
         async with self.client(storage, credentials) as s3:
-            await s3.upload_fileobj(reader, storage.bucket, key)
+            await s3.upload_fileobj(
+                reader,
+                storage.bucket,
+                key,
+                Config=TransferConfig(
+                    multipart_threshold=UPLOAD_PART_BYTES,
+                    multipart_chunksize=UPLOAD_PART_BYTES,
+                    max_concurrency=UPLOAD_CONCURRENCY,
+                    max_io_queue=UPLOAD_CONCURRENCY,
+                ),
+            )
         logger.info("s3 upload complete", uri=storage.uri(key), bytes=reader.total)
         return reader.total
 
