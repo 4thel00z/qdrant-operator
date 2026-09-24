@@ -825,3 +825,22 @@ async def test_migration_reports_per_collection_failures_and_missing_sources(
     assert all(c.status == MigrationPhase.FAILED for c in status.collections)
     assert status.error and "createMissing is false" in status.error
     assert status.conditions[0].reason == "MigrationFailed"
+
+
+async def test_issue_access_key_refuses_to_overwrite_a_foreign_secret(
+    kubernetes: FakeKubernetes,
+) -> None:
+    kubernetes.put_resource(
+        cluster_body(apiKey={"secretRef": {"name": "api-keys", "key": "key"}, "jwtRbac": True})
+    )
+    kubernetes.secrets[(NS, "app-token")] = {"password": "keep-me"}
+    owner = access_key_body()
+    spec = AccessKeySpec.from_dict(owner["spec"], owner["metadata"])
+
+    status = await IssueAccessKey(kubernetes, JwtAdapter()).execute(
+        spec, 1, AccessKeyStatus(AccessKeyPhase.PENDING), owner, NOW
+    )
+
+    assert status.phase == AccessKeyPhase.PENDING
+    assert status.conditions[0].reason == "SecretNotOwned"
+    assert kubernetes.secrets[(NS, "app-token")] == {"password": "keep-me"}

@@ -144,7 +144,10 @@ class KubernetesPort(Protocol):
     async def apply_secret(
         self, name: str, namespace: str, data: Mapping[str, str], owner: JsonDict
     ) -> None:
-        """Create or replace an Opaque Secret owned by the given resource (ownerReferences)."""
+        """Create or replace an Opaque Secret owned by the given resource (ownerReferences).
+
+        Raises PermissionError when a Secret of that name exists without this owner.
+        """
         ...
 
     async def get_custom_resource(self, ref: ResourceRef) -> JsonDict | None: ...

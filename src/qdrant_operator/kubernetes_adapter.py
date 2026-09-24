@@ -85,6 +85,12 @@ class KubernetesAdapter:
             except ApiException as error:
                 if error.status != 409:
                     raise
+                existing: Any = await core.read_namespaced_secret(name=name, namespace=namespace)
+                owners: list[Any] = existing.metadata.owner_references or []
+                if all(ref.uid != owner["uid"] for ref in owners):
+                    raise PermissionError(
+                        f"Secret {namespace}/{name} exists and is not owned by this resource"
+                    ) from error
                 await core.replace_namespaced_secret(name=name, namespace=namespace, body=body)
         logger.info("secret applied", name=name, namespace=namespace)
 

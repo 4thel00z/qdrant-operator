@@ -368,8 +368,14 @@ class FakeKubernetes:
     async def apply_secret(
         self, name: str, namespace: str, data: Mapping[str, str], owner: JsonDict
     ) -> None:
-        self.secrets[(namespace, name)] = dict(data)
-        self.secret_owners[(namespace, name)] = owner
+        key = (namespace, name)
+        current_owner = self.secret_owners.get(key)
+        if key in self.secrets and (not current_owner or current_owner["uid"] != owner["uid"]):
+            raise PermissionError(
+                f"Secret {namespace}/{name} exists and is not owned by this resource"
+            )
+        self.secrets[key] = dict(data)
+        self.secret_owners[key] = owner
 
     async def get_custom_resource(self, ref: ResourceRef) -> JsonDict | None:
         return self.resources.get((ref.kind.plural, ref.namespace, ref.name))

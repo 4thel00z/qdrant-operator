@@ -816,15 +816,18 @@ class IssueAccessKey:
         if current.token_current(generation, fingerprint, await self.secret_present(spec), now):
             return current
 
-        await self.kubernetes.apply_secret(
-            spec.secret_name,
-            spec.namespace,
-            {
-                TOKEN_SECRET_KEY: self.token.sign(spec.claims(now), api_key),
-                URL_SECRET_KEY: cluster.service_url(),
-            },
-            owner_reference(owner),
-        )
+        try:
+            await self.kubernetes.apply_secret(
+                spec.secret_name,
+                spec.namespace,
+                {
+                    TOKEN_SECRET_KEY: self.token.sign(spec.claims(now), api_key),
+                    URL_SECRET_KEY: cluster.service_url(),
+                },
+                owner_reference(owner),
+            )
+        except PermissionError as error:
+            return self.blocked(current, generation, "SecretNotOwned", str(error))
         return AccessKeyStatus(
             phase=AccessKeyPhase.READY,
             secret_ref=spec.token_secret_ref(),
