@@ -11,6 +11,7 @@ from jwt.warnings import InsecureKeyLengthWarning
 
 from qdrant_operator.domain import BACKUPS
 from qdrant_operator.domain import CLUSTERS
+from qdrant_operator.domain import MIGRATIONS
 from qdrant_operator.domain import RESTORES
 from qdrant_operator.domain import SCHEDULES
 from qdrant_operator.domain import AccessKeyPhase
@@ -30,6 +31,8 @@ from qdrant_operator.domain import CollectionSpec
 from qdrant_operator.domain import CollectionStatus
 from qdrant_operator.domain import ConditionStatus
 from qdrant_operator.domain import JsonDict
+from qdrant_operator.domain import MigrationPhase
+from qdrant_operator.domain import MigrationSpec
 from qdrant_operator.domain import QdrantNode
 from qdrant_operator.domain import ResourceRef
 from qdrant_operator.domain import RestorePhase
@@ -44,6 +47,7 @@ from qdrant_operator.usecases import DeleteBackupData
 from qdrant_operator.usecases import DeleteCluster
 from qdrant_operator.usecases import DeleteCollection
 from qdrant_operator.usecases import ExecuteBackup
+from qdrant_operator.usecases import ExecuteMigration
 from qdrant_operator.usecases import ExecuteRestore
 from qdrant_operator.usecases import ExpireBackup
 from qdrant_operator.usecases import IssueAccessKey
@@ -702,3 +706,122 @@ async def test_issue_access_key_waits_until_the_cluster_enables_jwt_rbac(
     assert blocked.phase == AccessKeyPhase.PENDING
     assert blocked.conditions[0].reason == "JwtRbacDisabled"
     assert (NS, "app-token") not in kubernetes.secrets
+
+
+def migration_spec(**spec: object) -> MigrationSpec:
+    return MigrationSpec.from_dict(
+        {
+            "source": {"clusterRef": {"name": "db"}},
+            "targetClusterRef": {"name": "target"},
+            **spec,
+        },
+        {"name": "move", "namespace": NS},
+    )
+
+
+def sample_points(count: int, shard_keys: tuple[str, ...] = ()) -> list[JsonDict]:
+    return [
+        {
+            "id": i,
+            "vector": [float(i), 0.5],
+            "payload": {"n": i},
+            **({"shard_key": shard_keys[i % len(shard_keys)]} if shard_keys else {}),
+        }
+        for i in range(1, count + 1)
+    ]
+
+
+async def test_migration_copies_collections_in_batches_and_creates_targets(
+    kubernetes: FakeKubernetes,
+) -> None:
+    kubernetes.put_resource(cluster_body(name="target", replicas=3))
+    qdrant = FakeQdrant(
+        routes={service_url(): node_url(0), service_url("target"): node_url(0, "target")}
+    )
+    body = {"vectors": {"size": 2, "distance": "Dot"}, "shard_number": 1, "replication_factor": 1}
+    qdrant.add_collection(node_url(0), "docs", body=body)
+    qdrant.add_collection(node_url(0), "logs", body=body)
+    qdrant.add_points(node_url(0), "docs", sample_points(7))
+    qdrant.add_points(node_url(0), "logs", sample_points(2))
+    qdrant.collections[node_url(0, "target")] = {}
+    node = QdrantNode(node_url(0))
+    await qdrant.create_payload_index(node, "docs", "n", "integer")
+    spec = migration_spec(
+        batchSize=3, collectionMapping={"docs": "docs_v2"}, target={"replicationFactor": 2}
+    )
+    ref = ResourceRef(MIGRATIONS, "move", NS)
+
+    status = await ExecuteMigration(qdrant, kubernetes).execute(spec, ref)
+
+    target = node_url(0, "target")
+    assert status.phase == MigrationPhase.COMPLETED
+    assert status.source == f"{NS}/db"
+    assert [
+        (c.name, c.target_name, c.points_total, c.points_copied) for c in status.collections
+    ] == [
+        ("docs", "docs_v2", 7, 7),
+        ("logs", "logs", 2, 2),
+    ]
+    assert status.progress.percentage == 100
+    assert [p["id"] for p in qdrant.stored_points(target, "docs_v2")] == list(range(1, 8))
+    assert qdrant.stored_points(target, "docs_v2")[0]["payload"] == {"n": 1}
+    assert [n for c, _, n in qdrant.upserts if c == "docs_v2"] == [3, 3, 1]
+    created = qdrant.collections[target]["docs_v2"]["config"]["params"]
+    assert (created["vectors"], created["replication_factor"]) == (
+        {"size": 2, "distance": "Dot"},
+        2,
+    )
+    assert "n" in qdrant.collections[target]["docs_v2"]["payload_schema"]
+    phases = [p["phase"] for _, p in kubernetes.status_patches]
+    assert phases[0] == "Running" and len(phases) == 3
+
+
+async def test_migration_groups_upserts_by_shard_key_and_reads_external_endpoints(
+    kubernetes: FakeKubernetes,
+) -> None:
+    kubernetes.put_resource(cluster_body(name="target"))
+    kubernetes.secrets[(NS, "cloud")] = {"api-key": "cloud-key"}
+    cloud = "https://x.cloud.qdrant.io:6333"
+    qdrant = FakeQdrant(routes={service_url("target"): node_url(0, "target")})
+    qdrant.add_collection(cloud, "docs", body={"vectors": {"size": 2, "distance": "Dot"}})
+    qdrant.add_points(cloud, "docs", sample_points(4, shard_keys=("eu", "us")))
+    qdrant.add_collection(node_url(0, "target"), "docs")
+    spec = migration_spec(
+        source={"endpoint": {"url": cloud, "apiKeySecretRef": {"name": "cloud", "key": "api-key"}}},
+        batchSize=10,
+    )
+
+    status = await ExecuteMigration(qdrant, kubernetes).execute(
+        spec, ResourceRef(MIGRATIONS, "move", NS)
+    )
+
+    assert status.phase == MigrationPhase.COMPLETED
+    assert status.source == cloud
+    assert sorted(qdrant.upserts) == [("docs", "eu", 2), ("docs", "us", 2)]
+    assert qdrant.stored_points(node_url(0, "target"), "docs")[0]["shard_key"] == "us"
+
+
+async def test_migration_reports_per_collection_failures_and_missing_sources(
+    kubernetes: FakeKubernetes,
+) -> None:
+    kubernetes.put_resource(cluster_body(name="target"))
+    qdrant = FakeQdrant(
+        routes={service_url(): node_url(0), service_url("target"): node_url(0, "target")}
+    )
+    qdrant.add_collection(node_url(0), "docs")
+    qdrant.add_collection(node_url(0), "logs")
+    qdrant.add_points(node_url(0), "logs", sample_points(1))
+    qdrant.collections[node_url(0, "target")] = {}
+    use_case = ExecuteMigration(qdrant, kubernetes)
+    ref = ResourceRef(MIGRATIONS, "move", NS)
+
+    status = await use_case.execute(migration_spec(createMissing=False), ref)
+    with pytest.raises(ValueError, match="not present"):
+        await use_case.execute(migration_spec(collections=["ghost"]), ref)
+    with pytest.raises(ClusterNotFoundError):
+        await use_case.execute(migration_spec(targetClusterRef={"name": "ghost"}), ref)
+
+    assert status.phase == MigrationPhase.FAILED
+    assert all(c.status == MigrationPhase.FAILED for c in status.collections)
+    assert status.error and "createMissing is false" in status.error
+    assert status.conditions[0].reason == "MigrationFailed"

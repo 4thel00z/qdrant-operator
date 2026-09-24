@@ -2,11 +2,14 @@
 
 import asyncio
 import json
+from collections.abc import Awaitable
+from collections.abc import Callable
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
+from functools import partial
 from typing import Any
 
 from qdrant_operator.domain import BACKUPS
@@ -30,6 +33,7 @@ from qdrant_operator.domain import ClusterSpec
 from qdrant_operator.domain import ClusterStatus
 from qdrant_operator.domain import CollectionBackup
 from qdrant_operator.domain import CollectionBackupStatus
+from qdrant_operator.domain import CollectionMigration
 from qdrant_operator.domain import CollectionPhase
 from qdrant_operator.domain import CollectionSpec
 from qdrant_operator.domain import CollectionStatus
@@ -39,6 +43,9 @@ from qdrant_operator.domain import ConditionStatus
 from qdrant_operator.domain import CredentialsSecretRef
 from qdrant_operator.domain import DeletionPolicy
 from qdrant_operator.domain import JsonDict
+from qdrant_operator.domain import MigrationPhase
+from qdrant_operator.domain import MigrationSpec
+from qdrant_operator.domain import MigrationStatus
 from qdrant_operator.domain import QdrantNode
 from qdrant_operator.domain import ResourceRef
 from qdrant_operator.domain import RestoredCollection
@@ -51,12 +58,15 @@ from qdrant_operator.domain import S3StorageSpec
 from qdrant_operator.domain import SchedulePhase
 from qdrant_operator.domain import SnapshotRecord
 from qdrant_operator.domain import chart_version
+from qdrant_operator.domain import create_body_from_config
 from qdrant_operator.domain import format_size
+from qdrant_operator.domain import group_by_shard_key
 from qdrant_operator.domain import is_subset
 from qdrant_operator.domain import join_key
 from qdrant_operator.domain import key_fingerprint
 from qdrant_operator.domain import owner_reference
 from qdrant_operator.domain import parse_time
+from qdrant_operator.domain import payload_indexes_from_schema
 from qdrant_operator.domain import set_condition
 from qdrant_operator.ports import HelmPort
 from qdrant_operator.ports import KubernetesPort
@@ -65,6 +75,7 @@ from qdrant_operator.ports import StoragePort
 from qdrant_operator.ports import TokenPort
 
 RECENT_BACKUPS_LIMIT = 10
+PROGRESS_EVERY_BATCHES = 20
 PRESIGNED_URL_TTL_SECONDS = 3600
 
 
@@ -865,3 +876,163 @@ class IssueAccessKey:
                 )
             ),
         )
+
+
+@dataclass
+class ExecuteMigration:
+    """Copy collections point by point from any Qdrant into a managed cluster.
+
+    Scroll pages on the source are upserted on the target (grouped by shard key). Missing
+    target collections are created from the source configuration and payload schema, with
+    shard and replication counts left to the target cluster unless the spec overrides them.
+    Upserts are idempotent by point id, so a re-run after an operator restart is safe.
+    """
+
+    qdrant: QdrantPort
+    kubernetes: KubernetesPort
+
+    async def execute(self, spec: MigrationSpec, ref: ResourceRef) -> MigrationStatus:
+        start_time = now_utc()
+        source = await self.resolve_source(spec)
+        target = (await ResolveCluster(self.kubernetes).execute(spec.target_cluster_ref)).service
+        if not await self.qdrant.ready(target):
+            raise ClusterNotReadyError(f"QdrantCluster {spec.target_cluster_ref.name} not ready")
+
+        names = spec.select_collections(await self.qdrant.list_collections(source))
+        collections = [
+            CollectionMigration(
+                name=name,
+                target_name=spec.target_name(name),
+                status=MigrationPhase.PENDING,
+                points_total=await self.qdrant.count_points(source, name),
+            )
+            for name in names
+        ]
+        running = MigrationStatus(
+            phase=MigrationPhase.RUNNING,
+            start_time=start_time,
+            source=spec.source.description,
+            collections=tuple(collections),
+        )
+        await self.kubernetes.patch_status(ref, running.to_dict())
+
+        for index, collection in enumerate(collections):
+            report = partial(self.report_progress, ref, running, collections, index)
+            collections[index] = await self.migrate_collection(
+                spec, source, target, collection, report
+            )
+            await self.kubernetes.patch_status(
+                ref, replace(running, collections=tuple(collections)).to_dict()
+            )
+
+        failed = [c for c in collections if c.status == MigrationPhase.FAILED]
+        completion_time = now_utc()
+        return MigrationStatus(
+            phase=MigrationPhase.FAILED if failed else MigrationPhase.COMPLETED,
+            start_time=start_time,
+            completion_time=completion_time,
+            source=spec.source.description,
+            collections=tuple(collections),
+            error=failed[0].error if failed else None,
+            conditions=(
+                Condition(
+                    type="Complete",
+                    status=ConditionStatus.FALSE if failed else ConditionStatus.TRUE,
+                    last_transition_time=completion_time,
+                    reason="MigrationFailed" if failed else "MigrationCompleted",
+                    message=f"Copied {len(collections) - len(failed)}/{len(collections)}",
+                ),
+            ),
+        )
+
+    async def report_progress(
+        self,
+        ref: ResourceRef,
+        running: MigrationStatus,
+        collections: list[CollectionMigration],
+        index: int,
+        copied: int,
+    ) -> None:
+        collections[index] = replace(
+            collections[index], status=MigrationPhase.RUNNING, points_copied=copied
+        )
+        await self.kubernetes.patch_status(
+            ref, replace(running, collections=tuple(collections)).to_dict()
+        )
+
+    async def resolve_source(self, spec: MigrationSpec) -> QdrantNode:
+        if spec.source.cluster_ref:
+            return (await ResolveCluster(self.kubernetes).execute(spec.source.cluster_ref)).service
+        endpoint = spec.source.endpoint
+        if not endpoint:
+            raise ValueError("QdrantMigration source has neither clusterRef nor endpoint")
+        api_key = (
+            await self.kubernetes.get_secret_value(endpoint.api_key_ref)
+            if endpoint.api_key_ref
+            else None
+        )
+        ca_cert = (
+            await self.kubernetes.get_secret_value(endpoint.ca_ref) if endpoint.ca_ref else None
+        )
+        return QdrantNode(endpoint.url, api_key, ca_cert)
+
+    async def migrate_collection(
+        self,
+        spec: MigrationSpec,
+        source: QdrantNode,
+        target: QdrantNode,
+        collection: CollectionMigration,
+        report: Callable[[int], Awaitable[None]],
+    ) -> CollectionMigration:
+        try:
+            await self.ensure_target_collection(spec, source, target, collection)
+            copied = await self.copy_points(spec, source, target, collection, report)
+        except Exception as error:
+            return replace(collection, status=MigrationPhase.FAILED, error=str(error))
+        return replace(collection, status=MigrationPhase.COMPLETED, points_copied=copied)
+
+    async def ensure_target_collection(
+        self,
+        spec: MigrationSpec,
+        source: QdrantNode,
+        target: QdrantNode,
+        collection: CollectionMigration,
+    ) -> None:
+        if await self.qdrant.collection_exists(target, collection.target_name):
+            return
+        if not spec.create_missing:
+            raise LookupError(
+                f"Collection {collection.target_name} missing on target and createMissing is false"
+            )
+        info = await self.qdrant.collection_info(source, collection.name)
+        await self.qdrant.create_collection(
+            target, collection.target_name, create_body_from_config(info["config"], spec.target)
+        )
+        for field_name, schema in payload_indexes_from_schema(info.get("payload_schema", {})):
+            await self.qdrant.create_payload_index(
+                target, collection.target_name, field_name, schema
+            )
+
+    async def copy_points(
+        self,
+        spec: MigrationSpec,
+        source: QdrantNode,
+        target: QdrantNode,
+        collection: CollectionMigration,
+        report: Callable[[int], Awaitable[None]],
+    ) -> int:
+        offset: Any = None
+        copied = 0
+        batches = 0
+        while True:
+            points, offset = await self.qdrant.scroll_points(
+                source, collection.name, offset, spec.batch_size
+            )
+            for shard_key, group in group_by_shard_key(points).items():
+                await self.qdrant.upsert_points(target, collection.target_name, group, shard_key)
+            copied += len(points)
+            batches += 1
+            if batches % PROGRESS_EVERY_BATCHES == 0:
+                await report(copied)
+            if offset is None or not points:
+                return copied

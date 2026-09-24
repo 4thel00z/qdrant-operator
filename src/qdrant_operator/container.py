@@ -12,6 +12,7 @@ from qdrant_operator.usecases import DeleteBackupData
 from qdrant_operator.usecases import DeleteCluster
 from qdrant_operator.usecases import DeleteCollection
 from qdrant_operator.usecases import ExecuteBackup
+from qdrant_operator.usecases import ExecuteMigration
 from qdrant_operator.usecases import ExecuteRestore
 from qdrant_operator.usecases import ExpireBackup
 from qdrant_operator.usecases import IssueAccessKey
@@ -61,3 +62,6 @@ class Container:
 
     def issue_access_key(self) -> IssueAccessKey:
         return IssueAccessKey(kubernetes=self.kubernetes, token=self.token)
+
+    def execute_migration(self) -> ExecuteMigration:
+        return ExecuteMigration(qdrant=self.qdrant, kubernetes=self.kubernetes)

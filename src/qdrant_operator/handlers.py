@@ -17,6 +17,7 @@ from qdrant_operator.domain import BACKUPS
 from qdrant_operator.domain import CLUSTERS
 from qdrant_operator.domain import COLLECTIONS
 from qdrant_operator.domain import GROUP
+from qdrant_operator.domain import MIGRATIONS
 from qdrant_operator.domain import RESTORES
 from qdrant_operator.domain import SCHEDULES
 from qdrant_operator.domain import VERSION
@@ -33,6 +34,9 @@ from qdrant_operator.domain import ClusterStatus
 from qdrant_operator.domain import CollectionPhase
 from qdrant_operator.domain import CollectionSpec
 from qdrant_operator.domain import CollectionStatus
+from qdrant_operator.domain import MigrationPhase
+from qdrant_operator.domain import MigrationSpec
+from qdrant_operator.domain import MigrationStatus
 from qdrant_operator.domain import ResourceKind
 from qdrant_operator.domain import ResourceRef
 from qdrant_operator.domain import RestorePhase
@@ -278,3 +282,26 @@ async def issue_access_key(
     patch.status.update(result.to_dict())
     if result.issued_at != current.issued_at:
         logger.info(f"Token for {meta['name']} written to secret {access_key.secret_name}")
+
+
+@kopf.on.create(GROUP, VERSION, MIGRATIONS.plural)
+async def execute_migration(
+    spec: kopf.Spec, meta: kopf.Meta, patch: kopf.Patch, logger: kopf.Logger, **_: Any
+) -> None:
+    ref = resource_ref(MIGRATIONS, meta)
+    try:
+        migration = MigrationSpec.from_dict(spec, meta)
+        result = await Container().execute_migration().execute(migration, ref)
+    except (ClusterNotFoundError, ClusterNotReadyError, KeyError) as error:
+        raise kopf.TemporaryError(str(error), delay=RETRY_DELAY_SECONDS) from error
+    except Exception as error:
+        patch.status.update(
+            MigrationStatus(phase=MigrationPhase.FAILED, error=str(error)).to_dict()
+        )
+        raise kopf.PermanentError(f"Migration failed: {error}") from error
+    patch.status.update(result.to_dict())
+    progress = result.progress
+    logger.info(
+        f"Migration {result.phase.value}: {progress.points_copied}/{progress.points_total} points "
+        f"across {progress.collections_total} collections from {result.source}"
+    )
