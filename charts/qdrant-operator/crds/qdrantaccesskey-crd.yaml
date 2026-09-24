@@ -1,0 +1,181 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: qdrantaccesskeys.qdrant.io
+spec:
+  group: qdrant.io
+  names:
+    kind: QdrantAccessKey
+    listKind: QdrantAccessKeyList
+    plural: qdrantaccesskeys
+    singular: qdrantaccesskey
+    shortNames:
+      - qak
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Cluster
+          type: string
+          jsonPath: .spec.clusterRef.name
+        - name: Access
+          type: string
+          jsonPath: .spec.access
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Secret
+          type: string
+          jsonPath: .status.secretRef.name
+        - name: Expires
+          type: string
+          jsonPath: .status.expiresAt
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - clusterRef
+              x-kubernetes-validations:
+                - rule: "has(self.access) != has(self.collections)"
+                  message: "set exactly one of access (cluster-wide) or collections (per collection)"
+                - rule: "!has(self.renewBefore) || has(self.ttl)"
+                  message: "renewBefore needs ttl"
+                - rule: "self.clusterRef == oldSelf.clusterRef"
+                  message: "clusterRef is immutable"
+                - rule: "(has(self.secretName) ? self.secretName : '') == (has(oldSelf.secretName) ? oldSelf.secretName : '')"
+                  message: "secretName is immutable"
+              properties:
+                clusterRef:
+                  type: object
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                access:
+                  type: string
+                  enum: ["r", "m"]
+                  description: Cluster-wide mode - r reads everything, m manages everything
+                collections:
+                  type: array
+                  maxItems: 256
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: ["name"]
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - access
+                    properties:
+                      name:
+                        type: string
+                        maxLength: 255
+                        description: Collection name inside Qdrant
+                      access:
+                        type: string
+                        enum: ["r", "rw", "prw"]
+                        description: r read, rw read-write, prw points read-write (no snapshots or indexes)
+                subject:
+                  type: string
+                  maxLength: 255
+                  description: Value of the JWT sub claim (a user or service identifier)
+                ttl:
+                  type: string
+                  pattern: '^([0-9]+[hms])+$'
+                  description: Token lifetime such as 720h; omitted tokens never expire
+                renewBefore:
+                  type: string
+                  pattern: '^([0-9]+[hms])+$'
+                  description: How long before expiry a fresh token is written (default a third of ttl)
+                valueExists:
+                  type: object
+                  required:
+                    - collection
+                    - matches
+                  description: Token is valid only while a point matching every key/value exists in the collection
+                  properties:
+                    collection:
+                      type: string
+                      maxLength: 255
+                    matches:
+                      type: array
+                      minItems: 1
+                      maxItems: 32
+                      items:
+                        type: object
+                        required:
+                          - key
+                          - value
+                        properties:
+                          key:
+                            type: string
+                            maxLength: 255
+                          value:
+                            x-kubernetes-preserve-unknown-fields: true
+                secretName:
+                  type: string
+                  maxLength: 253
+                  description: Secret receiving the token (defaults to metadata.name); keys token and url
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: ["Pending", "Ready", "Failed"]
+                secretRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    key:
+                      type: string
+                issuedAt:
+                  type: string
+                  format: date-time
+                expiresAt:
+                  type: string
+                  format: date-time
+                renewAt:
+                  type: string
+                  format: date-time
+                keyFingerprint:
+                  type: string
+                  description: Fingerprint of the cluster API key the token was signed with
+                error:
+                  type: string
+                observedGeneration:
+                  type: integer
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

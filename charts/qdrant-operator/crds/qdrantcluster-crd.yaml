@@ -142,7 +142,13 @@ spec:
                   x-kubernetes-validations:
                     - rule: "!(has(self.secretRef) && self.autoGenerate)"
                       message: "set either secretRef or autoGenerate, not both"
+                    - rule: "!self.jwtRbac || has(self.secretRef) || self.autoGenerate"
+                      message: "jwtRbac needs an API key (secretRef or autoGenerate) to sign tokens with"
                   properties:
+                    jwtRbac:
+                      type: boolean
+                      default: false
+                      description: Enable JWT role-based access (service.jwt_rbac); QdrantAccessKey resources need it
                     secretRef:
                       type: object
                       required:
