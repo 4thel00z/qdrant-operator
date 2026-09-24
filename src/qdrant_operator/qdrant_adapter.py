@@ -25,13 +25,16 @@ class QdrantAdapter:
 
     @asynccontextmanager
     async def client(self, node: QdrantNode, timeout: float) -> AsyncGenerator[httpx.AsyncClient]:
-        async with httpx.AsyncClient(
-            base_url=node.url,
-            headers={"api-key": node.api_key} if node.api_key else {},
-            timeout=timeout,
-            verify=self.ssl_context(node),
-        ) as client:
-            yield client
+        try:
+            async with httpx.AsyncClient(
+                base_url=node.url,
+                headers={"api-key": node.api_key} if node.api_key else {},
+                timeout=timeout,
+                verify=self.ssl_context(node),
+            ) as client:
+                yield client
+        except httpx.TransportError as error:
+            raise ConnectionError(f"Qdrant at {node.url} is unreachable: {error}") from error
 
     @staticmethod
     def ssl_context(node: QdrantNode) -> ssl.SSLContext | bool:
