@@ -16,20 +16,28 @@ from qdrant_operator.domain import BackupSpec
 from qdrant_operator.domain import ClusterRef
 from qdrant_operator.domain import ClusterSpec
 from qdrant_operator.domain import CollectionBackup
+from qdrant_operator.domain import CollectionMigration
 from qdrant_operator.domain import CollectionSpec
 from qdrant_operator.domain import Condition
 from qdrant_operator.domain import ConditionStatus
 from qdrant_operator.domain import DeletionPolicy
+from qdrant_operator.domain import MigrationPhase
+from qdrant_operator.domain import MigrationProgress
+from qdrant_operator.domain import MigrationSpec
 from qdrant_operator.domain import PayloadIndexSpec
 from qdrant_operator.domain import RestoreSpec
 from qdrant_operator.domain import RetentionPolicy
 from qdrant_operator.domain import SnapshotRecord
+from qdrant_operator.domain import TargetOverrides
 from qdrant_operator.domain import chart_version
+from qdrant_operator.domain import create_body_from_config
 from qdrant_operator.domain import format_size
+from qdrant_operator.domain import group_by_shard_key
 from qdrant_operator.domain import is_subset
 from qdrant_operator.domain import join_key
 from qdrant_operator.domain import merge_dicts
 from qdrant_operator.domain import parse_duration
+from qdrant_operator.domain import payload_indexes_from_schema
 from qdrant_operator.domain import set_condition
 
 NOW = datetime(2026, 9, 23, 2, 30, tzinfo=UTC)
@@ -399,3 +407,112 @@ def test_access_key_status_knows_when_a_token_is_current() -> None:
     assert not ready.token_current(2, "abc", False, now)
     assert not ready.token_current(2, "abc", True, now + timedelta(hours=2))
     assert replace(ready, renew_at=None).token_current(2, "abc", True, now + timedelta(days=9))
+
+
+def test_migration_create_body_leaves_shard_layout_to_the_target_unless_overridden() -> None:
+    config = {
+        "params": {
+            "vectors": {"size": 4, "distance": "Cosine"},
+            "shard_number": 1,
+            "replication_factor": 1,
+            "write_consistency_factor": 1,
+            "on_disk_payload": True,
+            "sparse_vectors": {"bm25": {"modifier": "idf"}},
+        },
+        "hnsw_config": {"m": 16},
+        "optimizer_config": {"indexing_threshold": 20000},
+        "wal_config": {"wal_capacity_mb": 32},
+        "quantization_config": None,
+        "strict_mode_config": None,
+    }
+
+    plain = create_body_from_config(config, TargetOverrides())
+    sized = create_body_from_config(config, TargetOverrides(shard_number=6, replication_factor=2))
+
+    assert plain == {
+        "vectors": {"size": 4, "distance": "Cosine"},
+        "sparse_vectors": {"bm25": {"modifier": "idf"}},
+        "on_disk_payload": True,
+        "hnsw_config": {"m": 16},
+        "optimizers_config": {"indexing_threshold": 20000},
+        "wal_config": {"wal_capacity_mb": 32},
+    }
+    assert (sized["shard_number"], sized["replication_factor"]) == (6, 2)
+    assert "write_consistency_factor" not in sized
+
+
+def test_migration_payload_schema_and_point_grouping() -> None:
+    schema = {
+        "city": {"data_type": "keyword", "params": None, "points": 3},
+        "body": {"data_type": "text", "params": {"type": "text", "tokenizer": "word"}},
+    }
+    points = [
+        {"id": 1, "vector": [0.1], "payload": {"a": 1}, "shard_key": "eu"},
+        {"id": 2, "vector": {"text": [0.2]}, "payload": None, "shard_key": "us"},
+        {"id": 3, "vector": [0.3], "shard_key": "eu"},
+        {"id": "9f2c", "vector": [0.4]},
+    ]
+
+    assert payload_indexes_from_schema(schema) == [
+        ("city", "keyword"),
+        ("body", {"type": "text", "tokenizer": "word"}),
+    ]
+    assert group_by_shard_key(points) == {
+        "eu": [{"id": 1, "vector": [0.1], "payload": {"a": 1}}, {"id": 3, "vector": [0.3]}],
+        "us": [{"id": 2, "vector": {"text": [0.2]}}],
+        None: [{"id": "9f2c", "vector": [0.4]}],
+    }
+
+
+def test_migration_spec_source_forms_and_progress() -> None:
+    meta = {"name": "move", "namespace": "tenant-a"}
+    from_cluster = MigrationSpec.from_dict(
+        {
+            "source": {"clusterRef": {"name": "old"}},
+            "targetClusterRef": {"name": "new", "namespace": "tenant-b"},
+            "collectionMapping": {"docs": "docs_v2"},
+        },
+        meta,
+    )
+    from_endpoint = MigrationSpec.from_dict(
+        {
+            "source": {
+                "endpoint": {
+                    "url": "https://x.cloud.qdrant.io:6333/",
+                    "apiKeySecretRef": {"name": "cloud", "key": "api-key"},
+                }
+            },
+            "targetClusterRef": {"name": "new"},
+            "batchSize": 500,
+        },
+        meta,
+    )
+    with pytest.raises(ValueError, match="exactly one"):
+        MigrationSpec.from_dict({"source": {}, "targetClusterRef": {"name": "new"}}, meta)
+
+    assert from_cluster.source.description == "tenant-a/old"
+    assert from_cluster.target_cluster_ref.namespace == "tenant-b"
+    assert (from_cluster.target_name("docs"), from_cluster.target_name("logs")) == (
+        "docs_v2",
+        "logs",
+    )
+    assert from_endpoint.source.endpoint and from_endpoint.source.endpoint.url == (
+        "https://x.cloud.qdrant.io:6333"
+    )
+    assert from_endpoint.source.description == "https://x.cloud.qdrant.io:6333"
+    assert from_endpoint.batch_size == 500
+
+    progress = MigrationProgress.of(
+        [
+            CollectionMigration("a", "a", MigrationPhase.COMPLETED, 100, 100),
+            CollectionMigration("b", "b", MigrationPhase.RUNNING, 300, 50),
+        ]
+    )
+    assert progress.to_dict() == {
+        "collectionsTotal": 2,
+        "collectionsCompleted": 1,
+        "pointsTotal": 400,
+        "pointsCopied": 150,
+        "percentage": 38,
+    }
+    assert MigrationProgress.of([]).percentage == 100

@@ -1127,6 +1127,19 @@ class BackupScheduleStatus:
         }
 
 
+def select_collections(
+    requested: tuple[str, ...], available: Iterable[str], source: str
+) -> tuple[str, ...]:
+    """Requested collections, or every available one; missing requests are an error."""
+    names = tuple(available)
+    if not requested:
+        return names
+    missing = [c for c in requested if c not in names]
+    if missing:
+        raise ValueError(f"Collections not present in {source}: {', '.join(missing)}")
+    return requested
+
+
 @dataclass(frozen=True)
 class BackupRef:
     name: str
@@ -1175,13 +1188,7 @@ class RestoreSpec:
         return self.collection_mapping.get(collection, collection)
 
     def select_collections(self, available: Iterable[str]) -> tuple[str, ...]:
-        names = tuple(available)
-        if not self.collections:
-            return names
-        missing = [c for c in self.collections if c not in names]
-        if missing:
-            raise ValueError(f"Collections not present in backup: {', '.join(missing)}")
-        return self.collections
+        return select_collections(self.collections, available, "backup")
 
 
 @dataclass(frozen=True)
@@ -1730,3 +1737,243 @@ class AccessKeyStatus:
         if self.observed_generation != generation or self.key_fingerprint != fingerprint:
             return False
         return not self.renew_at or now < self.renew_at
+
+
+class MigrationPhase(StrEnum):
+    PENDING = "Pending"
+    RUNNING = "Running"
+    COMPLETED = "Completed"
+    FAILED = "Failed"
+
+
+MIGRATIONS = ResourceKind("QdrantMigration", "qdrantmigrations")
+CREATE_ONLY_PARAMS = ("shard_number", "replication_factor", "write_consistency_factor")
+
+
+@dataclass(frozen=True)
+class EndpointSpec:
+    """A Qdrant reachable by URL that this operator does not manage."""
+
+    url: str
+    api_key_ref: SecretRef | None = None
+    ca_ref: SecretRef | None = None
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any], namespace: str) -> "EndpointSpec":
+        api_key_ref = data.get("apiKeySecretRef")
+        ca_ref = data.get("caSecretRef")
+        return EndpointSpec(
+            url=data["url"].rstrip("/"),
+            api_key_ref=SecretRef.from_dict(api_key_ref, namespace) if api_key_ref else None,
+            ca_ref=SecretRef.from_dict(ca_ref, namespace) if ca_ref else None,
+        )
+
+
+@dataclass(frozen=True)
+class MigrationSource:
+    cluster_ref: ClusterRef | None = None
+    endpoint: EndpointSpec | None = None
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any], namespace: str) -> "MigrationSource":
+        cluster_ref = data.get("clusterRef")
+        endpoint = data.get("endpoint")
+        if bool(cluster_ref) == bool(endpoint):
+            raise ValueError("QdrantMigration source needs exactly one of clusterRef or endpoint")
+        return MigrationSource(
+            cluster_ref=ClusterRef.from_dict(cluster_ref, namespace) if cluster_ref else None,
+            endpoint=EndpointSpec.from_dict(endpoint, namespace) if endpoint else None,
+        )
+
+    @property
+    def description(self) -> str:
+        if self.cluster_ref:
+            return f"{self.cluster_ref.namespace}/{self.cluster_ref.name}"
+        if self.endpoint:
+            return self.endpoint.url
+        return ""
+
+
+@dataclass(frozen=True)
+class TargetOverrides:
+    shard_number: int | None = None
+    replication_factor: int | None = None
+    write_consistency_factor: int | None = None
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "TargetOverrides":
+        return TargetOverrides(
+            shard_number=data.get("shardNumber"),
+            replication_factor=data.get("replicationFactor"),
+            write_consistency_factor=data.get("writeConsistencyFactor"),
+        )
+
+    def to_params(self) -> JsonDict:
+        return drop_empty(
+            {
+                "shard_number": self.shard_number,
+                "replication_factor": self.replication_factor,
+                "write_consistency_factor": self.write_consistency_factor,
+            }
+        )
+
+
+@dataclass(frozen=True)
+class MigrationSpec:
+    name: str
+    namespace: str
+    source: MigrationSource
+    target_cluster_ref: ClusterRef
+    collections: tuple[str, ...] = ()
+    collection_mapping: Mapping[str, str] = field(default_factory=dict[str, str])
+    batch_size: int = 256
+    create_missing: bool = True
+    target: TargetOverrides = field(default_factory=TargetOverrides)
+
+    @staticmethod
+    def from_dict(spec: Mapping[str, Any], meta: Mapping[str, Any]) -> "MigrationSpec":
+        namespace = meta["namespace"]
+        return MigrationSpec(
+            name=meta["name"],
+            namespace=namespace,
+            source=MigrationSource.from_dict(spec["source"], namespace),
+            target_cluster_ref=ClusterRef.from_dict(spec["targetClusterRef"], namespace),
+            collections=tuple(spec.get("collections", [])),
+            collection_mapping=dict[str, str](spec.get("collectionMapping", {})),
+            batch_size=spec.get("batchSize", 256),
+            create_missing=spec.get("createMissing", True),
+            target=TargetOverrides.from_dict(spec.get("target", {})),
+        )
+
+    def target_name(self, collection: str) -> str:
+        return self.collection_mapping.get(collection, collection)
+
+    def select_collections(self, available: Iterable[str]) -> tuple[str, ...]:
+        return select_collections(self.collections, available, "source")
+
+
+def create_body_from_config(config: Mapping[str, Any], overrides: TargetOverrides) -> JsonDict:
+    """Turn a source collection's reported config into a CreateCollection body for the target.
+
+    Shard and replication counts are left to the target cluster unless overridden, so a copy
+    from one node to three lands with three shards instead of one.
+    """
+    params: Mapping[str, Any] = config.get("params", {})
+    return drop_empty(
+        {
+            "vectors": params.get("vectors"),
+            "sparse_vectors": params.get("sparse_vectors"),
+            "sharding_method": params.get("sharding_method"),
+            "on_disk_payload": params.get("on_disk_payload"),
+            "hnsw_config": config.get("hnsw_config"),
+            "optimizers_config": config.get("optimizer_config"),
+            "wal_config": config.get("wal_config"),
+            "quantization_config": config.get("quantization_config"),
+            "strict_mode_config": config.get("strict_mode_config"),
+            **overrides.to_params(),
+        }
+    )
+
+
+def payload_indexes_from_schema(payload_schema: Mapping[str, Any]) -> list[tuple[str, Any]]:
+    """(field, field_schema) pairs that re-create a source collection's payload indexes."""
+    return [
+        (field_name, entry.get("params") or entry["data_type"])
+        for field_name, entry in payload_schema.items()
+    ]
+
+
+def to_point_struct(record: Mapping[str, Any]) -> JsonDict:
+    return drop_empty(
+        {"id": record["id"], "vector": record.get("vector"), "payload": record.get("payload")}
+    )
+
+
+def group_by_shard_key(points: Iterable[Mapping[str, Any]]) -> dict[Any, list[JsonDict]]:
+    """Upserts carry one shard_key, so a scrolled page is split per key (None = auto)."""
+    groups: dict[Any, list[JsonDict]] = {}
+    for point in points:
+        groups.setdefault(point.get("shard_key"), []).append(to_point_struct(point))
+    return groups
+
+
+@dataclass(frozen=True)
+class CollectionMigration:
+    name: str
+    target_name: str
+    status: MigrationPhase
+    points_total: int = 0
+    points_copied: int = 0
+    error: str | None = None
+
+    def to_dict(self) -> JsonDict:
+        return {
+            "name": self.name,
+            "targetName": self.target_name,
+            "status": self.status.value,
+            "pointsTotal": self.points_total,
+            "pointsCopied": self.points_copied,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True)
+class MigrationProgress:
+    collections_total: int = 0
+    collections_completed: int = 0
+    points_total: int = 0
+    points_copied: int = 0
+
+    @staticmethod
+    def of(collections: Iterable[CollectionMigration]) -> "MigrationProgress":
+        items = tuple(collections)
+        return MigrationProgress(
+            collections_total=len(items),
+            collections_completed=sum(
+                1 for c in items if c.status in (MigrationPhase.COMPLETED, MigrationPhase.FAILED)
+            ),
+            points_total=sum(c.points_total for c in items),
+            points_copied=sum(c.points_copied for c in items),
+        )
+
+    @property
+    def percentage(self) -> int:
+        if not self.points_total:
+            return 100 if self.collections_completed == self.collections_total else 0
+        return min(100, round(100 * self.points_copied / self.points_total))
+
+    def to_dict(self) -> JsonDict:
+        return {
+            "collectionsTotal": self.collections_total,
+            "collectionsCompleted": self.collections_completed,
+            "pointsTotal": self.points_total,
+            "pointsCopied": self.points_copied,
+            "percentage": self.percentage,
+        }
+
+
+@dataclass(frozen=True)
+class MigrationStatus:
+    phase: MigrationPhase
+    start_time: datetime | None = None
+    completion_time: datetime | None = None
+    source: str | None = None
+    collections: tuple[CollectionMigration, ...] = ()
+    error: str | None = None
+    conditions: tuple[Condition, ...] = ()
+
+    @property
+    def progress(self) -> MigrationProgress:
+        return MigrationProgress.of(self.collections)
+
+    def to_dict(self) -> JsonDict:
+        return {
+            "phase": self.phase.value,
+            "startTime": format_time(self.start_time) if self.start_time else None,
+            "completionTime": (format_time(self.completion_time) if self.completion_time else None),
+            "source": self.source,
+            "collections": [c.to_dict() for c in self.collections],
+            "progress": self.progress.to_dict(),
+            "error": self.error,
+            "conditions": [c.to_dict() for c in self.conditions],
+        }
