@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.1](https://github.com/4thel00z/qdrant-operator/compare/v0.3.0...v0.3.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **chart:** grant statefulsets/status so the cluster observer can read readiness ([cb6c064](https://github.com/4thel00z/qdrant-operator/commit/cb6c06481f79f22af056015f318faf5238630b11))
+* **kubernetes:** status patches as merge-patch ([e3b14b0](https://github.com/4thel00z/qdrant-operator/commit/e3b14b058cd76c756298d0bf72858ab3439ec7f8))
+* **qdrant:** name the unreachable node in transport errors ([ce1cc11](https://github.com/4thel00z/qdrant-operator/commit/ce1cc1177f9eb9ba7b3953cde95a4c50c1f75fc7))
+
 ## [0.3.0](https://github.com/4thel00z/qdrant-operator/compare/v0.2.1...v0.3.0) (2026-09-24)
 
 
