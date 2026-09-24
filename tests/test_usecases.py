@@ -26,6 +26,7 @@ from qdrant_operator.domain import ClusterPhase
 from qdrant_operator.domain import ClusterRef
 from qdrant_operator.domain import ClusterSpec
 from qdrant_operator.domain import ClusterStatus
+from qdrant_operator.domain import CollectionMigration
 from qdrant_operator.domain import CollectionPhase
 from qdrant_operator.domain import CollectionSpec
 from qdrant_operator.domain import CollectionStatus
@@ -33,6 +34,7 @@ from qdrant_operator.domain import ConditionStatus
 from qdrant_operator.domain import JsonDict
 from qdrant_operator.domain import MigrationPhase
 from qdrant_operator.domain import MigrationSpec
+from qdrant_operator.domain import MigrationStatus
 from qdrant_operator.domain import QdrantNode
 from qdrant_operator.domain import ResourceRef
 from qdrant_operator.domain import RestorePhase
@@ -704,6 +706,9 @@ async def test_issue_access_key_waits_until_the_cluster_enables_jwt_rbac(
     assert (NS, "app-token") not in kubernetes.secrets
 
 
+FRESH = MigrationStatus(MigrationPhase.PENDING)
+
+
 def migration_spec(**spec: object) -> MigrationSpec:
     return MigrationSpec.from_dict(
         {
@@ -747,7 +752,7 @@ async def test_migration_copies_collections_in_batches_and_creates_targets(
     )
     ref = ResourceRef(MIGRATIONS, "move", NS)
 
-    status = await ExecuteMigration(qdrant, kubernetes).execute(spec, ref)
+    status = await ExecuteMigration(qdrant, kubernetes).execute(spec, ref, FRESH)
 
     target = node_url(0, "target")
     assert status.phase == MigrationPhase.COMPLETED
@@ -781,14 +786,16 @@ async def test_migration_groups_upserts_by_shard_key_and_reads_external_endpoint
     qdrant = FakeQdrant(routes={service_url("target"): node_url(0, "target")})
     qdrant.add_collection(cloud, "docs", body={"vectors": {"size": 2, "distance": "Dot"}})
     qdrant.add_points(cloud, "docs", sample_points(4, shard_keys=("eu", "us")))
-    qdrant.add_collection(node_url(0, "target"), "docs")
+    qdrant.add_collection(
+        node_url(0, "target"), "docs", body={"vectors": {"size": 2, "distance": "Dot"}}
+    )
     spec = migration_spec(
         source={"endpoint": {"url": cloud, "apiKeySecretRef": {"name": "cloud", "key": "api-key"}}},
         batchSize=10,
     )
 
     status = await ExecuteMigration(qdrant, kubernetes).execute(
-        spec, ResourceRef(MIGRATIONS, "move", NS)
+        spec, ResourceRef(MIGRATIONS, "move", NS), FRESH
     )
 
     assert status.phase == MigrationPhase.COMPLETED
@@ -811,11 +818,11 @@ async def test_migration_reports_per_collection_failures_and_missing_sources(
     use_case = ExecuteMigration(qdrant, kubernetes)
     ref = ResourceRef(MIGRATIONS, "move", NS)
 
-    status = await use_case.execute(migration_spec(createMissing=False), ref)
+    status = await use_case.execute(migration_spec(createMissing=False), ref, FRESH)
     with pytest.raises(ValueError, match="not present"):
-        await use_case.execute(migration_spec(collections=["ghost"]), ref)
+        await use_case.execute(migration_spec(collections=["ghost"]), ref, FRESH)
     with pytest.raises(ClusterNotFoundError):
-        await use_case.execute(migration_spec(targetClusterRef={"name": "ghost"}), ref)
+        await use_case.execute(migration_spec(targetClusterRef={"name": "ghost"}), ref, FRESH)
 
     assert status.phase == MigrationPhase.FAILED
     assert all(c.status == MigrationPhase.FAILED for c in status.collections)
@@ -862,3 +869,132 @@ async def test_reconcile_collection_creates_missing_shard_keys_only(
         ("docs", {"shard_key": "eu"}),
         ("docs", {"shard_key": "us", "shards_number": 2}),
     ]
+
+
+async def test_migration_resumes_from_recorded_offsets_and_skips_finished_collections(
+    kubernetes: FakeKubernetes,
+) -> None:
+    kubernetes.put_resource(cluster_body(name="target"))
+    qdrant = FakeQdrant(
+        routes={service_url(): node_url(0), service_url("target"): node_url(0, "target")}
+    )
+    for name in ("docs", "logs"):
+        qdrant.add_collection(node_url(0), name)
+        qdrant.add_points(node_url(0), name, sample_points(6))
+        qdrant.add_collection(node_url(0, "target"), name)
+    previous = MigrationStatus(
+        phase=MigrationPhase.RUNNING,
+        start_time=NOW,
+        collections=(
+            CollectionMigration("docs", "docs", MigrationPhase.COMPLETED, 6, 6),
+            CollectionMigration("logs", "logs", MigrationPhase.RUNNING, 6, 4, offset=5),
+        ),
+    )
+
+    status = await ExecuteMigration(qdrant, kubernetes).execute(
+        migration_spec(batchSize=2), ResourceRef(MIGRATIONS, "move", NS), previous
+    )
+
+    assert status.phase == MigrationPhase.COMPLETED
+    assert status.start_time == NOW
+    assert [(c.name, c.points_copied, c.offset) for c in status.collections] == [
+        ("docs", 6, None),
+        ("logs", 6, None),
+    ]
+    assert qdrant.upserts == [("logs", None, 2)]
+    assert [p["id"] for p in qdrant.stored_points(node_url(0, "target"), "logs")] == [5, 6]
+
+
+async def test_migration_records_offsets_while_copying(kubernetes: FakeKubernetes) -> None:
+    kubernetes.put_resource(cluster_body(name="target"))
+    qdrant = FakeQdrant(
+        routes={service_url(): node_url(0), service_url("target"): node_url(0, "target")}
+    )
+    qdrant.add_collection(node_url(0), "docs")
+    qdrant.add_points(node_url(0), "docs", sample_points(45))
+    qdrant.collections[node_url(0, "target")] = {}
+
+    await ExecuteMigration(qdrant, kubernetes).execute(
+        migration_spec(batchSize=2), ResourceRef(MIGRATIONS, "move", NS), FRESH
+    )
+
+    recorded = [
+        (c["pointsCopied"], c["offset"])
+        for _, patch in kubernetes.status_patches
+        for c in patch["collections"]
+        if c["status"] == "Running"
+    ]
+    assert recorded == [(40, 41)]
+
+
+async def test_migration_preserves_custom_shard_keys_and_routes_by_payload_field(
+    kubernetes: FakeKubernetes,
+) -> None:
+    kubernetes.put_resource(cluster_body(name="target", replicas=3))
+    qdrant = FakeQdrant(
+        routes={service_url(): node_url(0), service_url("target"): node_url(0, "target")}
+    )
+    custom = {"vectors": {"size": 2, "distance": "Dot"}, "sharding_method": "custom"}
+    qdrant.add_collection(node_url(0), "docs", body=custom)
+    qdrant.add_collection(node_url(0), "tiers", body=custom)
+    qdrant.entry(QdrantNode(node_url(0)), "docs")["shard_keys"] = ["eu", "us"]
+    qdrant.add_points(node_url(0), "docs", sample_points(4, shard_keys=("eu", "us")))
+    qdrant.add_points(
+        node_url(0),
+        "tiers",
+        [{**p, "payload": {"tier": "gold" if p["id"] % 2 else "free"}} for p in sample_points(4)],
+    )
+    qdrant.collections[node_url(0, "target")] = {}
+    ref = ResourceRef(MIGRATIONS, "move", NS)
+
+    preserved = await ExecuteMigration(qdrant, kubernetes).execute(
+        migration_spec(collections=["docs"], target={"replicationFactor": 2}), ref, FRESH
+    )
+    routed = await ExecuteMigration(qdrant, kubernetes).execute(
+        migration_spec(collections=["tiers"], target={"shardKeyField": "tier"}), ref, FRESH
+    )
+
+    target = node_url(0, "target")
+    assert (preserved.phase, routed.phase) == (MigrationPhase.COMPLETED, MigrationPhase.COMPLETED)
+    assert qdrant.collections[target]["docs"]["config"]["params"]["sharding_method"] == "custom"
+    assert sorted(qdrant.collections[target]["docs"]["shard_keys"]) == ["eu", "us"]
+    assert qdrant.shard_key_bodies[:2] == [
+        ("docs", {"shard_key": "us", "replication_factor": 2}),
+        ("docs", {"shard_key": "eu", "replication_factor": 2}),
+    ]
+    assert sorted(qdrant.collections[target]["tiers"]["shard_keys"]) == ["free", "gold"]
+    assert sorted(qdrant.upserts) == [
+        ("docs", "eu", 2),
+        ("docs", "us", 2),
+        ("tiers", "free", 2),
+        ("tiers", "gold", 2),
+    ]
+
+
+async def test_migration_checks_vector_layout_and_ensures_indexes_on_existing_targets(
+    kubernetes: FakeKubernetes,
+) -> None:
+    kubernetes.put_resource(cluster_body(name="target"))
+    qdrant = FakeQdrant(
+        routes={service_url(): node_url(0), service_url("target"): node_url(0, "target")}
+    )
+    source = QdrantNode(node_url(0))
+    narrow = {"vectors": {"size": 2, "distance": "Dot"}}
+    qdrant.add_collection(node_url(0), "docs", body=narrow)
+    qdrant.add_collection(node_url(0), "wide", body={"vectors": {"size": 9, "distance": "Dot"}})
+    await qdrant.create_payload_index(source, "docs", "n", "integer")
+    qdrant.add_points(node_url(0), "docs", sample_points(1))
+    qdrant.add_collection(node_url(0, "target"), "docs", body=narrow)
+    qdrant.add_collection(node_url(0, "target"), "wide", body=narrow)
+    qdrant.index_changes.clear()
+
+    status = await ExecuteMigration(qdrant, kubernetes).execute(
+        migration_spec(), ResourceRef(MIGRATIONS, "move", NS), FRESH
+    )
+
+    by_name = {c.name: c for c in status.collections}
+    assert by_name["docs"].status == MigrationPhase.COMPLETED
+    assert qdrant.index_changes == [("create", "docs", "n")]
+    assert by_name["wide"].status == MigrationPhase.FAILED
+    assert by_name["wide"].error and "vector sizes or distances" in by_name["wide"].error
+    assert ("wide", None, 1) not in qdrant.upserts

@@ -1858,14 +1858,45 @@ class TargetOverrides:
     shard_number: int | None = None
     replication_factor: int | None = None
     write_consistency_factor: int | None = None
+    shard_key: str | int | None = None
+    shard_key_field: str | None = None
 
     @staticmethod
     def from_dict(data: Mapping[str, Any]) -> "TargetOverrides":
+        if data.get("shardKey") is not None and data.get("shardKeyField"):
+            raise ValueError("target.shardKey and target.shardKeyField are mutually exclusive")
         return TargetOverrides(
             shard_number=data.get("shardNumber"),
             replication_factor=data.get("replicationFactor"),
             write_consistency_factor=data.get("writeConsistencyFactor"),
+            shard_key=data.get("shardKey"),
+            shard_key_field=data.get("shardKeyField"),
         )
+
+    def shard_key_params(self) -> JsonDict:
+        """Body of PUT /collections/{name}/shards for a key the migration creates."""
+        return drop_empty(
+            {"shards_number": self.shard_number, "replication_factor": self.replication_factor}
+        )
+
+    def route(self, point: Mapping[str, Any]) -> Any:
+        """Shard key a source point lands under on the target."""
+        if self.shard_key_field:
+            payload: Mapping[str, Any] = point.get("payload") or {}
+            key = payload.get(self.shard_key_field)
+            if (
+                not isinstance(key, str | int)
+                or isinstance(key, bool)
+                or (isinstance(key, int) and key < 0)
+            ):
+                raise ValueError(
+                    f"Point {point.get('id')} has no string or non-negative integer "
+                    f"{self.shard_key_field!r} payload field to route by"
+                )
+            return key
+        if self.shard_key is not None:
+            return self.shard_key
+        return point.get("shard_key")
 
     def to_params(self) -> JsonDict:
         return drop_empty(
@@ -1886,7 +1917,9 @@ class MigrationSpec:
     collections: tuple[str, ...] = ()
     collection_mapping: Mapping[str, str] = field(default_factory=dict[str, str])
     batch_size: int = 256
+    batch_delay_ms: int = 0
     create_missing: bool = True
+    ensure_payload_indexes: bool = True
     target: TargetOverrides = field(default_factory=TargetOverrides)
 
     @staticmethod
@@ -1900,7 +1933,9 @@ class MigrationSpec:
             collections=tuple(spec.get("collections", [])),
             collection_mapping=dict[str, str](spec.get("collectionMapping", {})),
             batch_size=spec.get("batchSize", 256),
+            batch_delay_ms=spec.get("batchDelayMs", 0),
             create_missing=spec.get("createMissing", True),
+            ensure_payload_indexes=spec.get("ensurePayloadIndexes", True),
             target=TargetOverrides.from_dict(spec.get("target", {})),
         )
 
@@ -1948,12 +1983,26 @@ def to_point_struct(record: Mapping[str, Any]) -> JsonDict:
     )
 
 
-def group_by_shard_key(points: Iterable[Mapping[str, Any]]) -> dict[Any, list[JsonDict]]:
-    """Upserts carry one shard_key, so a scrolled page is split per key (None = auto)."""
+def group_by_shard_key(
+    points: Iterable[Mapping[str, Any]], target: TargetOverrides | None = None
+) -> dict[Any, list[JsonDict]]:
+    """Upserts carry one shard_key, so a scrolled page is split per target key (None = auto)."""
+    routing = target or TargetOverrides()
     groups: dict[Any, list[JsonDict]] = {}
     for point in points:
-        groups.setdefault(point.get("shard_key"), []).append(to_point_struct(point))
+        groups.setdefault(routing.route(point), []).append(to_point_struct(point))
     return groups
+
+
+def vector_layout(config: Mapping[str, Any]) -> JsonDict:
+    """Size and distance of every vector in a live config, the part two collections must share."""
+    vectors: Mapping[str, Any] = config.get("params", {}).get("vectors") or {}
+    if "size" in vectors:
+        return {"size": vectors["size"], "distance": vectors["distance"]}
+    return {
+        name: {"size": params["size"], "distance": params["distance"]}
+        for name, params in vectors.items()
+    }
 
 
 @dataclass(frozen=True)
@@ -1963,7 +2012,20 @@ class CollectionMigration:
     status: MigrationPhase
     points_total: int = 0
     points_copied: int = 0
+    offset: Any = None
     error: str | None = None
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "CollectionMigration":
+        return CollectionMigration(
+            name=data["name"],
+            target_name=data.get("targetName", data["name"]),
+            status=MigrationPhase(data.get("status", MigrationPhase.PENDING)),
+            points_total=data.get("pointsTotal", 0),
+            points_copied=data.get("pointsCopied", 0),
+            offset=data.get("offset"),
+            error=data.get("error"),
+        )
 
     def to_dict(self) -> JsonDict:
         return {
@@ -1972,6 +2034,7 @@ class CollectionMigration:
             "status": self.status.value,
             "pointsTotal": self.points_total,
             "pointsCopied": self.points_copied,
+            "offset": self.offset,
             "error": self.error,
         }
 
@@ -2020,6 +2083,24 @@ class MigrationStatus:
     collections: tuple[CollectionMigration, ...] = ()
     error: str | None = None
     conditions: tuple[Condition, ...] = ()
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "MigrationStatus":
+        return MigrationStatus(
+            phase=MigrationPhase(data.get("phase", MigrationPhase.PENDING)),
+            start_time=parse_time(data.get("startTime")),
+            completion_time=parse_time(data.get("completionTime")),
+            source=data.get("source"),
+            collections=tuple(
+                CollectionMigration.from_dict(c) for c in data.get("collections", [])
+            ),
+            error=data.get("error"),
+            conditions=tuple(conditions_from_dict(data)),
+        )
+
+    def resume_point(self, name: str) -> "CollectionMigration | None":
+        """Where a previous run left this collection, if it recorded anything."""
+        return next((c for c in self.collections if c.name == name), None)
 
     @property
     def progress(self) -> MigrationProgress:

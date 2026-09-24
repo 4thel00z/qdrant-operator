@@ -68,6 +68,7 @@ from qdrant_operator.domain import owner_reference
 from qdrant_operator.domain import parse_time
 from qdrant_operator.domain import payload_indexes_from_schema
 from qdrant_operator.domain import set_condition
+from qdrant_operator.domain import vector_layout
 from qdrant_operator.ports import HelmPort
 from qdrant_operator.ports import KubernetesPort
 from qdrant_operator.ports import QdrantPort
@@ -902,32 +903,28 @@ class IssueAccessKey:
 class ExecuteMigration:
     """Copy collections point by point from any Qdrant into a managed cluster.
 
-    Scroll pages on the source are upserted on the target (grouped by shard key). Missing
-    target collections are created from the source configuration and payload schema, with
+    Scroll pages on the source are upserted on the target, grouped by the shard key each point
+    lands under (its source key by default, or a fixed key / payload field from spec.target).
+    Missing target collections are created from the source configuration and payload schema,
     shard and replication counts left to the target cluster unless the spec overrides them.
-    Upserts are idempotent by point id, so a re-run after an operator restart is safe.
+    Progress and the scroll offset are recorded in status, so a re-run after an interruption
+    resumes where it stopped; upserts are idempotent by point id.
     """
 
     qdrant: QdrantPort
     kubernetes: KubernetesPort
 
-    async def execute(self, spec: MigrationSpec, ref: ResourceRef) -> MigrationStatus:
-        start_time = now_utc()
+    async def execute(
+        self, spec: MigrationSpec, ref: ResourceRef, current: MigrationStatus
+    ) -> MigrationStatus:
+        start_time = current.start_time or now_utc()
         source = await self.resolve_source(spec)
         target = (await ResolveCluster(self.kubernetes).execute(spec.target_cluster_ref)).service
         if not await self.qdrant.ready(target):
             raise ClusterNotReadyError(f"QdrantCluster {spec.target_cluster_ref.name} not ready")
 
         names = spec.select_collections(await self.qdrant.list_collections(source))
-        collections = [
-            CollectionMigration(
-                name=name,
-                target_name=spec.target_name(name),
-                status=MigrationPhase.PENDING,
-                points_total=await self.qdrant.count_points(source, name),
-            )
-            for name in names
-        ]
+        collections = [await self.plan_collection(spec, source, current, name) for name in names]
         running = MigrationStatus(
             phase=MigrationPhase.RUNNING,
             start_time=start_time,
@@ -937,6 +934,8 @@ class ExecuteMigration:
         await self.kubernetes.patch_status(ref, running.to_dict())
 
         for index, collection in enumerate(collections):
+            if collection.status == MigrationPhase.COMPLETED:
+                continue
             report = partial(self.report_progress, ref, running, collections, index)
             collections[index] = await self.migrate_collection(
                 spec, source, target, collection, report
@@ -965,6 +964,22 @@ class ExecuteMigration:
             ),
         )
 
+    async def plan_collection(
+        self, spec: MigrationSpec, source: QdrantNode, current: MigrationStatus, name: str
+    ) -> CollectionMigration:
+        """A fresh entry, or the previous run's so a finished copy is kept and a partial resumes."""
+        previous = current.resume_point(name)
+        if previous and previous.status == MigrationPhase.COMPLETED:
+            return previous
+        return CollectionMigration(
+            name=name,
+            target_name=spec.target_name(name),
+            status=MigrationPhase.PENDING,
+            points_total=await self.qdrant.count_points(source, name),
+            points_copied=previous.points_copied if previous else 0,
+            offset=previous.offset if previous else None,
+        )
+
     async def report_progress(
         self,
         ref: ResourceRef,
@@ -972,9 +987,10 @@ class ExecuteMigration:
         collections: list[CollectionMigration],
         index: int,
         copied: int,
+        offset: Any,
     ) -> None:
         collections[index] = replace(
-            collections[index], status=MigrationPhase.RUNNING, points_copied=copied
+            collections[index], status=MigrationPhase.RUNNING, points_copied=copied, offset=offset
         )
         await self.kubernetes.patch_status(
             ref, replace(running, collections=tuple(collections)).to_dict()
@@ -1002,14 +1018,16 @@ class ExecuteMigration:
         source: QdrantNode,
         target: QdrantNode,
         collection: CollectionMigration,
-        report: Callable[[int], Awaitable[None]],
+        report: Callable[[int, Any], Awaitable[None]],
     ) -> CollectionMigration:
         try:
-            await self.ensure_target_collection(spec, source, target, collection)
-            copied = await self.copy_points(spec, source, target, collection, report)
+            shard_keys = await self.ensure_target_collection(spec, source, target, collection)
+            copied = await self.copy_points(spec, source, target, collection, shard_keys, report)
         except Exception as error:
             return replace(collection, status=MigrationPhase.FAILED, error=str(error))
-        return replace(collection, status=MigrationPhase.COMPLETED, points_copied=copied)
+        return replace(
+            collection, status=MigrationPhase.COMPLETED, points_copied=copied, offset=None
+        )
 
     async def ensure_target_collection(
         self,
@@ -1017,21 +1035,59 @@ class ExecuteMigration:
         source: QdrantNode,
         target: QdrantNode,
         collection: CollectionMigration,
-    ) -> None:
-        if await self.qdrant.collection_exists(target, collection.target_name):
-            return
-        if not spec.create_missing:
+    ) -> set[Any] | None:
+        """Create or check the target; returns its shard keys, or None for auto sharding."""
+        info = await self.qdrant.collection_info(source, collection.name)
+        config: Mapping[str, Any] = info["config"]
+        schema: Mapping[str, Any] = info.get("payload_schema", {})
+        exists = await self.qdrant.collection_exists(target, collection.target_name)
+        if not exists and not spec.create_missing:
             raise LookupError(
                 f"Collection {collection.target_name} missing on target and createMissing is false"
             )
-        info = await self.qdrant.collection_info(source, collection.name)
-        await self.qdrant.create_collection(
-            target, collection.target_name, create_body_from_config(info["config"], spec.target)
-        )
-        for field_name, schema in payload_indexes_from_schema(info.get("payload_schema", {})):
-            await self.qdrant.create_payload_index(
-                target, collection.target_name, field_name, schema
+        if not exists:
+            await self.qdrant.create_collection(
+                target, collection.target_name, create_body_from_config(config, spec.target)
             )
+        target_config: Mapping[str, Any] = (
+            await self.qdrant.collection_info(target, collection.target_name)
+        )["config"]
+        if not is_subset(vector_layout(config), vector_layout(target_config)):
+            raise ValueError(
+                f"Collection {collection.target_name} on the target has different vector "
+                "sizes or distances than the source"
+            )
+        if not exists or spec.ensure_payload_indexes:
+            target_schema: Mapping[str, Any] = (
+                await self.qdrant.collection_info(target, collection.target_name)
+            ).get("payload_schema", {})
+            for field_name, field_schema in payload_indexes_from_schema(schema):
+                if field_name in target_schema:
+                    continue
+                await self.qdrant.create_payload_index(
+                    target, collection.target_name, field_name, field_schema
+                )
+        if target_config.get("params", {}).get("sharding_method") != "custom":
+            return None
+        return set(await self.qdrant.list_shard_keys(target, collection.target_name))
+
+    async def ensure_shard_key(
+        self,
+        spec: MigrationSpec,
+        target: QdrantNode,
+        collection: CollectionMigration,
+        shard_keys: set[Any] | None,
+        shard_key: Any,
+    ) -> None:
+        """Create a shard key on a custom-sharded target the first time a point needs it."""
+        if shard_keys is None or shard_key is None or shard_key in shard_keys:
+            return
+        await self.qdrant.create_shard_key(
+            target,
+            collection.target_name,
+            {"shard_key": shard_key, **spec.target.shard_key_params()},
+        )
+        shard_keys.add(shard_key)
 
     async def copy_points(
         self,
@@ -1039,20 +1095,24 @@ class ExecuteMigration:
         source: QdrantNode,
         target: QdrantNode,
         collection: CollectionMigration,
-        report: Callable[[int], Awaitable[None]],
+        shard_keys: set[Any] | None,
+        report: Callable[[int, Any], Awaitable[None]],
     ) -> int:
-        offset: Any = None
-        copied = 0
+        offset: Any = collection.offset
+        copied = collection.points_copied if collection.offset is not None else 0
         batches = 0
         while True:
             points, offset = await self.qdrant.scroll_points(
                 source, collection.name, offset, spec.batch_size
             )
-            for shard_key, group in group_by_shard_key(points).items():
+            for shard_key, group in group_by_shard_key(points, spec.target).items():
+                await self.ensure_shard_key(spec, target, collection, shard_keys, shard_key)
                 await self.qdrant.upsert_points(target, collection.target_name, group, shard_key)
             copied += len(points)
             batches += 1
-            if batches % PROGRESS_EVERY_BATCHES == 0:
-                await report(copied)
             if offset is None or not points:
                 return copied
+            if batches % PROGRESS_EVERY_BATCHES == 0:
+                await report(copied, offset)
+            if spec.batch_delay_ms:
+                await asyncio.sleep(spec.batch_delay_ms / 1000)

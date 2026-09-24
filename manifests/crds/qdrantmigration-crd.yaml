@@ -50,6 +50,8 @@ spec:
                   message: "source needs exactly one of clusterRef or endpoint"
                 - rule: "self == oldSelf"
                   message: "spec is immutable; create a new QdrantMigration instead"
+                - rule: "!has(self.target) || !(has(self.target.shardKey) && has(self.target.shardKeyField))"
+                  message: "target.shardKey and target.shardKeyField are mutually exclusive"
               properties:
                 source:
                   type: object
@@ -119,13 +121,22 @@ spec:
                   maximum: 10000
                   default: 256
                   description: Points per scroll/upsert round trip
+                batchDelayMs:
+                  type: integer
+                  minimum: 0
+                  default: 0
+                  description: Pause between batches to throttle load on both clusters
                 createMissing:
                   type: boolean
                   default: true
                   description: Create target collections from the source configuration when absent
+                ensurePayloadIndexes:
+                  type: boolean
+                  default: true
+                  description: Create the source's payload indexes on the target even when the target collection already exists
                 target:
                   type: object
-                  description: Sharding and replication for collections the migration creates
+                  description: Sharding, replication and shard-key routing on the target
                   properties:
                     shardNumber:
                       type: integer
@@ -136,6 +147,12 @@ spec:
                     writeConsistencyFactor:
                       type: integer
                       minimum: 1
+                    shardKey:
+                      x-kubernetes-int-or-string: true
+                      description: Route every point to this shard key (default - keep each point's source shard key)
+                    shardKeyField:
+                      type: string
+                      description: Route each point by this payload field (string or non-negative integer)
             status:
               type: object
               properties:
@@ -167,6 +184,9 @@ spec:
                         type: integer
                       pointsCopied:
                         type: integer
+                      offset:
+                        x-kubernetes-preserve-unknown-fields: true
+                        description: Scroll offset to resume from after an interruption
                       error:
                         type: string
                 progress:

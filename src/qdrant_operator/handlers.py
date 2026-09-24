@@ -286,12 +286,18 @@ async def issue_access_key(
 
 @kopf.on.create(GROUP, VERSION, MIGRATIONS.plural)
 async def execute_migration(
-    spec: kopf.Spec, meta: kopf.Meta, patch: kopf.Patch, logger: kopf.Logger, **_: Any
+    spec: kopf.Spec,
+    meta: kopf.Meta,
+    status: kopf.Status,
+    patch: kopf.Patch,
+    logger: kopf.Logger,
+    **_: Any,
 ) -> None:
     ref = resource_ref(MIGRATIONS, meta)
+    current = MigrationStatus.from_dict(status)
     try:
         migration = MigrationSpec.from_dict(spec, meta)
-        result = await Container().execute_migration().execute(migration, ref)
+        result = await Container().execute_migration().execute(migration, ref, current)
     except (ClusterNotFoundError, ClusterNotReadyError, KeyError) as error:
         raise kopf.TemporaryError(str(error), delay=RETRY_DELAY_SECONDS) from error
     except Exception as error:

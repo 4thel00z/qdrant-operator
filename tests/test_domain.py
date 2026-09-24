@@ -24,6 +24,7 @@ from qdrant_operator.domain import DeletionPolicy
 from qdrant_operator.domain import MigrationPhase
 from qdrant_operator.domain import MigrationProgress
 from qdrant_operator.domain import MigrationSpec
+from qdrant_operator.domain import MigrationStatus
 from qdrant_operator.domain import PayloadIndexSpec
 from qdrant_operator.domain import RestoreSpec
 from qdrant_operator.domain import RetentionPolicy
@@ -39,6 +40,7 @@ from qdrant_operator.domain import merge_dicts
 from qdrant_operator.domain import parse_duration
 from qdrant_operator.domain import payload_indexes_from_schema
 from qdrant_operator.domain import set_condition
+from qdrant_operator.domain import vector_layout
 
 NOW = datetime(2026, 9, 23, 2, 30, tzinfo=UTC)
 META = {"name": "demo", "namespace": "tenant-a"}
@@ -572,3 +574,29 @@ def test_collection_memory_tiers_metadata_and_shard_keys_map_to_qdrant() -> None
     assert patch["params"] == {"read_fan_out_delay_ms": 50, "payload": {"memory": "cached"}}
     assert patch["metadata"] == {"owner": "search-team"}
     assert "vectors" not in patch
+
+
+def test_migration_target_routing_and_vector_layout() -> None:
+    fixed = TargetOverrides.from_dict({"shardKey": "tier-a"})
+    by_field = TargetOverrides.from_dict({"shardKeyField": "tenant"})
+    keep = TargetOverrides()
+    point = {"id": 1, "vector": [0.1], "payload": {"tenant": 7}, "shard_key": "eu"}
+
+    assert (fixed.route(point), by_field.route(point), keep.route(point)) == ("tier-a", 7, "eu")
+    with pytest.raises(ValueError, match="route by"):
+        by_field.route({"id": 2, "payload": {"tenant": -1}})
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        TargetOverrides.from_dict({"shardKey": "a", "shardKeyField": "b"})
+    struct = {"id": 1, "vector": [0.1], "payload": {"tenant": 7}}
+    assert group_by_shard_key([point], fixed) == {"tier-a": [struct]}
+    single = {"params": {"vectors": {"size": 4, "distance": "Dot", "on_disk": True}}}
+    named = {"params": {"vectors": {"a": {"size": 4, "distance": "Dot", "memory": "cold"}}}}
+    assert vector_layout(single) == {"size": 4, "distance": "Dot"}
+    assert vector_layout(named) == {"a": {"size": 4, "distance": "Dot"}}
+    resumed = MigrationStatus.from_dict(
+        {"phase": "Running", "collections": [{"name": "docs", "status": "Running", "offset": 41}]}
+    )
+    assert resumed.resume_point("docs") == CollectionMigration(
+        "docs", "docs", MigrationPhase.RUNNING, offset=41
+    )
+    assert resumed.resume_point("ghost") is None
