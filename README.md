@@ -238,7 +238,21 @@ spec:
       type: text
       params: {tokenizer: word, lowercase: true}
   aliases: [articles-live]
+  metadata: {owner: search-team}  # merged into the collection's metadata
   deletionPolicy: Retain          # Delete drops the collection with the resource
+```
+
+Custom sharding declares its keys in the same resource; keys are created when missing and never
+dropped, because dropping one deletes its points:
+
+```yaml
+spec:
+  shardingMethod: custom
+  shardNumber: 1                  # shards per key
+  shardKeys:
+    - key: eu
+    - key: us
+      replicationFactor: 2
 ```
 
 A single entry without `name` is Qdrant's unnamed vector. Vector size and distance, `shardNumber`
@@ -292,15 +306,21 @@ spec:
   collectionMapping:
     articles: articles_v2
   batchSize: 500
+  batchDelayMs: 0                 # throttle
+  ensurePayloadIndexes: true      # also on targets that already exist
   target:                         # for collections the migration creates
     replicationFactor: 2
+    # shardKey: tier-a            # route every point to one shard key
+    # shardKeyField: tenant       # or route by a payload field
 ```
 
 Points are scrolled from the source and upserted on the target, so the run is idempotent and a
 one-node source can become a three-node target (shard counts follow the target unless set under
 `target`). Missing target collections are created from the source configuration, including
-payload indexes. Collections with `sharding_method: custom` need their shard keys created on the
-target beforehand; the migration copies points per shard key but does not create the keys.
+payload indexes; existing targets must have the same vector sizes and distances. Custom shard
+keys are preserved by default and created on the target as they are met, or routed with
+`target.shardKey` / `target.shardKeyField`. Progress and the scroll offset live in `status`, so a
+run interrupted by an operator restart resumes where it stopped.
 
 ## Configuration
 
