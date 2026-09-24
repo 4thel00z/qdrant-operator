@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.2](https://github.com/4thel00z/qdrant-operator/compare/v0.3.1...v0.3.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **s3,helm:** bound multipart buffering, recover pending releases, 512Mi default ([7d9716d](https://github.com/4thel00z/qdrant-operator/commit/7d9716d9ac476535087626e6bb069d0775257eca))
+
+
+### CI
+
+* download-artifact v8 to match upload-artifact v7 ([ef2fe6c](https://github.com/4thel00z/qdrant-operator/commit/ef2fe6c7f242aff85195bc95944bc71f85852dc0))
+
 ## [0.3.1](https://github.com/4thel00z/qdrant-operator/compare/v0.3.0...v0.3.1) (2026-09-24)
 
 
