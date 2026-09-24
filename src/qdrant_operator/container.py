@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from dataclasses import field
 
 from qdrant_operator.helm_adapter import HelmAdapter
+from qdrant_operator.jwt_adapter import JwtAdapter
 from qdrant_operator.kubernetes_adapter import KubernetesAdapter
 from qdrant_operator.qdrant_adapter import QdrantAdapter
 from qdrant_operator.s3_adapter import S3Adapter
@@ -13,6 +14,7 @@ from qdrant_operator.usecases import DeleteCollection
 from qdrant_operator.usecases import ExecuteBackup
 from qdrant_operator.usecases import ExecuteRestore
 from qdrant_operator.usecases import ExpireBackup
+from qdrant_operator.usecases import IssueAccessKey
 from qdrant_operator.usecases import ObserveCluster
 from qdrant_operator.usecases import ProcessSchedule
 from qdrant_operator.usecases import ReconcileCluster
@@ -25,6 +27,7 @@ class Container:
     kubernetes: KubernetesAdapter = field(default_factory=KubernetesAdapter)
     storage: S3Adapter = field(default_factory=S3Adapter)
     qdrant: QdrantAdapter = field(default_factory=QdrantAdapter)
+    token: JwtAdapter = field(default_factory=JwtAdapter)
 
     def reconcile_cluster(self) -> ReconcileCluster:
         return ReconcileCluster(helm=self.helm)
@@ -55,3 +58,6 @@ class Container:
 
     def delete_collection(self) -> DeleteCollection:
         return DeleteCollection(qdrant=self.qdrant, kubernetes=self.kubernetes)
+
+    def issue_access_key(self) -> IssueAccessKey:
+        return IssueAccessKey(kubernetes=self.kubernetes, token=self.token)

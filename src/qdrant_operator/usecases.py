@@ -11,6 +11,11 @@ from typing import Any
 
 from qdrant_operator.domain import BACKUPS
 from qdrant_operator.domain import MANIFEST_KEY
+from qdrant_operator.domain import TOKEN_SECRET_KEY
+from qdrant_operator.domain import URL_SECRET_KEY
+from qdrant_operator.domain import AccessKeyPhase
+from qdrant_operator.domain import AccessKeySpec
+from qdrant_operator.domain import AccessKeyStatus
 from qdrant_operator.domain import BackupManifest
 from qdrant_operator.domain import BackupPhase
 from qdrant_operator.domain import BackupRecord
@@ -49,12 +54,15 @@ from qdrant_operator.domain import chart_version
 from qdrant_operator.domain import format_size
 from qdrant_operator.domain import is_subset
 from qdrant_operator.domain import join_key
+from qdrant_operator.domain import key_fingerprint
+from qdrant_operator.domain import owner_reference
 from qdrant_operator.domain import parse_time
 from qdrant_operator.domain import set_condition
 from qdrant_operator.ports import HelmPort
 from qdrant_operator.ports import KubernetesPort
 from qdrant_operator.ports import QdrantPort
 from qdrant_operator.ports import StoragePort
+from qdrant_operator.ports import TokenPort
 
 RECENT_BACKUPS_LIMIT = 10
 PRESIGNED_URL_TTL_SECONDS = 3600
@@ -759,3 +767,101 @@ class DeleteCollection:
             return False
         await self.qdrant.delete_collection(connection.service, spec.collection_name)
         return True
+
+
+@dataclass
+class IssueAccessKey:
+    """Sign a Qdrant RBAC token with the cluster's API key and keep it in a Secret.
+
+    The token is re-issued when the spec changes, when the cluster's API key changes, when
+    the Secret disappears, or when the renewal time is reached.
+    """
+
+    kubernetes: KubernetesPort
+    token: TokenPort
+
+    async def execute(
+        self,
+        spec: AccessKeySpec,
+        generation: int | None,
+        current: AccessKeyStatus,
+        owner: Mapping[str, Any],
+        now: datetime,
+    ) -> AccessKeyStatus:
+        body = await self.kubernetes.get_custom_resource(spec.cluster_ref.to_resource_ref())
+        if not body:
+            raise ClusterNotFoundError(f"QdrantCluster {spec.cluster_ref.name} not found")
+        cluster = ClusterSpec.from_dict(body["spec"], body["metadata"])
+        if not cluster.api_key.jwt_rbac:
+            return self.blocked(
+                current, generation, "JwtRbacDisabled", "cluster spec.apiKey.jwtRbac is false"
+            )
+        signing_key_ref = cluster.api_key.resolve_secret_ref(cluster.name, cluster.namespace)
+        if not signing_key_ref:
+            return self.blocked(current, generation, "ApiKeyMissing", "cluster has no apiKey")
+
+        api_key = await self.kubernetes.get_secret_value(signing_key_ref)
+        fingerprint = key_fingerprint(api_key)
+        if current.token_current(generation, fingerprint, await self.secret_present(spec), now):
+            return current
+
+        await self.kubernetes.apply_secret(
+            spec.secret_name,
+            spec.namespace,
+            {
+                TOKEN_SECRET_KEY: self.token.sign(spec.claims(now), api_key),
+                URL_SECRET_KEY: cluster.service_url(),
+            },
+            owner_reference(owner),
+        )
+        return AccessKeyStatus(
+            phase=AccessKeyPhase.READY,
+            secret_ref=spec.token_secret_ref(),
+            issued_at=now,
+            expires_at=spec.expires_at(now),
+            renew_at=spec.renew_at(now),
+            key_fingerprint=fingerprint,
+            observed_generation=generation,
+            conditions=tuple(
+                set_condition(
+                    current.conditions,
+                    Condition(
+                        type="Ready",
+                        status=ConditionStatus.TRUE,
+                        last_transition_time=now,
+                        reason="TokenIssued",
+                        message=f"Token written to secret {spec.secret_name}",
+                    ),
+                )
+            ),
+        )
+
+    async def secret_present(self, spec: AccessKeySpec) -> bool:
+        try:
+            await self.kubernetes.get_secret_value(spec.token_secret_ref())
+        except KeyError:
+            return False
+        return True
+
+    @staticmethod
+    def blocked(
+        current: AccessKeyStatus, generation: int | None, reason: str, message: str
+    ) -> AccessKeyStatus:
+        return replace(
+            current,
+            phase=AccessKeyPhase.PENDING,
+            error=message,
+            observed_generation=generation,
+            conditions=tuple(
+                set_condition(
+                    current.conditions,
+                    Condition(
+                        type="Ready",
+                        status=ConditionStatus.FALSE,
+                        last_transition_time=now_utc(),
+                        reason=reason,
+                        message=message,
+                    ),
+                )
+            ),
+        )

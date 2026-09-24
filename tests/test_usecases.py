@@ -1,15 +1,21 @@
 import json
+import warnings
 from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 
 import pytest
+from jwt import PyJWT
+from jwt.warnings import InsecureKeyLengthWarning
 
 from qdrant_operator.domain import BACKUPS
 from qdrant_operator.domain import CLUSTERS
 from qdrant_operator.domain import RESTORES
 from qdrant_operator.domain import SCHEDULES
+from qdrant_operator.domain import AccessKeyPhase
+from qdrant_operator.domain import AccessKeySpec
+from qdrant_operator.domain import AccessKeyStatus
 from qdrant_operator.domain import BackupPhase
 from qdrant_operator.domain import BackupScheduleSpec
 from qdrant_operator.domain import BackupScheduleStatus
@@ -32,6 +38,7 @@ from qdrant_operator.domain import RestoreSpec
 from qdrant_operator.domain import SchedulePhase
 from qdrant_operator.domain import StatefulSetStatus
 from qdrant_operator.domain import format_time
+from qdrant_operator.jwt_adapter import JwtAdapter
 from qdrant_operator.usecases import ClusterNotFoundError
 from qdrant_operator.usecases import DeleteBackupData
 from qdrant_operator.usecases import DeleteCluster
@@ -39,6 +46,7 @@ from qdrant_operator.usecases import DeleteCollection
 from qdrant_operator.usecases import ExecuteBackup
 from qdrant_operator.usecases import ExecuteRestore
 from qdrant_operator.usecases import ExpireBackup
+from qdrant_operator.usecases import IssueAccessKey
 from qdrant_operator.usecases import ObserveCluster
 from qdrant_operator.usecases import ProcessSchedule
 from qdrant_operator.usecases import ReconcileCluster
@@ -595,3 +603,102 @@ async def test_delete_collection_honours_deletion_policy(kubernetes: FakeKuberne
 
     assert (retained, dropped, gone) == (False, True, False)
     assert qdrant.collections[node_url(0)] == {} and qdrant.aliases == {}
+
+
+def access_key_body(name: str = "app-token", **spec: object) -> JsonDict:
+    return {
+        "apiVersion": "qdrant.io/v1alpha1",
+        "kind": "QdrantAccessKey",
+        "metadata": {"name": name, "namespace": NS, "uid": "uid-app-token", "generation": 1},
+        "spec": {
+            "clusterRef": {"name": "db"},
+            **({} if "collections" in spec else {"access": "r"}),
+            **spec,
+        },
+    }
+
+
+def decode_token(token: str, key: str) -> JsonDict:
+    """Decode like Qdrant would, minus expiry (the test clock is fixed in the past)."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", InsecureKeyLengthWarning)
+        return PyJWT().decode(  # pyright: ignore[reportUnknownMemberType]
+            token, key, algorithms=["HS256"], options={"verify_exp": False}
+        )
+
+
+async def test_issue_access_key_writes_signed_token_and_renews_on_time(
+    kubernetes: FakeKubernetes,
+) -> None:
+    kubernetes.put_resource(
+        cluster_body(apiKey={"secretRef": {"name": "api-keys", "key": "key"}, "jwtRbac": True})
+    )
+    owner = access_key_body(collections=[{"name": "docs", "access": "rw"}], ttl="3h")
+    spec = AccessKeySpec.from_dict(owner["spec"], owner["metadata"])
+    use_case = IssueAccessKey(kubernetes, JwtAdapter())
+    pending = AccessKeyStatus(AccessKeyPhase.PENDING)
+
+    issued = await use_case.execute(spec, 1, pending, owner, NOW)
+    unchanged = await use_case.execute(spec, 1, issued, owner, NOW + timedelta(hours=1))
+    renewed = await use_case.execute(spec, 1, issued, owner, NOW + timedelta(hours=2, minutes=1))
+
+    secret = kubernetes.secrets[(NS, "app-token")]
+    assert decode_token(secret["token"], "topsecret") == {
+        "exp": int((NOW + timedelta(hours=2, minutes=1) + timedelta(hours=3)).timestamp()),
+        "access": [{"collection": "docs", "access": "rw"}],
+    }
+    assert secret["url"] == service_url()
+    assert kubernetes.secret_owners[(NS, "app-token")]["uid"] == "uid-app-token"
+    assert issued.phase == AccessKeyPhase.READY
+    assert (issued.expires_at, issued.renew_at) == (
+        NOW + timedelta(hours=3),
+        NOW + timedelta(hours=2),
+    )
+    assert unchanged == issued
+    assert renewed.issued_at == NOW + timedelta(hours=2, minutes=1)
+    assert renewed.conditions[0].last_transition_time == issued.conditions[0].last_transition_time
+
+
+async def test_issue_access_key_resigns_when_cluster_key_rotates_or_secret_vanishes(
+    kubernetes: FakeKubernetes,
+) -> None:
+    kubernetes.put_resource(
+        cluster_body(apiKey={"secretRef": {"name": "api-keys", "key": "key"}, "jwtRbac": True})
+    )
+    owner = access_key_body(secretName="shared-token")
+    spec = AccessKeySpec.from_dict(owner["spec"], owner["metadata"])
+    use_case = IssueAccessKey(kubernetes, JwtAdapter())
+
+    first = await use_case.execute(spec, 1, AccessKeyStatus(AccessKeyPhase.PENDING), owner, NOW)
+    kubernetes.secrets[(NS, "api-keys")] = {"key": "rotated"}
+    second = await use_case.execute(spec, 1, first, owner, NOW)
+    del kubernetes.secrets[(NS, "shared-token")]
+    third = await use_case.execute(spec, 1, second, owner, NOW)
+
+    assert first.key_fingerprint != second.key_fingerprint
+    assert decode_token(kubernetes.secrets[(NS, "shared-token")]["token"], "rotated") == {
+        "access": "r"
+    }
+    assert third.secret_ref and third.secret_ref.name == "shared-token"
+    assert first.expires_at is None
+
+
+async def test_issue_access_key_waits_until_the_cluster_enables_jwt_rbac(
+    kubernetes: FakeKubernetes,
+) -> None:
+    owner = access_key_body()
+    spec = AccessKeySpec.from_dict(owner["spec"], owner["metadata"])
+    use_case = IssueAccessKey(kubernetes, JwtAdapter())
+
+    blocked = await use_case.execute(spec, 1, AccessKeyStatus(AccessKeyPhase.PENDING), owner, NOW)
+    kubernetes.put_resource(cluster_body(apiKey={"jwtRbac": True, "autoGenerate": True}))
+    with pytest.raises(KeyError):
+        await use_case.execute(spec, 1, blocked, owner, NOW)
+    with pytest.raises(ClusterNotFoundError):
+        await use_case.execute(
+            replace(spec, cluster_ref=ClusterRef("ghost", NS)), 1, blocked, owner, NOW
+        )
+
+    assert blocked.phase == AccessKeyPhase.PENDING
+    assert blocked.conditions[0].reason == "JwtRbacDisabled"
+    assert (NS, "app-token") not in kubernetes.secrets

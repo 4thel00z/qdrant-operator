@@ -12,6 +12,7 @@ from typing import Any
 import kopf
 
 from qdrant_operator.container import Container
+from qdrant_operator.domain import ACCESS_KEYS
 from qdrant_operator.domain import BACKUPS
 from qdrant_operator.domain import CLUSTERS
 from qdrant_operator.domain import COLLECTIONS
@@ -19,6 +20,9 @@ from qdrant_operator.domain import GROUP
 from qdrant_operator.domain import RESTORES
 from qdrant_operator.domain import SCHEDULES
 from qdrant_operator.domain import VERSION
+from qdrant_operator.domain import AccessKeyPhase
+from qdrant_operator.domain import AccessKeySpec
+from qdrant_operator.domain import AccessKeyStatus
 from qdrant_operator.domain import BackupPhase
 from qdrant_operator.domain import BackupScheduleSpec
 from qdrant_operator.domain import BackupScheduleStatus
@@ -43,6 +47,7 @@ FINALIZER = f"{GROUP}/finalizer"
 CLUSTER_OBSERVE_INTERVAL = 30.0
 SCHEDULE_TICK_INTERVAL = 60.0
 COLLECTION_RECONCILE_INTERVAL = 60.0
+ACCESS_KEY_RENEW_INTERVAL = 60.0
 BACKUP_EXPIRY_INTERVAL = 300.0
 RETRY_DELAY_SECONDS = 30.0
 
@@ -238,3 +243,38 @@ async def delete_collection(
     dropped = await Container().delete_collection().execute(collection)
     verb = "dropped" if dropped else "retained"
     logger.info(f"Collection {collection.collection_name} {verb} on delete")
+
+
+@kopf.on.create(GROUP, VERSION, ACCESS_KEYS.plural)
+@kopf.on.update(GROUP, VERSION, ACCESS_KEYS.plural, field="spec")
+@kopf.on.resume(GROUP, VERSION, ACCESS_KEYS.plural)
+@kopf.timer(GROUP, VERSION, ACCESS_KEYS.plural, interval=ACCESS_KEY_RENEW_INTERVAL)
+async def issue_access_key(
+    spec: kopf.Spec,
+    meta: kopf.Meta,
+    status: kopf.Status,
+    body: kopf.Body,
+    patch: kopf.Patch,
+    logger: kopf.Logger,
+    **_: Any,
+) -> None:
+    current = AccessKeyStatus.from_dict(status, meta["namespace"])
+    try:
+        access_key = AccessKeySpec.from_dict(spec, meta)
+        result = (
+            await Container()
+            .issue_access_key()
+            .execute(access_key, meta.get("generation"), current, body, datetime.now(UTC))
+        )
+    except (ClusterNotFoundError, KeyError) as error:
+        raise kopf.TemporaryError(str(error), delay=RETRY_DELAY_SECONDS) from error
+    except Exception as error:
+        patch.status.update(
+            replace(current, phase=AccessKeyPhase.FAILED, error=str(error)).to_dict()
+        )
+        raise kopf.PermanentError(f"Access key failed: {error}") from error
+    if result == current:
+        return
+    patch.status.update(result.to_dict())
+    if result.issued_at != current.issued_at:
+        logger.info(f"Token for {meta['name']} written to secret {access_key.secret_name}")
