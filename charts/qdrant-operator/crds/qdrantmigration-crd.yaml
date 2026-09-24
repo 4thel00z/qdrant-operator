@@ -1,0 +1,208 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: qdrantmigrations.qdrant.io
+spec:
+  group: qdrant.io
+  names:
+    kind: QdrantMigration
+    listKind: QdrantMigrationList
+    plural: qdrantmigrations
+    singular: qdrantmigration
+    shortNames:
+      - qmig
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Source
+          type: string
+          jsonPath: .status.source
+        - name: Target
+          type: string
+          jsonPath: .spec.targetClusterRef.name
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Progress
+          type: string
+          jsonPath: .status.progress.percentage
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - source
+                - targetClusterRef
+              x-kubernetes-validations:
+                - rule: "has(self.source.clusterRef) != has(self.source.endpoint)"
+                  message: "source needs exactly one of clusterRef or endpoint"
+                - rule: "self == oldSelf"
+                  message: "spec is immutable; create a new QdrantMigration instead"
+              properties:
+                source:
+                  type: object
+                  properties:
+                    clusterRef:
+                      type: object
+                      required:
+                        - name
+                      description: A QdrantCluster managed by this operator
+                      properties:
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                    endpoint:
+                      type: object
+                      required:
+                        - url
+                      description: Any reachable Qdrant, e.g. Qdrant Cloud or a cluster outside Kubernetes
+                      properties:
+                        url:
+                          type: string
+                          pattern: '^https?://'
+                        apiKeySecretRef:
+                          type: object
+                          required:
+                            - name
+                            - key
+                          properties:
+                            name:
+                              type: string
+                            key:
+                              type: string
+                        caSecretRef:
+                          type: object
+                          required:
+                            - name
+                            - key
+                          description: PEM bundle to trust when the endpoint uses a private CA
+                          properties:
+                            name:
+                              type: string
+                            key:
+                              type: string
+                targetClusterRef:
+                  type: object
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                collections:
+                  type: array
+                  items:
+                    type: string
+                  description: Collections to copy (empty = every collection on the source)
+                collectionMapping:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Rename collections while copying (source -> target)
+                batchSize:
+                  type: integer
+                  minimum: 1
+                  maximum: 10000
+                  default: 256
+                  description: Points per scroll/upsert round trip
+                createMissing:
+                  type: boolean
+                  default: true
+                  description: Create target collections from the source configuration when absent
+                target:
+                  type: object
+                  description: Sharding and replication for collections the migration creates
+                  properties:
+                    shardNumber:
+                      type: integer
+                      minimum: 1
+                    replicationFactor:
+                      type: integer
+                      minimum: 1
+                    writeConsistencyFactor:
+                      type: integer
+                      minimum: 1
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: ["Pending", "Running", "Completed", "Failed"]
+                startTime:
+                  type: string
+                  format: date-time
+                completionTime:
+                  type: string
+                  format: date-time
+                source:
+                  type: string
+                  description: Resolved source (cluster name or endpoint URL)
+                collections:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      targetName:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["Pending", "Running", "Completed", "Failed"]
+                      pointsTotal:
+                        type: integer
+                      pointsCopied:
+                        type: integer
+                      error:
+                        type: string
+                progress:
+                  type: object
+                  properties:
+                    collectionsTotal:
+                      type: integer
+                    collectionsCompleted:
+                      type: integer
+                    pointsTotal:
+                      type: integer
+                    pointsCopied:
+                      type: integer
+                    percentage:
+                      type: integer
+                      minimum: 0
+                      maximum: 100
+                error:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
