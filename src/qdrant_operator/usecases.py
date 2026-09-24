@@ -68,6 +68,7 @@ from qdrant_operator.domain import owner_reference
 from qdrant_operator.domain import parse_time
 from qdrant_operator.domain import payload_indexes_from_schema
 from qdrant_operator.domain import set_condition
+from qdrant_operator.domain import to_point_struct
 from qdrant_operator.domain import vector_layout
 from qdrant_operator.ports import HelmPort
 from qdrant_operator.ports import KubernetesPort
@@ -1089,6 +1090,15 @@ class ExecuteMigration:
         )
         shard_keys.add(shard_key)
 
+    @staticmethod
+    def route_page(
+        spec: MigrationSpec, points: list[JsonDict], shard_keys: set[Any] | None
+    ) -> dict[Any, list[JsonDict]]:
+        """Per-key groups for a custom-sharded target; one keyless upsert otherwise."""
+        if shard_keys is None:
+            return {None: [to_point_struct(p) for p in points]}
+        return group_by_shard_key(points, spec.target)
+
     async def copy_points(
         self,
         spec: MigrationSpec,
@@ -1105,7 +1115,7 @@ class ExecuteMigration:
             points, offset = await self.qdrant.scroll_points(
                 source, collection.name, offset, spec.batch_size
             )
-            for shard_key, group in group_by_shard_key(points, spec.target).items():
+            for shard_key, group in self.route_page(spec, points, shard_keys).items():
                 await self.ensure_shard_key(spec, target, collection, shard_keys, shard_key)
                 await self.qdrant.upsert_points(target, collection.target_name, group, shard_key)
             copied += len(points)

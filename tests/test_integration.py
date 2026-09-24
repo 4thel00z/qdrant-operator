@@ -185,6 +185,34 @@ async def test_collection_calls_round_trip_against_real_qdrant(spec: ClusterSpec
         assert await adapter.collection_exists(node, "docs") is False
 
 
+async def test_custom_sharding_calls_round_trip_against_real_qdrant(spec: ClusterSpec) -> None:
+    adapter = QdrantAdapter()
+    sharded = CollectionSpec.from_dict(
+        {
+            "clusterRef": {"name": CLUSTER},
+            "vectors": [{"size": 2, "distance": "Dot"}],
+            "shardingMethod": "custom",
+            "shardNumber": 1,
+            "shardKeys": [{"key": "eu"}, {"key": 7}],
+        },
+        {"name": "regions", "namespace": NAMESPACE},
+    )
+    async with port_forward(spec) as node:
+        await adapter.create_collection(node, "regions", sharded.create_body())
+        assert await adapter.list_shard_keys(node, "regions") == []
+        for shard_key in sharded.shard_keys:
+            await adapter.create_shard_key(node, "regions", shard_key.to_body())
+        assert sorted(map(str, await adapter.list_shard_keys(node, "regions"))) == ["7", "eu"]
+
+        points = [{"id": i, "vector": [float(i), 1.0], "payload": {"n": i}} for i in (1, 2)]
+        await adapter.upsert_points(node, "regions", points, shard_key="eu")
+        await adapter.upsert_points(node, "regions", [{"id": 3, "vector": [3.0, 1.0]}], shard_key=7)
+        assert await adapter.count_points(node, "regions") == 3
+        page, _ = await adapter.scroll_points(node, "regions", None, 10)
+        assert {p["id"]: p["shard_key"] for p in page} == {1: "eu", 2: "eu", 3: 7}
+        await adapter.delete_collection(node, "regions")
+
+
 async def test_jwt_signed_with_the_cluster_key_is_scoped_by_qdrant(spec: ClusterSpec) -> None:
     adapter = QdrantAdapter()
     access_key = AccessKeySpec.from_dict(

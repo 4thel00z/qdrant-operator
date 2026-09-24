@@ -777,7 +777,7 @@ async def test_migration_copies_collections_in_batches_and_creates_targets(
     assert phases[0] == "Running" and len(phases) == 3
 
 
-async def test_migration_groups_upserts_by_shard_key_and_reads_external_endpoints(
+async def test_migration_drops_source_shard_keys_for_auto_sharded_targets_and_reads_endpoints(
     kubernetes: FakeKubernetes,
 ) -> None:
     kubernetes.put_resource(cluster_body(name="target"))
@@ -800,8 +800,8 @@ async def test_migration_groups_upserts_by_shard_key_and_reads_external_endpoint
 
     assert status.phase == MigrationPhase.COMPLETED
     assert status.source == cloud
-    assert sorted(qdrant.upserts) == [("docs", "eu", 2), ("docs", "us", 2)]
-    assert qdrant.stored_points(node_url(0, "target"), "docs")[0]["shard_key"] == "us"
+    assert qdrant.upserts == [("docs", None, 4)]
+    assert "shard_key" not in qdrant.stored_points(node_url(0, "target"), "docs")[0]
 
 
 async def test_migration_reports_per_collection_failures_and_missing_sources(
