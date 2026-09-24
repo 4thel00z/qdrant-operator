@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3](https://github.com/4thel00z/qdrant-operator/compare/v0.3.2...v0.3.3) (2026-09-24)
+
+
+### CI
+
+* download the dist and chart artifacts by name ([034ec75](https://github.com/4thel00z/qdrant-operator/commit/034ec757ad9487cb725a52cd635464ac180c21ef))
+
 ## [0.3.2](https://github.com/4thel00z/qdrant-operator/compare/v0.3.1...v0.3.2) (2026-09-24)
 
 
