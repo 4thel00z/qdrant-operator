@@ -9,12 +9,14 @@ from qdrant_operator.qdrant_adapter import QdrantAdapter
 from qdrant_operator.s3_adapter import S3Adapter
 from qdrant_operator.usecases import DeleteBackupData
 from qdrant_operator.usecases import DeleteCluster
+from qdrant_operator.usecases import DeleteCollection
 from qdrant_operator.usecases import ExecuteBackup
 from qdrant_operator.usecases import ExecuteRestore
 from qdrant_operator.usecases import ExpireBackup
 from qdrant_operator.usecases import ObserveCluster
 from qdrant_operator.usecases import ProcessSchedule
 from qdrant_operator.usecases import ReconcileCluster
+from qdrant_operator.usecases import ReconcileCollection
 
 
 @dataclass
@@ -47,3 +49,9 @@ class Container:
 
     def process_schedule(self) -> ProcessSchedule:
         return ProcessSchedule(kubernetes=self.kubernetes)
+
+    def reconcile_collection(self) -> ReconcileCollection:
+        return ReconcileCollection(qdrant=self.qdrant, kubernetes=self.kubernetes)
+
+    def delete_collection(self) -> DeleteCollection:
+        return DeleteCollection(qdrant=self.qdrant, kubernetes=self.kubernetes)

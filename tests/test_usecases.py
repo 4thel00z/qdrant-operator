@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -18,8 +19,12 @@ from qdrant_operator.domain import ClusterPhase
 from qdrant_operator.domain import ClusterRef
 from qdrant_operator.domain import ClusterSpec
 from qdrant_operator.domain import ClusterStatus
+from qdrant_operator.domain import CollectionPhase
+from qdrant_operator.domain import CollectionSpec
+from qdrant_operator.domain import CollectionStatus
 from qdrant_operator.domain import ConditionStatus
 from qdrant_operator.domain import JsonDict
+from qdrant_operator.domain import QdrantNode
 from qdrant_operator.domain import ResourceRef
 from qdrant_operator.domain import RestorePhase
 from qdrant_operator.domain import RestorePriority
@@ -30,12 +35,14 @@ from qdrant_operator.domain import format_time
 from qdrant_operator.usecases import ClusterNotFoundError
 from qdrant_operator.usecases import DeleteBackupData
 from qdrant_operator.usecases import DeleteCluster
+from qdrant_operator.usecases import DeleteCollection
 from qdrant_operator.usecases import ExecuteBackup
 from qdrant_operator.usecases import ExecuteRestore
 from qdrant_operator.usecases import ExpireBackup
 from qdrant_operator.usecases import ObserveCluster
 from qdrant_operator.usecases import ProcessSchedule
 from qdrant_operator.usecases import ReconcileCluster
+from qdrant_operator.usecases import ReconcileCollection
 from qdrant_operator.usecases import ResolveCluster
 from qdrant_operator.usecases import SourceNotReadyError
 from tests.fakes import FakeHelm
@@ -445,3 +452,146 @@ async def test_schedule_applies_retention_and_suspend(kubernetes: FakeKubernetes
     assert status.next_backup_time is None
     assert [b.name for b in status.recent_backups] == ["sched-0", "sched-1"]
     assert SCHEDULES.plural == "qdrantbackupschedules" and CLUSTERS.plural == "qdrantclusters"
+
+
+def collection_spec(name: str = "docs", **spec: object) -> CollectionSpec:
+    return CollectionSpec.from_dict(
+        {
+            "clusterRef": {"name": "db"},
+            "vectors": [{"size": 4, "distance": "Cosine"}],
+            **spec,
+        },
+        {"name": name, "namespace": NS},
+    )
+
+
+async def test_reconcile_collection_creates_collection_indexes_and_aliases(
+    kubernetes: FakeKubernetes,
+) -> None:
+    qdrant = FakeQdrant(routes={service_url(): node_url(0)})
+    spec = collection_spec(
+        name="articles",
+        payloadIndexes=[
+            {"field": "city", "type": "keyword"},
+            {"field": "body", "type": "text", "params": {"tokenizer": "word"}},
+        ],
+        aliases=["articles-live"],
+        replicationFactor=2,
+    )
+    use_case = ReconcileCollection(qdrant, kubernetes)
+
+    status = await use_case.execute(spec, 1, CollectionStatus(CollectionPhase.PENDING))
+
+    assert status.phase == CollectionPhase.READY
+    assert (status.collection_name, status.health, status.observed_generation) == (
+        "articles",
+        "green",
+        1,
+    )
+    assert status.payload_indexes == ("body", "city")
+    assert status.aliases == ("articles-live",)
+    assert qdrant.aliases == {"articles-live": "articles"}
+    config = qdrant.collections[node_url(0)]["articles"]["config"]
+    assert config["params"]["replication_factor"] == 2
+    assert qdrant.updates == []
+    assert [c.type for c in status.conditions] == ["Ready"]
+
+
+async def test_reconcile_collection_is_idempotent_and_patches_only_mutable_drift(
+    kubernetes: FakeKubernetes,
+) -> None:
+    qdrant = FakeQdrant(routes={service_url(): node_url(0)})
+    spec = collection_spec(optimizers={"indexing_threshold": 5000}, aliases=["docs-live"])
+    use_case = ReconcileCollection(qdrant, kubernetes)
+
+    first = await use_case.execute(spec, 1, CollectionStatus(CollectionPhase.PENDING))
+    second = await use_case.execute(spec, 1, first)
+    changed = replace(spec, optimizers={"indexing_threshold": 20000}, replication_factor=2)
+    third = await use_case.execute(changed, 2, second)
+
+    expected_patch = {
+        "params": {"replication_factor": 2},
+        "optimizers_config": {"indexing_threshold": 20000},
+    }
+    assert qdrant.updates == [("docs", expected_patch)]
+    assert qdrant.alias_changes == [
+        [{"create_alias": {"collection_name": "docs", "alias_name": "docs-live"}}]
+    ]
+    assert third.observed_generation == 2
+    assert second.conditions[0].last_transition_time == first.conditions[0].last_transition_time
+
+
+async def test_reconcile_collection_reports_immutable_mismatch_without_touching_qdrant(
+    kubernetes: FakeKubernetes,
+) -> None:
+    qdrant = FakeQdrant(routes={service_url(): node_url(0)})
+    qdrant.add_collection(node_url(0), "docs", points=7)
+    spec = collection_spec(vectors=[{"size": 8, "distance": "Cosine"}], aliases=["docs-live"])
+
+    status = await ReconcileCollection(qdrant, kubernetes).execute(
+        spec, 3, CollectionStatus(CollectionPhase.PENDING)
+    )
+
+    assert status.phase == CollectionPhase.DEGRADED
+    assert status.points_count == 7
+    assert status.conditions[0].reason == "ImmutableFieldMismatch"
+    assert status.error and "re-creating" in status.error
+    assert qdrant.updates == [] and qdrant.alias_changes == []
+
+
+async def test_reconcile_collection_drops_only_indexes_and_aliases_it_created(
+    kubernetes: FakeKubernetes,
+) -> None:
+    qdrant = FakeQdrant(routes={service_url(): node_url(0)})
+    qdrant.add_collection(node_url(0), "docs")
+    node = QdrantNode(node_url(0))
+    await qdrant.create_payload_index(node, "docs", "handmade", "integer")
+    await qdrant.create_payload_index(node, "docs", "city", "integer")
+    qdrant.aliases["foreign"] = "other"
+    qdrant.index_changes.clear()
+    use_case = ReconcileCollection(qdrant, kubernetes)
+
+    first = await use_case.execute(
+        collection_spec(payloadIndexes=[{"field": "city", "type": "keyword"}], aliases=["a"]),
+        1,
+        CollectionStatus(CollectionPhase.PENDING),
+    )
+    second = await use_case.execute(collection_spec(aliases=["b"]), 2, first)
+
+    assert qdrant.index_changes == [
+        ("delete", "docs", "city"),
+        ("create", "docs", "city"),
+        ("delete", "docs", "city"),
+    ]
+    assert "handmade" in qdrant.collections[node_url(0)]["docs"]["payload_schema"]
+    assert qdrant.aliases == {"foreign": "other", "b": "docs"}
+    assert (first.payload_indexes, second.payload_indexes) == (("city",), ())
+    assert (first.aliases, second.aliases) == (("a",), ("b",))
+
+
+async def test_reconcile_collection_waits_for_cluster(kubernetes: FakeKubernetes) -> None:
+    qdrant = FakeQdrant()
+    use_case = ReconcileCollection(qdrant, kubernetes)
+
+    with pytest.raises(ClusterNotFoundError):
+        await use_case.execute(
+            replace(collection_spec(), cluster_ref=ClusterRef("ghost", NS)),
+            1,
+            CollectionStatus(CollectionPhase.PENDING),
+        )
+
+
+async def test_delete_collection_honours_deletion_policy(kubernetes: FakeKubernetes) -> None:
+    qdrant = FakeQdrant(routes={service_url(): node_url(0)})
+    qdrant.add_collection(node_url(0), "docs")
+    qdrant.aliases["docs-live"] = "docs"
+    use_case = DeleteCollection(qdrant, kubernetes)
+
+    retained = await use_case.execute(collection_spec())
+    dropped = await use_case.execute(collection_spec(deletionPolicy="Delete"))
+    gone = await use_case.execute(
+        replace(collection_spec(deletionPolicy="Delete"), cluster_ref=ClusterRef("ghost", NS))
+    )
+
+    assert (retained, dropped, gone) == (False, True, False)
+    assert qdrant.collections[node_url(0)] == {} and qdrant.aliases == {}

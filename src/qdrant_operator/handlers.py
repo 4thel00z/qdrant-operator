@@ -4,6 +4,7 @@
 
 import logging
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
 from typing import Any
@@ -13,6 +14,7 @@ import kopf
 from qdrant_operator.container import Container
 from qdrant_operator.domain import BACKUPS
 from qdrant_operator.domain import CLUSTERS
+from qdrant_operator.domain import COLLECTIONS
 from qdrant_operator.domain import GROUP
 from qdrant_operator.domain import RESTORES
 from qdrant_operator.domain import SCHEDULES
@@ -24,6 +26,9 @@ from qdrant_operator.domain import BackupSpec
 from qdrant_operator.domain import BackupStatus
 from qdrant_operator.domain import ClusterSpec
 from qdrant_operator.domain import ClusterStatus
+from qdrant_operator.domain import CollectionPhase
+from qdrant_operator.domain import CollectionSpec
+from qdrant_operator.domain import CollectionStatus
 from qdrant_operator.domain import ResourceKind
 from qdrant_operator.domain import ResourceRef
 from qdrant_operator.domain import RestorePhase
@@ -31,11 +36,13 @@ from qdrant_operator.domain import RestoreSpec
 from qdrant_operator.domain import RestoreStatus
 from qdrant_operator.kubernetes_adapter import load_kubernetes_config
 from qdrant_operator.usecases import ClusterNotFoundError
+from qdrant_operator.usecases import ClusterNotReadyError
 from qdrant_operator.usecases import SourceNotReadyError
 
 FINALIZER = f"{GROUP}/finalizer"
 CLUSTER_OBSERVE_INTERVAL = 30.0
 SCHEDULE_TICK_INTERVAL = 60.0
+COLLECTION_RECONCILE_INTERVAL = 60.0
 BACKUP_EXPIRY_INTERVAL = 300.0
 RETRY_DELAY_SECONDS = 30.0
 
@@ -187,3 +194,47 @@ async def process_schedule(
     if result.active_backup and result.active_backup != current.active_backup:
         logger.info(f"Scheduled backup {result.active_backup} created")
     patch.status.update(result.to_dict())
+
+
+@kopf.on.create(GROUP, VERSION, COLLECTIONS.plural)
+@kopf.on.update(GROUP, VERSION, COLLECTIONS.plural, field="spec")
+@kopf.on.resume(GROUP, VERSION, COLLECTIONS.plural)
+@kopf.timer(GROUP, VERSION, COLLECTIONS.plural, interval=COLLECTION_RECONCILE_INTERVAL)
+async def reconcile_collection(
+    spec: kopf.Spec,
+    meta: kopf.Meta,
+    status: kopf.Status,
+    patch: kopf.Patch,
+    logger: kopf.Logger,
+    **_: Any,
+) -> None:
+    current = CollectionStatus.from_dict(status)
+    try:
+        collection = CollectionSpec.from_dict(spec, meta)
+        result = (
+            await Container()
+            .reconcile_collection()
+            .execute(collection, meta.get("generation"), current)
+        )
+    except (ClusterNotFoundError, ClusterNotReadyError, KeyError) as error:
+        raise kopf.TemporaryError(str(error), delay=RETRY_DELAY_SECONDS) from error
+    except Exception as error:
+        patch.status.update(
+            replace(current, phase=CollectionPhase.FAILED, error=str(error)).to_dict()
+        )
+        raise kopf.PermanentError(f"Collection reconcile failed: {error}") from error
+    if result.phase != current.phase:
+        detail = result.error or "ok"
+        logger.info(f"Collection {result.collection_name} is {result.phase.value}: {detail}")
+    if result != current:
+        patch.status.update(result.to_dict())
+
+
+@kopf.on.delete(GROUP, VERSION, COLLECTIONS.plural)
+async def delete_collection(
+    spec: kopf.Spec, meta: kopf.Meta, logger: kopf.Logger, **_: Any
+) -> None:
+    collection = CollectionSpec.from_dict(spec, meta)
+    dropped = await Container().delete_collection().execute(collection)
+    verb = "dropped" if dropped else "retained"
+    logger.info(f"Collection {collection.collection_name} {verb} on delete")

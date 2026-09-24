@@ -25,10 +25,15 @@ from qdrant_operator.domain import ClusterSpec
 from qdrant_operator.domain import ClusterStatus
 from qdrant_operator.domain import CollectionBackup
 from qdrant_operator.domain import CollectionBackupStatus
+from qdrant_operator.domain import CollectionPhase
+from qdrant_operator.domain import CollectionSpec
+from qdrant_operator.domain import CollectionStatus
 from qdrant_operator.domain import ConcurrencyPolicy
 from qdrant_operator.domain import Condition
 from qdrant_operator.domain import ConditionStatus
 from qdrant_operator.domain import CredentialsSecretRef
+from qdrant_operator.domain import DeletionPolicy
+from qdrant_operator.domain import JsonDict
 from qdrant_operator.domain import QdrantNode
 from qdrant_operator.domain import ResourceRef
 from qdrant_operator.domain import RestoredCollection
@@ -42,6 +47,7 @@ from qdrant_operator.domain import SchedulePhase
 from qdrant_operator.domain import SnapshotRecord
 from qdrant_operator.domain import chart_version
 from qdrant_operator.domain import format_size
+from qdrant_operator.domain import is_subset
 from qdrant_operator.domain import join_key
 from qdrant_operator.domain import parse_time
 from qdrant_operator.domain import set_condition
@@ -60,6 +66,10 @@ class ClusterNotFoundError(LookupError):
 
 class SourceNotReadyError(RuntimeError):
     """The referenced QdrantBackup has not completed yet; callers retry rather than fail."""
+
+
+class ClusterNotReadyError(RuntimeError):
+    """The QdrantCluster does not answer /readyz yet; callers retry rather than fail."""
 
 
 def now_utc() -> datetime:
@@ -595,3 +605,157 @@ class ProcessSchedule:
             active_backup=active[0].name if active else None,
             recent_backups=tuple(records[:RECENT_BACKUPS_LIMIT]),
         )
+
+
+@dataclass
+class ReconcileCollection:
+    """Make the Qdrant collection, its payload indexes and aliases match the spec.
+
+    Runs on every spec change and on a timer, so a hand-deleted collection or index comes
+    back. Only fields the spec declares are compared; the rest stays Qdrant's default.
+    """
+
+    qdrant: QdrantPort
+    kubernetes: KubernetesPort
+
+    async def execute(
+        self, spec: CollectionSpec, generation: int | None, current: CollectionStatus
+    ) -> CollectionStatus:
+        connection = await ResolveCluster(self.kubernetes).execute(spec.cluster_ref)
+        node = connection.service
+        if not await self.qdrant.ready(node):
+            raise ClusterNotReadyError(f"QdrantCluster {spec.cluster_ref.name} is not ready")
+
+        name = spec.collection_name
+        if not await self.qdrant.collection_exists(node, name):
+            await self.qdrant.create_collection(node, name, spec.create_body())
+        info = await self.qdrant.collection_info(node, name)
+        config = info.get("config", {})
+
+        if not is_subset(spec.immutable_config(), config):
+            return self.status_for(
+                spec,
+                generation,
+                current,
+                info,
+                CollectionPhase.DEGRADED,
+                reason="ImmutableFieldMismatch",
+                message="vectors, shardNumber or shardingMethod differ from the live collection; "
+                "only re-creating the collection can change them",
+            )
+        if not is_subset(spec.mutable_config(), config):
+            await self.qdrant.update_collection(node, name, spec.update_body())
+
+        indexes = await self.reconcile_indexes(
+            node, spec, info.get("payload_schema", {}), current.payload_indexes
+        )
+        aliases = await self.reconcile_aliases(node, spec, current.aliases)
+        return replace(
+            self.status_for(
+                spec,
+                generation,
+                current,
+                info,
+                CollectionPhase.READY,
+                reason="CollectionReady",
+                message=f"Collection {name} matches the spec",
+            ),
+            payload_indexes=indexes,
+            aliases=aliases,
+        )
+
+    async def reconcile_indexes(
+        self,
+        node: QdrantNode,
+        spec: CollectionSpec,
+        payload_schema: Mapping[str, Any],
+        managed: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        """Create or replace declared indexes; drop only indexes this resource created earlier."""
+        desired = {index.field_name: index for index in spec.payload_indexes}
+        for field_name, index in desired.items():
+            actual = payload_schema.get(field_name)
+            if actual and index.satisfied_by(actual):
+                continue
+            if actual:
+                await self.qdrant.delete_payload_index(node, spec.collection_name, field_name)
+            await self.qdrant.create_payload_index(
+                node, spec.collection_name, field_name, index.field_schema()
+            )
+        for field_name in managed:
+            if field_name in desired or field_name not in payload_schema:
+                continue
+            await self.qdrant.delete_payload_index(node, spec.collection_name, field_name)
+        return tuple(sorted(desired))
+
+    async def reconcile_aliases(
+        self, node: QdrantNode, spec: CollectionSpec, managed: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        """Point declared aliases here; drop only aliases this resource created earlier."""
+        actual = await self.qdrant.list_aliases(node)
+        name = spec.collection_name
+        actions: list[JsonDict] = [
+            {"create_alias": {"collection_name": name, "alias_name": alias}}
+            for alias in spec.aliases
+            if actual.get(alias) != name
+        ] + [
+            {"delete_alias": {"alias_name": alias}}
+            for alias in managed
+            if alias not in spec.aliases and actual.get(alias) == name
+        ]
+        if actions:
+            await self.qdrant.update_aliases(node, actions)
+        return tuple(sorted(spec.aliases))
+
+    @staticmethod
+    def status_for(
+        spec: CollectionSpec,
+        generation: int | None,
+        current: CollectionStatus,
+        info: Mapping[str, Any],
+        phase: CollectionPhase,
+        reason: str,
+        message: str,
+    ) -> CollectionStatus:
+        ready = phase == CollectionPhase.READY
+        return CollectionStatus(
+            phase=phase,
+            collection_name=spec.collection_name,
+            health=info.get("status"),
+            points_count=info.get("points_count"),
+            indexed_vectors_count=info.get("indexed_vectors_count"),
+            segments_count=info.get("segments_count"),
+            payload_indexes=current.payload_indexes,
+            aliases=current.aliases,
+            error=None if ready else message,
+            observed_generation=generation,
+            conditions=tuple(
+                set_condition(
+                    current.conditions,
+                    Condition(
+                        type="Ready",
+                        status=ConditionStatus.TRUE if ready else ConditionStatus.FALSE,
+                        last_transition_time=now_utc(),
+                        reason=reason,
+                        message=message,
+                    ),
+                )
+            ),
+        )
+
+
+@dataclass
+class DeleteCollection:
+    qdrant: QdrantPort
+    kubernetes: KubernetesPort
+
+    async def execute(self, spec: CollectionSpec) -> bool:
+        """Drop the collection when the policy says so. Returns whether it was dropped."""
+        if spec.deletion_policy == DeletionPolicy.RETAIN:
+            return False
+        try:
+            connection = await ResolveCluster(self.kubernetes).execute(spec.cluster_ref)
+        except ClusterNotFoundError:
+            return False
+        await self.qdrant.delete_collection(connection.service, spec.collection_name)
+        return True
