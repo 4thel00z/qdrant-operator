@@ -15,7 +15,7 @@ the qdrant chart, named `qdrant-<name>`.
 | `persistence.size` | `10Gi` | Immutable |
 | `persistence.storageClassName` | cluster default | Immutable |
 | `persistence.accessModes` | `[ReadWriteOnce]` | |
-| `snapshotPersistence.enabled` | `false` | Separate volume for snapshots |
+| `snapshotPersistence.enabled` | `false` | Separate volume for snapshots. Fixed at creation; a change fails the Helm upgrade |
 | `snapshotPersistence.size` | `10Gi` | |
 | `snapshotPersistence.storageClassName` | cluster default | |
 | `cluster.enabled` | `true` | Distributed mode |

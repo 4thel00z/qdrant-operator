@@ -30,7 +30,7 @@ kubectl get qc my-qdrant -w
 
 ```
 NAME        PHASE     REPLICAS   READY   VERSION   AGE
-my-qdrant   Pending   3                  v1.16.3   4s
+my-qdrant   Pending   3          0       v1.16.3   4s
 my-qdrant   Running   3          3       v1.16.3   71s
 ```
 

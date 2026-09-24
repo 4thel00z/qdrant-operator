@@ -19,7 +19,7 @@ error into the status and stop.
 | Symptom | Meaning | What to do |
 |---|---|---|
 | `Pending` and stays there | The Helm release is applied but pods are not ready | `kubectl get pods -l app.kubernetes.io/instance=qdrant-<name>`, then `describe` the pod that is not ready |
-| `Pending`, no pods at all | `helm upgrade --install` failed; the operator retries | Look for `helm upgrade failed` in the log. Common causes: a chart version that does not exist for that `version`, a `config` key the chart rejects, missing `monitoring.coreos.com` CRDs with a ServiceMonitor enabled |
+| No phase and no pods | The first `helm upgrade --install` failed before any status was written; the operator retries | Look for `helm upgrade failed` in the log. Common causes: a chart version that does not exist for that `version`, a `config` key the chart rejects, missing `monitoring.coreos.com` CRDs with a ServiceMonitor enabled |
 | Pods `Pending` | No node fits or no volume can be bound | `kubectl describe pod`: check resources, `nodeSelector`, `affinity` and the storage class |
 | Pods `CrashLoopBackOff` | Qdrant rejects its configuration | Container logs; a typo under `config` lands in `production.yaml` verbatim |
 | `Upgrading` for a long time | A rolling update is stuck on one pod | The StatefulSet waits for each pod to be ready before the next; fix that pod |

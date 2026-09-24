@@ -79,9 +79,10 @@ schedule is suspended.
 ## Suspending
 
 `suspend: true` stops creating backups and sets the phase to `Suspended`.
-Retention and status updates continue. Resuming does not create a backup for
-slots missed while suspended, because `lastScheduleTime` is compared against
-the latest slot only; the next due slot runs normally.
+Retention and status updates continue. `lastScheduleTime` is frozen while
+suspended, so resuming takes one catch-up backup for the most recent slot
+missed in the meantime, unless `startingDeadlineSeconds` rules it out; then
+the schedule continues normally.
 
 ## Status
 

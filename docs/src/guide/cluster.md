@@ -63,7 +63,9 @@ the PVCs directly if the storage class allows it.
 `snapshotPersistence` gives each pod a second volume for the snapshots Qdrant
 writes before the operator streams them out. Without it, snapshots are written to
 the data volume, so leave headroom equal to your largest collection's shards
-on a node, or turn this on.
+on a node, or turn this on. Like `persistence`, it becomes a volume claim
+template and cannot be changed on an existing cluster; the API server does
+not reject the change, Helm does.
 
 ## Resources and scheduling
 

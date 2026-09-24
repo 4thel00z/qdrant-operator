@@ -76,8 +76,10 @@ resource.
 Collections and nodes are processed one after another, not in parallel. The
 whole backup happens inside one handler invocation, so a restart of the
 operator mid-way leaves the resource without a final phase; kopf then re-runs
-the handler and the backup is taken again under the same name, overwriting
-the earlier objects.
+the handler and the backup is taken again from the start. Snapshot names
+carry Qdrant's timestamp, so the second run writes new objects and only
+`manifest.json` is overwritten; the first run's partial objects stay under
+the same root until the resource is deleted, when everything under it goes.
 
 ## Consistency
 

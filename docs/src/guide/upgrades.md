@@ -11,7 +11,7 @@ ready again.
 
 Fields that change the pod template roll the pods: `version`, `image`,
 `resources`, `config`, `tls`, `apiKey`, `readOnlyApiKey`, `nodeSelector`,
-`tolerations`, `affinity`, `snapshotPersistence`. Changes to `service`,
+`tolerations`, `affinity`. Changes to `service`,
 `metrics` and `replicas` do not restart existing pods.
 
 ## What cannot change
@@ -22,6 +22,12 @@ Expand the PVCs in place if the storage class allows it, or take a
 [backup](./backups.md) and [restore](./restore.md) into a new cluster.
 
 `replicas > 1` with `cluster.enabled: false` is rejected as well.
+
+`snapshotPersistence` is a second volume claim template in the chart's
+StatefulSet, so it is just as immutable, but the CRD does not guard it:
+turning it on or off on an existing cluster makes `helm upgrade` fail and
+the reconcile retry until the spec is reverted. Decide on it when creating
+the cluster.
 
 ## Upgrading Qdrant
 
