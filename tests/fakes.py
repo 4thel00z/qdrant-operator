@@ -309,6 +309,9 @@ class FakeKubernetes:
         default_factory=list[tuple[ResourceRef, JsonDict]]
     )
     deleted: list[ResourceRef] = field(default_factory=list[ResourceRef])
+    secret_owners: dict[tuple[str, str], JsonDict] = field(
+        default_factory=dict[tuple[str, str], JsonDict]
+    )
     clock: datetime = datetime(2026, 9, 23, 2, 30, tzinfo=UTC)
 
     def put_resource(self, body: JsonDict) -> JsonDict:
@@ -324,6 +327,12 @@ class FakeKubernetes:
         if data is None or secret_ref.key not in data:
             raise KeyError(f"{secret_ref.namespace}/{secret_ref.name}:{secret_ref.key}")
         return data[secret_ref.key]
+
+    async def apply_secret(
+        self, name: str, namespace: str, data: Mapping[str, str], owner: JsonDict
+    ) -> None:
+        self.secrets[(namespace, name)] = dict(data)
+        self.secret_owners[(namespace, name)] = owner
 
     async def get_custom_resource(self, ref: ResourceRef) -> JsonDict | None:
         return self.resources.get((ref.kind.plural, ref.namespace, ref.name))

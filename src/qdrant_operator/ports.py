@@ -127,6 +127,12 @@ class StoragePort(Protocol):
 class KubernetesPort(Protocol):
     async def get_secret_value(self, secret_ref: SecretRef) -> str: ...
 
+    async def apply_secret(
+        self, name: str, namespace: str, data: Mapping[str, str], owner: JsonDict
+    ) -> None:
+        """Create or replace an Opaque Secret owned by the given resource (ownerReferences)."""
+        ...
+
     async def get_custom_resource(self, ref: ResourceRef) -> JsonDict | None: ...
 
     async def list_custom_resources(
@@ -142,3 +148,9 @@ class KubernetesPort(Protocol):
     async def get_statefulset_status(
         self, name: str, namespace: str
     ) -> StatefulSetStatus | None: ...
+
+
+class TokenPort(Protocol):
+    def sign(self, claims: JsonDict, secret: str) -> str:
+        """Encode claims as an HS256 JWT signed with the cluster's API key."""
+        ...

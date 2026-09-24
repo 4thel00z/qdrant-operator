@@ -2,6 +2,7 @@
 
 import base64
 from collections.abc import AsyncIterator
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -58,6 +59,34 @@ class KubernetesAdapter:
                 f"Key {secret_ref.key} not found in secret {secret_ref.namespace}/{secret_ref.name}"
             )
         return base64.b64decode(encoded).decode()
+
+    async def apply_secret(
+        self, name: str, namespace: str, data: Mapping[str, str], owner: JsonDict
+    ) -> None:
+        owner_reference = client.V1OwnerReference(
+            api_version=owner["apiVersion"],
+            kind=owner["kind"],
+            name=owner["name"],
+            uid=owner["uid"],
+            controller=owner.get("controller", True),
+            block_owner_deletion=owner.get("blockOwnerDeletion", True),
+        )
+        body = client.V1Secret(
+            metadata=client.V1ObjectMeta(
+                name=name, namespace=namespace, owner_references=[owner_reference]
+            ),
+            type="Opaque",
+            string_data=dict(data),
+        )
+        async with self.api() as api:
+            core = client.CoreV1Api(api)
+            try:
+                await core.create_namespaced_secret(namespace=namespace, body=body)
+            except ApiException as error:
+                if error.status != 409:
+                    raise
+                await core.replace_namespaced_secret(name=name, namespace=namespace, body=body)
+        logger.info("secret applied", name=name, namespace=namespace)
 
     async def get_custom_resource(self, ref: ResourceRef) -> JsonDict | None:
         async with self.api() as api:

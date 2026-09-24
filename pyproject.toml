@@ -28,6 +28,7 @@ dependencies = [
     "aioboto3>=13.0.0",
     "croniter>=5.0.0",
     "loguru>=0.7.3",
+    "pyjwt>=2.9",
 ]
 
 [dependency-groups]
