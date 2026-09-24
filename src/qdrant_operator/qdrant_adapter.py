@@ -1,6 +1,7 @@
 """Qdrant REST API adapter. Stateless: every call opens its own client against the given node."""
 
 import ssl
+from collections.abc import AsyncGenerator
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -23,7 +24,7 @@ class QdrantAdapter:
     snapshot_timeout_seconds: float = 3600.0
 
     @asynccontextmanager
-    async def client(self, node: QdrantNode, timeout: float) -> AsyncIterator[httpx.AsyncClient]:
+    async def client(self, node: QdrantNode, timeout: float) -> AsyncGenerator[httpx.AsyncClient]:
         async with httpx.AsyncClient(
             base_url=node.url,
             headers={"api-key": node.api_key} if node.api_key else {},

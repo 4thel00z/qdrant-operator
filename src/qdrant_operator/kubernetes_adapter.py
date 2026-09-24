@@ -1,7 +1,7 @@
 """Kubernetes API adapter. Client configuration is loaded once at operator startup."""
 
 import base64
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -35,7 +35,7 @@ async def load_kubernetes_config() -> None:
 @dataclass
 class KubernetesAdapter:
     @asynccontextmanager
-    async def api(self) -> AsyncIterator[Any]:
+    async def api(self) -> AsyncGenerator[Any]:
         api_client: Any = client.ApiClient()
         async with api_client as api:
             yield api

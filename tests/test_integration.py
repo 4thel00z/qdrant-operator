@@ -6,7 +6,7 @@ Requires kubectl access, helm, and the CRDs applied (`make crds-install`).
 import asyncio
 import os
 import subprocess
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from dataclasses import replace
@@ -104,7 +104,7 @@ async def test_cluster_becomes_running(spec: ClusterSpec) -> None:
 
 
 @asynccontextmanager
-async def port_forward(spec: ClusterSpec) -> AsyncIterator[QdrantNode]:
+async def port_forward(spec: ClusterSpec) -> AsyncGenerator[QdrantNode]:
     forward = subprocess.Popen(
         [
             "kubectl",

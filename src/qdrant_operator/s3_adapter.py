@@ -1,5 +1,6 @@
 """S3-compatible object storage adapter built on aioboto3."""
 
+from collections.abc import AsyncGenerator
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -42,7 +43,7 @@ class S3Adapter:
     @asynccontextmanager
     async def client(
         self, storage: S3StorageSpec, credentials: S3Credentials
-    ) -> AsyncIterator[Any]:
+    ) -> AsyncGenerator[Any]:
         session: Any = aioboto3.Session(
             aws_access_key_id=credentials.access_key_id,
             aws_secret_access_key=credentials.secret_access_key,
