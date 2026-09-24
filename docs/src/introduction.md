@@ -4,10 +4,11 @@ The Qdrant Operator runs [Qdrant](https://qdrant.tech), the vector search
 engine, on Kubernetes. You declare a `QdrantCluster` and the operator installs
 the official [qdrant-helm](https://github.com/qdrant/qdrant-helm) chart with
 values derived from the spec, then reports StatefulSet readiness in the
-resource status. Four more kinds manage what lives inside or around that
-cluster: collections with their payload indexes and aliases, backups of every
-node to S3-compatible storage, backups on a cron schedule, and restores from a
-backup into a cluster.
+resource status. Six more kinds manage what lives inside or around that
+cluster: collections with their payload indexes and aliases, access tokens
+for applications, backups of every node to S3-compatible storage, backups on
+a cron schedule, restores from a backup, and point-by-point migrations from
+any other Qdrant.
 
 ## Helm underneath
 
@@ -18,8 +19,8 @@ is one Helm release named `qdrant-<name>`, installed with
 already run from the chart translates to a `QdrantCluster` almost value for
 value; [Helm values the operator renders](./reference/helm-values.md) lists
 the mapping. What the chart cannot do, and the operator adds, is everything
-that talks to Qdrant's HTTP API: collection reconciliation, snapshots and
-recovery.
+that talks to Qdrant's HTTP API: collection reconciliation, snapshots,
+recovery, point migration, and signing access tokens.
 
 ## The kinds
 
@@ -27,9 +28,11 @@ recovery.
 |---|---|---|
 | `QdrantCluster` | `qc` | One Helm release of the qdrant chart: replicas, version, storage, service, API keys, TLS, metrics, scheduling |
 | `QdrantCollection` | `qcol` | A collection inside a cluster: vectors, sharding, payload indexes, aliases |
+| `QdrantAccessKey` | `qak` | A role-based access token signed with the cluster's API key, kept in a Secret and renewed before expiry |
 | `QdrantBackup` | `qb` | One backup: a snapshot of every node per collection, streamed into a bucket with a manifest |
 | `QdrantBackupSchedule` | `qbs` | Backups on a cron schedule with CronJob-style concurrency and grandfather-father-son retention |
 | `QdrantRestore` | `qr` | Recovery of a backup into a cluster with the same node count, node by node |
+| `QdrantMigration` | `qmig` | A copy of collections from any reachable Qdrant, including Qdrant Cloud, into a managed cluster |
 
 All kinds live in the API group `qdrant.io`, version `v1alpha1`, and are
 namespaced.

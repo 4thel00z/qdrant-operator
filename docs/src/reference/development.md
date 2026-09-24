@@ -8,10 +8,10 @@ with `uv`. The package is `qdrant_operator`.
 | Path | Contents |
 |---|---|
 | `src/qdrant_operator/domain.py` | Frozen dataclasses for every spec and status, `from_dict`/`to_dict`, Helm value derivation, cron and retention rules. No I/O, no framework imports |
-| `src/qdrant_operator/ports.py` | `typing.Protocol` interfaces: `HelmPort`, `QdrantPort`, `StoragePort`, `KubernetesPort` |
-| `src/qdrant_operator/usecases.py` | One dataclass per operation: `ReconcileCluster`, `ObserveCluster`, `DeleteCluster`, `ExecuteBackup`, `DeleteBackupData`, `ExpireBackup`, `ExecuteRestore`, `ProcessSchedule`, `ReconcileCollection`, `DeleteCollection` |
+| `src/qdrant_operator/ports.py` | `typing.Protocol` interfaces: `HelmPort`, `QdrantPort`, `StoragePort`, `KubernetesPort`, `TokenPort` |
+| `src/qdrant_operator/usecases.py` | One dataclass per operation: `ReconcileCluster`, `ObserveCluster`, `DeleteCluster`, `ExecuteBackup`, `DeleteBackupData`, `ExpireBackup`, `ExecuteRestore`, `ProcessSchedule`, `ReconcileCollection`, `DeleteCollection`, `IssueAccessKey`, `ExecuteMigration` |
 | `src/qdrant_operator/handlers.py` | kopf handlers: event to dataclasses to use case to `patch.status` |
-| `src/qdrant_operator/*_adapter.py` | Helm CLI, Qdrant REST over httpx, S3 over aioboto3, Kubernetes over kubernetes-asyncio |
+| `src/qdrant_operator/*_adapter.py` | Helm CLI, Qdrant REST over httpx, S3 over aioboto3, Kubernetes over kubernetes-asyncio, JWT signing over PyJWT |
 | `src/qdrant_operator/container.py` | Wires adapters into use cases |
 | `src/qdrant_operator/main.py` | Entry point, loguru setup, `kopf run` |
 | `manifests/crds/` | The CRDs; `charts/qdrant-operator/crds/` must be an identical copy |
@@ -45,8 +45,9 @@ make build              # docker image
 `FakeKubernetes`, in-memory implementations of the ports that record calls;
 there is no `mock.patch`. `test_domain.py` and `test_usecases.py` run
 against those in well under a second and cover value derivation, cron and
-retention arithmetic, the backup and restore flows, schedule concurrency and
-collection reconciliation. `test_crds.py` fails when the chart's CRDs differ
+retention arithmetic, the backup and restore flows, schedule concurrency,
+collection reconciliation, token claims and renewal, and the migration copy
+loop. `test_crds.py` fails when the chart's CRDs differ
 from `manifests/crds`.
 
 `test_integration.py` runs against a real cluster with `helm` on the path and

@@ -25,6 +25,7 @@ the qdrant chart, named `qdrant-<name>`.
 | `service.annotations` | `{}` | |
 | `apiKey.secretRef.name`, `apiKey.secretRef.key` | | Bring-your-own full-access key. Exclusive with `autoGenerate` |
 | `apiKey.autoGenerate` | `false` | Chart generates `qdrant-<name>-apikey` with key `api-key` |
+| `apiKey.jwtRbac` | `false` | Qdrant's `service.jwt_rbac`; needed by `QdrantAccessKey`. Requires `secretRef` or `autoGenerate` |
 | `readOnlyApiKey` | | Same fields as `apiKey`; never used by the operator |
 | `tls.enabled` | `false` | Requires `tls.secretRef.name` |
 | `tls.secretRef.name` | | `kubernetes.io/tls` Secret; `ca.crt` in it verifies the operator's own calls |
@@ -37,8 +38,8 @@ the qdrant chart, named `qdrant-<name>`.
 
 Admission rules: `replicas > 1` needs `cluster.enabled`; `persistence.size`
 and `persistence.storageClassName` cannot change; `apiKey` and
-`readOnlyApiKey` take `secretRef` or `autoGenerate`, not both; `tls.enabled`
-needs `tls.secretRef.name`.
+`readOnlyApiKey` take `secretRef` or `autoGenerate`, not both;
+`apiKey.jwtRbac` needs one of them; `tls.enabled` needs `tls.secretRef.name`.
 
 ## Status
 

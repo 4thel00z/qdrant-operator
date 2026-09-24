@@ -42,12 +42,12 @@ The chart's ClusterRole grants:
 
 | Resources | Verbs | Why |
 |---|---|---|
-| `qdrant.io` kinds | all | Watch and update the custom resources; the schedule creates and deletes backups |
+| `qdrant.io` kinds | all | Watch and update the seven custom resources; the schedule creates and deletes backups |
 | `qdrant.io` `*/status` | get, patch, update | Status subresources |
 | `customresourcedefinitions` | list, watch | kopf checks the CRDs it serves |
 | `clusterkopfpeerings.kopf.dev` | all | kopf peering between operator instances |
 | `events` | create | kopf posts events on handled resources |
-| `secrets` | get, list, watch, create, update, patch, delete | API keys, TLS CA and bucket credentials; the chart renders Secrets |
+| `secrets` | get, list, watch, create, update, patch, delete | API keys, TLS CA and bucket credentials; access key Secrets are written; the chart renders Secrets |
 | `services`, `namespaces`, `configmaps`, `serviceaccounts`, `statefulsets`, `poddisruptionbudgets`, `ingresses`, `servicemonitors` | all | Everything the qdrant chart may render |
 
 Helm runs inside the operator pod with the pod's service account, so the
@@ -59,11 +59,12 @@ operator needs every permission the chart's objects need.
 |---|---|
 | `QdrantCluster` readiness check | 30 s, first after 10 s |
 | `QdrantCollection` reconcile | 60 s |
+| `QdrantAccessKey` renewal check | 60 s |
 | `QdrantBackupSchedule` tick | 60 s |
 | `QdrantBackup` expiry check | 300 s, only with `expiresAt` set |
 | Retry after a missing cluster, Secret or not-yet-completed backup | 30 s |
 | `helm` command timeout | 600 s |
-| Qdrant snapshot, recovery, collection and index calls | 3600 s |
+| Qdrant snapshot, recovery, collection, index, scroll and upsert calls | 3600 s |
 | Other Qdrant calls | 30 s |
 | Presigned URL lifetime | 3600 s |
 | Wait for a restored collection to turn `green` | poll 5 s, give up after 3600 s |
@@ -74,4 +75,5 @@ kopf keeps its handler progress in annotations prefixed `qdrant.io/` and the
 last applied spec under `qdrant.io/last-applied-spec`. The finalizer on every
 resource is `qdrant.io/finalizer`. Removing the finalizer by hand skips the
 delete handler: the Helm release, the bucket objects or the Qdrant
-collection then stay.
+collection then stay. Access key Secrets are removed by owner reference
+either way.

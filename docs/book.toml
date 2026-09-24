@@ -1,6 +1,6 @@
 [book]
 title = "Qdrant Operator"
-description = "Qdrant Operator documentation: run Qdrant clusters on Kubernetes through the qdrant-helm chart, declare collections, and back up every node to S3-compatible storage on demand or on a schedule."
+description = "Qdrant Operator documentation: run Qdrant clusters on Kubernetes through the qdrant-helm chart, declare collections and access tokens, migrate data in, and back up every node to S3-compatible storage on demand or on a schedule."
 authors = ["4thel00z"]
 language = "en"
 src = "src"

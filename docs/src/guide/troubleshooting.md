@@ -41,6 +41,35 @@ A `401` or `403` from Qdrant means the operator's API key does not match: it
 uses `apiKey.secretRef` or the generated `qdrant-<name>-apikey` Secret, and
 nothing else.
 
+## QdrantAccessKey
+
+| Reason | Meaning |
+|---|---|
+| `TokenIssued` | The Secret holds a current token |
+| `JwtRbacDisabled` | The cluster's `apiKey.jwtRbac` is false; phase `Pending` until it is turned on |
+| `ApiKeyMissing` | The cluster has neither `apiKey.secretRef` nor `autoGenerate`; nothing to sign with |
+| retried: cluster or Secret not found | `clusterRef` or the API key Secret does not exist yet |
+
+Qdrant answering `401` to a token that the operator reports as `Ready`
+means the token was signed with a different key than Qdrant runs with: the
+cluster's API key was rotated and Qdrant's pods have not restarted yet, or
+the other way round. `status.keyFingerprint` changes when the operator sees
+the new key; the pods pick it up on the roll `helm upgrade` triggers.
+
+## QdrantMigration
+
+| Message | Meaning |
+|---|---|
+| `QdrantCluster ... not ready` | The target does not answer `/readyz`; retried |
+| `Collections not present in source` | `collections` names something the source does not list |
+| `Collection ... missing on target and createMissing is false` | Create the target collection first or allow creation |
+| `4xx` from the source on `points/scroll` | Wrong or missing `apiKeySecretRef`, or a token without read access |
+| TLS verification failed | A source behind a private CA needs `caSecretRef` |
+| `Failed` on upsert with a dimension error | The target collection exists with a different vector size; rename via `collectionMapping` or drop it |
+
+A migration whose `percentage` runs past what you expect is counting against
+Qdrant's approximate `pointsTotal`; the final `pointsCopied` is exact.
+
 ## QdrantBackup
 
 | Phase | Meaning |

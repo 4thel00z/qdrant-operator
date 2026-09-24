@@ -17,6 +17,7 @@ version.
 | `apiKey.autoGenerate` | `apiKey: true` or `false` |
 | `apiKey.secretRef` | `apiKey: {valueFrom: {secretKeyRef: {name, key}}}` |
 | `readOnlyApiKey` | `readOnlyApiKey`, same encoding |
+| `apiKey.jwtRbac` | `config.service.jwt_rbac` |
 | `metrics` | `metrics.serviceMonitor.enabled` (true only when both `metrics.enabled` and `serviceMonitor.enabled`), `.scrapeInterval`, `.additionalLabels` |
 | `nodeSelector`, `tolerations`, `affinity` | Same names |
 | `cluster.enabled` | `config.cluster.enabled` |

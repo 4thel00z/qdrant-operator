@@ -27,6 +27,11 @@ makes. `readOnlyApiKey` is for your clients only; the operator never uses it.
 Without an `apiKey` Qdrant accepts unauthenticated requests. That is fine on
 a private network and wrong anywhere else.
 
+`apiKey.jwtRbac: true` additionally lets Qdrant accept tokens signed with
+the API key, which is what [access keys](./access-keys.md) hand to your
+applications: scoped, expiring credentials instead of the one key that can
+do everything.
+
 ## TLS
 
 ```yaml

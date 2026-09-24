@@ -13,7 +13,7 @@ helm install qdrant-operator oci://ghcr.io/4thel00z/charts/qdrant-operator \
   --namespace qdrant-system --create-namespace
 ```
 
-The chart carries the five CRDs in its `crds/` directory, so a fresh install
+The chart carries the seven CRDs in its `crds/` directory, so a fresh install
 creates them. Helm does not upgrade CRDs on `helm upgrade`; apply them
 yourself when moving to a new version, see
 [Upgrading the operator](./guide/upgrades.md#upgrading-the-operator).
@@ -52,7 +52,7 @@ uv tool install qdrant-operator   # or: pipx install qdrant-operator
 qdrant-operator
 ```
 
-Each GitHub release also attaches the five CRD files as assets, so a pinned
+Each GitHub release also attaches the seven CRD files as assets, so a pinned
 version can be applied without a clone.
 
 Extra arguments go to `kopf run` and override the defaults, so
@@ -76,8 +76,9 @@ kubectl get pods -n qdrant-system -l app.kubernetes.io/name=qdrant-operator
 kubectl get crd | grep qdrant.io
 ```
 
-Five CRDs are installed: `qdrantclusters`, `qdrantcollections`,
-`qdrantbackups`, `qdrantbackupschedules` and `qdrantrestores`. The pod
+Seven CRDs are installed: `qdrantclusters`, `qdrantcollections`,
+`qdrantaccesskeys`, `qdrantbackups`, `qdrantbackupschedules`,
+`qdrantrestores` and `qdrantmigrations`. The pod
 answers liveness probes on `/healthz` port 8080.
 
 ## Uninstalling
