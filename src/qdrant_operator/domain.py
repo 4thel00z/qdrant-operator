@@ -463,7 +463,10 @@ class ClusterSpec:
                         "enable_tls": self.distributed.p2p_tls,
                     },
                 },
-                "service": {"enable_tls": self.tls.enabled, "jwt_rbac": self.api_key.jwt_rbac},
+                "service": {
+                    "enable_tls": self.tls.enabled,
+                    **({"jwt_rbac": True} if self.api_key.jwt_rbac else {}),
+                },
             },
             self.tls_config(),
             self.config,

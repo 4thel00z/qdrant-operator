@@ -97,7 +97,7 @@ def test_cluster_spec_maps_every_declared_field_into_helm_values() -> None:
     assert values["nodeSelector"] == {"pool": "db"}
     assert values["tolerations"] == [{"key": "db", "operator": "Exists"}]
     assert values["config"]["cluster"]["p2p"] == {"port": 7000, "enable_tls": True}
-    assert values["config"]["service"]["enable_tls"] is True
+    assert values["config"]["service"] == {"enable_tls": True}
     assert values["config"]["tls"]["cert"] == "/qdrant/tls/tls.crt"
     assert values["config"]["storage"]["performance"]["max_search_threads"] == 4
     assert values["additionalVolumes"][0]["secret"]["secretName"] == "certs"
@@ -516,3 +516,14 @@ def test_migration_spec_source_forms_and_progress() -> None:
         "percentage": 38,
     }
     assert MigrationProgress.of([]).percentage == 100
+
+
+def test_jwt_rbac_is_only_rendered_when_enabled() -> None:
+    plain = ClusterSpec.from_dict({"version": "1.16.3"}, {"name": "db", "namespace": "ns"})
+    jwt = ClusterSpec.from_dict(
+        {"version": "1.16.3", "apiKey": {"autoGenerate": True, "jwtRbac": True}},
+        {"name": "db", "namespace": "ns"},
+    )
+
+    assert "jwt_rbac" not in plain.to_helm_values()["config"]["service"]
+    assert jwt.to_helm_values()["config"]["service"]["jwt_rbac"] is True
