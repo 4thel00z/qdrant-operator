@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.3.0](https://github.com/4thel00z/qdrant-operator/compare/v0.2.1...v0.3.0) (2026-09-24)
+
+
+### Features
+
+* **accesskey:** claims, durations and renewal rules in the domain ([6aa5d6f](https://github.com/4thel00z/qdrant-operator/commit/6aa5d6f55de5fd0a9a73e87eb69c744979410e79))
+* **accesskey:** issue and renew tokens on a timer ([984a584](https://github.com/4thel00z/qdrant-operator/commit/984a58437f5b85728e182433490ae1a28859c1d7))
+* **accesskey:** QdrantAccessKey CRD and apiKey.jwtRbac on QdrantCluster ([d39533c](https://github.com/4thel00z/qdrant-operator/commit/d39533c2d189419450ffb7e501676f23b4928324))
+* **accesskey:** TokenPort with a PyJWT adapter and owned Secret writes ([332d656](https://github.com/4thel00z/qdrant-operator/commit/332d6563f0ecfc9cda37862936296eb015df52d0))
+* **cluster:** podAnnotations and podLabels on QdrantCluster ([2075aa9](https://github.com/4thel00z/qdrant-operator/commit/2075aa9f5821d05a327dbed2efef1b3b45199623))
+* **collection:** collection, alias and payload index calls on the Qdrant port ([af18e21](https://github.com/4thel00z/qdrant-operator/commit/af18e21ce2e9d969305065eb38d9181e150bb53b))
+* **collection:** domain model and Qdrant body derivation ([9710139](https://github.com/4thel00z/qdrant-operator/commit/97101396e069905514f523539805cbcc70735eb6))
+* **collection:** level-triggered reconcile and deletion policy ([f411023](https://github.com/4thel00z/qdrant-operator/commit/f411023bb90f9f9da423d5ee8419035786a30505))
+* **collection:** memory tiers, metadata, payload storage and shard keys ([3e06158](https://github.com/4thel00z/qdrant-operator/commit/3e0615842cb609db004ec0614e6af5ba96e3f059))
+* **collection:** QdrantCollection CRD ([7114157](https://github.com/4thel00z/qdrant-operator/commit/71141571a14f37113baea2617dadbbbe3b7d34c2))
+* **crds:** CEL admission rules on the existing resources ([716e439](https://github.com/4thel00z/qdrant-operator/commit/716e439e47a30c271e6098afe8c9f2e40ba454ac))
+* **migration:** count, scroll and upsert on the Qdrant port ([c85753b](https://github.com/4thel00z/qdrant-operator/commit/c85753b2b512f01a22300679651b955a8e710405))
+* **migration:** ExecuteMigration use case and handler ([fd63647](https://github.com/4thel00z/qdrant-operator/commit/fd63647d6dc0fef5ca6fcf7e74f2f106b8d1953e))
+* **migration:** QdrantMigration CRD ([8001220](https://github.com/4thel00z/qdrant-operator/commit/8001220f8666b2e485f0876b8ef1f5f83350b4ec))
+* **migration:** resume from status, shard-key preservation and routing ([1e58a7b](https://github.com/4thel00z/qdrant-operator/commit/1e58a7bfae25c06c87c303660bbde0a431129fad))
+* **migration:** source, target overrides and config-to-body translation ([388a76c](https://github.com/4thel00z/qdrant-operator/commit/388a76c6d52098f36e7ea1f98b5761459643a864))
+
+
+### Bug Fixes
+
+* **accesskey:** never overwrite a Secret this resource does not own ([7391820](https://github.com/4thel00z/qdrant-operator/commit/7391820c85d592c32a535d7d4e511a8abd06a655))
+* **cluster:** render service.jwt_rbac only when enabled ([edcdae9](https://github.com/4thel00z/qdrant-operator/commit/edcdae9b3dc23ac00cbb0310d599a927cea75cab))
+* **collection:** PATCH only the blocks the live config misses ([5924b09](https://github.com/4thel00z/qdrant-operator/commit/5924b090b5020138138b79adf95b93e9f978fcfb))
+* **collection:** pinned is not a dense-vector memory tier; pin version notes to 1.19 ([d25800e](https://github.com/4thel00z/qdrant-operator/commit/d25800ee0ec09a8298597db210dd2319258f6fe8))
+* **migration:** no shard keys on auto-sharded targets, e2e for custom sharding ([83a5051](https://github.com/4thel00z/qdrant-operator/commit/83a505172429fd2314e8e93b4eb4a50eea401f83))
+* **types:** AsyncGenerator return types on asynccontextmanager functions ([3a17d9a](https://github.com/4thel00z/qdrant-operator/commit/3a17d9ad0e6116d2a137e47e4fbc09a8fce601b8))
+
+
+### Documentation
+
+* **book:** access keys and migrations ([89283ed](https://github.com/4thel00z/qdrant-operator/commit/89283ed101c43b3f71f93e9d2ce56eb369fa40ab))
+* **book:** correct suspend, restart and snapshotPersistence behavior ([223a752](https://github.com/4thel00z/qdrant-operator/commit/223a75281b5792158bf5422e87cacbffcac8dcd1))
+* CRD upgrade step and the custom-sharding migration limitation ([bc91aba](https://github.com/4thel00z/qdrant-operator/commit/bc91aba99312a43e3208300e699fdb96b9c6af36))
+* mdBook site on GitHub Pages ([d998a88](https://github.com/4thel00z/qdrant-operator/commit/d998a889ba71d9a1c2a089afcf8f995418f8ea77))
+* QdrantCollection, QdrantAccessKey and QdrantMigration ([19858f7](https://github.com/4thel00z/qdrant-operator/commit/19858f7927805f5db42ba906b9e347cc0822d60c))
+* shard keys, metadata and resumable migrations ([bf312b4](https://github.com/4thel00z/qdrant-operator/commit/bf312b4507fd685006ec2238c64e8a1c83508dcf))
+
+
+### Build
+
+* **deps:** bump actions/upload-artifact from 4 to 7 ([a98e750](https://github.com/4thel00z/qdrant-operator/commit/a98e750b16d9b53be94e30ad82520f8fd0ee3158))
+* **deps:** bump astral-sh/setup-uv from 6 to 7 ([a6fd977](https://github.com/4thel00z/qdrant-operator/commit/a6fd977b6340aa3bb5409e36d98b1bea7fef4972))
+* **deps:** bump azure/setup-helm from 4 to 5 ([67ea9ad](https://github.com/4thel00z/qdrant-operator/commit/67ea9ad4c32612e08fdca4b18f5fe26f5053a0a5))
+* **deps:** bump docker/login-action from 3 to 4 ([273892e](https://github.com/4thel00z/qdrant-operator/commit/273892edf3acd8a084b8b84d4c8a1824cf2ad7a3))
+
 ## [0.2.1](https://github.com/4thel00z/qdrant-operator/compare/v0.2.0...v0.2.1) (2026-09-23)
 
 
