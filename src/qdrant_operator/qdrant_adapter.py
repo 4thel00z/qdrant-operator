@@ -173,6 +173,36 @@ class QdrantAdapter:
             )
         logger.info("payload index deleted", collection=collection, field=field_name)
 
+    async def count_points(self, node: QdrantNode, collection: str) -> int:
+        async with self.client(node, self.timeout_seconds) as client:
+            result = await self.result(
+                client.post(f"/collections/{collection}/points/count", json={"exact": False})
+            )
+            return int(result["count"])
+
+    async def scroll_points(
+        self, node: QdrantNode, collection: str, offset: Any, limit: int
+    ) -> tuple[list[JsonDict], Any]:
+        body: JsonDict = {"limit": limit, "with_payload": True, "with_vector": True}
+        if offset is not None:
+            body["offset"] = offset
+        async with self.client(node, self.snapshot_timeout_seconds) as client:
+            result = await self.result(
+                client.post(f"/collections/{collection}/points/scroll", json=body)
+            )
+            return list(result["points"]), result.get("next_page_offset")
+
+    async def upsert_points(
+        self, node: QdrantNode, collection: str, points: list[JsonDict], shard_key: Any = None
+    ) -> None:
+        body: JsonDict = {"points": points}
+        if shard_key is not None:
+            body["shard_key"] = shard_key
+        async with self.client(node, self.snapshot_timeout_seconds) as client:
+            await self.result(
+                client.put(f"/collections/{collection}/points", params={"wait": "true"}, json=body)
+            )
+
     @staticmethod
     async def result(request: Any) -> JsonDict:
         response: httpx.Response = await request

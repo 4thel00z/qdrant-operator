@@ -137,6 +137,10 @@ class FakeQdrant:
     updates: list[tuple[str, JsonDict]] = field(default_factory=list[tuple[str, JsonDict]])
     index_changes: list[tuple[str, str, str]] = field(default_factory=list[tuple[str, str, str]])
     alias_changes: list[list[JsonDict]] = field(default_factory=list[list[JsonDict]])
+    points: dict[tuple[str, str], dict[Any, JsonDict]] = field(
+        default_factory=dict[tuple[str, str], dict[Any, JsonDict]]
+    )
+    upserts: list[tuple[str, Any, int]] = field(default_factory=list[tuple[str, Any, int]])
     created: int = 0
 
     def resolve(self, node: QdrantNode) -> str:
@@ -196,6 +200,39 @@ class FakeQdrant:
 
     async def ready(self, node: QdrantNode) -> bool:
         return True
+
+    def add_points(self, node_url: str, collection: str, points: list[JsonDict]) -> None:
+        store = self.points.setdefault((node_url, collection), {})
+        for point in points:
+            store[point["id"]] = point
+        self.collections[node_url][collection]["points_count"] = len(store)
+
+    def stored_points(self, node_url: str, collection: str) -> list[JsonDict]:
+        store = self.points.get((node_url, collection), {})
+        return [store[point_id] for point_id in sorted(store)]
+
+    async def count_points(self, node: QdrantNode, collection: str) -> int:
+        return len(self.points.get((self.resolve(node), collection), {}))
+
+    async def scroll_points(
+        self, node: QdrantNode, collection: str, offset: Any, limit: int
+    ) -> tuple[list[JsonDict], Any]:
+        store = self.points.get((self.resolve(node), collection), {})
+        ids = sorted(store)
+        start = ids.index(offset) if offset is not None else 0
+        page = ids[start : start + limit]
+        following = ids[start + limit : start + limit + 1]
+        return [store[i] for i in page], following[0] if following else None
+
+    async def upsert_points(
+        self, node: QdrantNode, collection: str, points: list[JsonDict], shard_key: Any = None
+    ) -> None:
+        self.upserts.append((collection, shard_key, len(points)))
+        self.add_points(
+            self.resolve(node),
+            collection,
+            [{**p, **({"shard_key": shard_key} if shard_key is not None else {})} for p in points],
+        )
 
     async def collection_exists(self, node: QdrantNode, collection: str) -> bool:
         return collection in self.collections.get(self.resolve(node), {})

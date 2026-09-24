@@ -89,6 +89,20 @@ class QdrantPort(Protocol):
         self, node: QdrantNode, collection: str, field_name: str
     ) -> None: ...
 
+    async def count_points(self, node: QdrantNode, collection: str) -> int:
+        """Approximate point count (exact=false)."""
+        ...
+
+    async def scroll_points(
+        self, node: QdrantNode, collection: str, offset: Any, limit: int
+    ) -> tuple[list[JsonDict], Any]:
+        """One page of points with payload and vectors; returns (points, next offset or None)."""
+        ...
+
+    async def upsert_points(
+        self, node: QdrantNode, collection: str, points: list[JsonDict], shard_key: Any = None
+    ) -> None: ...
+
 
 class StoragePort(Protocol):
     async def upload_stream(
