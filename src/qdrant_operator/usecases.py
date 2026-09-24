@@ -666,6 +666,7 @@ class ReconcileCollection:
         if update:
             await self.qdrant.update_collection(node, name, update)
 
+        shard_keys = await self.reconcile_shard_keys(node, spec)
         indexes = await self.reconcile_indexes(
             node, spec, info.get("payload_schema", {}), current.payload_indexes
         )
@@ -682,7 +683,22 @@ class ReconcileCollection:
             ),
             payload_indexes=indexes,
             aliases=aliases,
+            shard_keys=shard_keys,
         )
+
+    async def reconcile_shard_keys(
+        self, node: QdrantNode, spec: CollectionSpec
+    ) -> tuple[str | int, ...]:
+        """Create declared shard keys; never drop one, since that deletes its points."""
+        if spec.sharding_method != "custom":
+            return ()
+        existing = await self.qdrant.list_shard_keys(node, spec.collection_name)
+        for shard_key in spec.shard_keys:
+            if shard_key.key in existing:
+                continue
+            await self.qdrant.create_shard_key(node, spec.collection_name, shard_key.to_body())
+            existing.append(shard_key.key)
+        return tuple(existing)
 
     async def reconcile_indexes(
         self,

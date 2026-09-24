@@ -840,3 +840,25 @@ async def test_issue_access_key_refuses_to_overwrite_a_foreign_secret(
     assert status.phase == AccessKeyPhase.PENDING
     assert status.conditions[0].reason == "SecretNotOwned"
     assert kubernetes.secrets[(NS, "app-token")] == {"password": "keep-me"}
+
+
+async def test_reconcile_collection_creates_missing_shard_keys_only(
+    kubernetes: FakeKubernetes,
+) -> None:
+    qdrant = FakeQdrant(routes={service_url(): node_url(0)})
+    spec = collection_spec(
+        shardingMethod="custom", shardKeys=[{"key": "eu"}, {"key": "us", "shardsNumber": 2}]
+    )
+    use_case = ReconcileCollection(qdrant, kubernetes)
+
+    first = await use_case.execute(spec, 1, CollectionStatus(CollectionPhase.PENDING))
+    trimmed = await use_case.execute(
+        collection_spec(shardingMethod="custom", shardKeys=[{"key": "eu"}]), 2, first
+    )
+
+    assert first.shard_keys == ("eu", "us")
+    assert trimmed.shard_keys == ("eu", "us")
+    assert qdrant.shard_key_bodies == [
+        ("docs", {"shard_key": "eu"}),
+        ("docs", {"shard_key": "us", "shards_number": 2}),
+    ]

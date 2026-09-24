@@ -89,6 +89,14 @@ class QdrantPort(Protocol):
         self, node: QdrantNode, collection: str, field_name: str
     ) -> None: ...
 
+    async def list_shard_keys(self, node: QdrantNode, collection: str) -> list[Any]:
+        """Custom shard keys of a collection (empty for auto sharding)."""
+        ...
+
+    async def create_shard_key(self, node: QdrantNode, collection: str, body: JsonDict) -> None:
+        """PUT /collections/{collection}/shards with a Qdrant CreateShardingKey body."""
+        ...
+
     async def count_points(self, node: QdrantNode, collection: str) -> int:
         """Approximate point count (exact=false)."""
         ...

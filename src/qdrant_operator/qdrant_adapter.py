@@ -173,6 +173,17 @@ class QdrantAdapter:
             )
         logger.info("payload index deleted", collection=collection, field=field_name)
 
+    async def list_shard_keys(self, node: QdrantNode, collection: str) -> list[Any]:
+        async with self.client(node, self.timeout_seconds) as client:
+            result = await self.result(client.get(f"/collections/{collection}/shards"))
+            entries: list[JsonDict] = result.get("shard_keys") or []
+            return [entry["key"] for entry in entries]
+
+    async def create_shard_key(self, node: QdrantNode, collection: str, body: JsonDict) -> None:
+        async with self.client(node, self.snapshot_timeout_seconds) as client:
+            await self.result(client.put(f"/collections/{collection}/shards", json=body))
+        logger.info("shard key created", collection=collection, shard_key=body["shard_key"])
+
     async def count_points(self, node: QdrantNode, collection: str) -> int:
         async with self.client(node, self.timeout_seconds) as client:
             result = await self.result(

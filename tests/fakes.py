@@ -87,6 +87,7 @@ def config_from_create(body: Mapping[str, Any]) -> JsonDict:
         "wal_config": {"wal_capacity_mb": 32, "wal_segments_ahead": 0},
         "quantization_config": body.get("quantization_config"),
         "strict_mode_config": body.get("strict_mode_config"),
+        "metadata": body.get("metadata"),
     }
 
 
@@ -117,6 +118,7 @@ def apply_update(config: JsonDict, body: Mapping[str, Any]) -> JsonDict:
             config.get("strict_mode_config") or {}, body.get("strict_mode_config", {})
         )
         or None,
+        "metadata": merge_dicts(config.get("metadata") or {}, body.get("metadata", {})) or None,
     }
 
 
@@ -141,6 +143,7 @@ class FakeQdrant:
         default_factory=dict[tuple[str, str], dict[Any, JsonDict]]
     )
     upserts: list[tuple[str, Any, int]] = field(default_factory=list[tuple[str, Any, int]])
+    shard_key_bodies: list[tuple[str, JsonDict]] = field(default_factory=list[tuple[str, JsonDict]])
     created: int = 0
 
     def resolve(self, node: QdrantNode) -> str:
@@ -281,6 +284,16 @@ class FakeQdrant:
     ) -> None:
         self.entry(node, collection)["payload_schema"].pop(field_name, None)
         self.index_changes.append(("delete", collection, field_name))
+
+    async def list_shard_keys(self, node: QdrantNode, collection: str) -> list[Any]:
+        return list(self.entry(node, collection).setdefault("shard_keys", []))
+
+    async def create_shard_key(self, node: QdrantNode, collection: str, body: JsonDict) -> None:
+        keys: list[Any] = self.entry(node, collection).setdefault("shard_keys", [])
+        if body["shard_key"] in keys:
+            raise RuntimeError(f"shard key {body['shard_key']} already exists")
+        keys.append(body["shard_key"])
+        self.shard_key_bodies.append((collection, body))
 
 
 @dataclass

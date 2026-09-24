@@ -56,6 +56,8 @@ spec:
                   message: "clusterRef is immutable"
                 - rule: "(has(self.collectionName) ? self.collectionName : '') == (has(oldSelf.collectionName) ? oldSelf.collectionName : '')"
                   message: "collectionName is immutable"
+                - rule: "!has(self.shardKeys) || (has(self.shardingMethod) && self.shardingMethod == 'custom')"
+                  message: "shardKeys need shardingMethod: custom"
               properties:
                 clusterRef:
                   type: object
@@ -93,7 +95,11 @@ spec:
                         type: boolean
                       datatype:
                         type: string
-                        enum: ["float32", "float16", "uint8"]
+                        enum: ["float32", "float16", "uint8", "turbo4"]
+                      memory:
+                        type: string
+                        enum: ["cold", "cached", "pinned"]
+                        description: RAM placement of the vector storage (Qdrant 1.17+; supersedes onDisk)
                       multivector:
                         type: object
                         required:
@@ -145,8 +151,38 @@ spec:
                 readFanOutFactor:
                   type: integer
                   minimum: 0
+                readFanOutDelayMs:
+                  type: integer
+                  minimum: 0
+                  description: Delay before fanning reads out to remote replicas
                 onDiskPayload:
                   type: boolean
+                payloadMemory:
+                  type: string
+                  enum: ["cold", "cached"]
+                  description: RAM placement of the payload storage (Qdrant 1.17+; supersedes onDiskPayload)
+                shardKeys:
+                  type: array
+                  maxItems: 1024
+                  description: Shard keys to create for custom sharding. Never dropped by the operator - dropping a key deletes its points.
+                  items:
+                    type: object
+                    required:
+                      - key
+                    properties:
+                      key:
+                        x-kubernetes-int-or-string: true
+                        description: Keyword or non-negative integer shard key
+                      shardsNumber:
+                        type: integer
+                        minimum: 1
+                      replicationFactor:
+                        type: integer
+                        minimum: 1
+                metadata:
+                  type: object
+                  description: Arbitrary collection metadata (merged into the live collection; keys you drop stay)
+                  x-kubernetes-preserve-unknown-fields: true
                 hnsw:
                   type: object
                   description: Collection-wide HNSW settings (Qdrant HnswConfigDiff field names)
@@ -228,6 +264,11 @@ spec:
                   items:
                     type: string
                   description: Aliases the operator manages
+                shardKeys:
+                  type: array
+                  items:
+                    x-kubernetes-int-or-string: true
+                  description: Shard keys present on the collection
                 error:
                   type: string
                 observedGeneration:

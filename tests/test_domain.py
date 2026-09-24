@@ -546,3 +546,29 @@ def test_jwt_rbac_is_only_rendered_when_enabled() -> None:
 
     assert "jwt_rbac" not in plain.to_helm_values()["config"]["service"]
     assert jwt.to_helm_values()["config"]["service"]["jwt_rbac"] is True
+
+
+def test_collection_memory_tiers_metadata_and_shard_keys_map_to_qdrant() -> None:
+    spec = collection_spec(
+        vectors=[{"size": 4, "distance": "Dot", "memory": "cold", "datatype": "turbo4"}],
+        shardingMethod="custom",
+        shardNumber=1,
+        shardKeys=[{"key": "eu", "replicationFactor": 2}, {"key": 7}],
+        payloadMemory="cached",
+        readFanOutDelayMs=50,
+        metadata={"owner": "search-team"},
+    )
+
+    body = spec.create_body()
+    assert body["vectors"] == {"size": 4, "distance": "Dot", "datatype": "turbo4", "memory": "cold"}
+    assert body["payload"] == {"memory": "cached"}
+    assert (body["read_fan_out_delay_ms"], body["metadata"]) == (50, {"owner": "search-team"})
+    assert [k.to_body() for k in spec.shard_keys] == [
+        {"shard_key": "eu", "replication_factor": 2},
+        {"shard_key": 7},
+    ]
+    live = {"params": {"vectors": {"size": 4, "distance": "Dot", "memory": "cold"}}}
+    patch = spec.update_body(live)
+    assert patch["params"] == {"read_fan_out_delay_ms": 50, "payload": {"memory": "cached"}}
+    assert patch["metadata"] == {"owner": "search-team"}
+    assert "vectors" not in patch

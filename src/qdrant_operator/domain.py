@@ -1303,6 +1303,7 @@ class VectorSpec:
     distance: str
     name: str | None = None
     on_disk: bool | None = None
+    memory: str | None = None
     datatype: str | None = None
     multivector: JsonDict | None = None
     hnsw: JsonDict = field(default_factory=dict[str, Any])
@@ -1315,6 +1316,7 @@ class VectorSpec:
             distance=data["distance"],
             name=data.get("name"),
             on_disk=data.get("onDisk"),
+            memory=data.get("memory"),
             datatype=data.get("datatype"),
             multivector=data.get("multivector"),
             hnsw=dict[str, Any](data.get("hnsw", {})),
@@ -1335,6 +1337,7 @@ class VectorSpec:
         return drop_empty(
             {
                 "on_disk": self.on_disk,
+                "memory": self.memory,
                 "hnsw_config": self.hnsw or None,
                 "quantization_config": self.quantization or None,
             }
@@ -1389,6 +1392,31 @@ class PayloadIndexSpec:
 
 
 @dataclass(frozen=True)
+class ShardKeySpec:
+    key: str | int
+    shards_number: int | None = None
+    replication_factor: int | None = None
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "ShardKeySpec":
+        return ShardKeySpec(
+            key=data["key"],
+            shards_number=data.get("shardsNumber"),
+            replication_factor=data.get("replicationFactor"),
+        )
+
+    def to_body(self) -> JsonDict:
+        """Body of PUT /collections/{name}/shards."""
+        return drop_empty(
+            {
+                "shard_key": self.key,
+                "shards_number": self.shards_number,
+                "replication_factor": self.replication_factor,
+            }
+        )
+
+
+@dataclass(frozen=True)
 class CollectionSpec:
     name: str
     namespace: str
@@ -1398,10 +1426,14 @@ class CollectionSpec:
     sparse_vectors: tuple[SparseVectorSpec, ...] = ()
     shard_number: int | None = None
     sharding_method: str | None = None
+    shard_keys: tuple[ShardKeySpec, ...] = ()
     replication_factor: int | None = None
     write_consistency_factor: int | None = None
     read_fan_out_factor: int | None = None
+    read_fan_out_delay_ms: int | None = None
     on_disk_payload: bool | None = None
+    payload_memory: str | None = None
+    metadata: JsonDict = field(default_factory=dict[str, Any])
     hnsw: JsonDict = field(default_factory=dict[str, Any])
     optimizers: JsonDict = field(default_factory=dict[str, Any])
     quantization: JsonDict = field(default_factory=dict[str, Any])
@@ -1429,10 +1461,14 @@ class CollectionSpec:
             sparse_vectors=sparse,
             shard_number=spec.get("shardNumber"),
             sharding_method=spec.get("shardingMethod"),
+            shard_keys=tuple(ShardKeySpec.from_dict(k) for k in spec.get("shardKeys", [])),
             replication_factor=spec.get("replicationFactor"),
             write_consistency_factor=spec.get("writeConsistencyFactor"),
             read_fan_out_factor=spec.get("readFanOutFactor"),
+            read_fan_out_delay_ms=spec.get("readFanOutDelayMs"),
             on_disk_payload=spec.get("onDiskPayload"),
+            payload_memory=spec.get("payloadMemory"),
+            metadata=dict[str, Any](spec.get("metadata", {})),
             hnsw=dict[str, Any](spec.get("hnsw", {})),
             optimizers=dict[str, Any](spec.get("optimizers", {})),
             quantization=dict[str, Any](spec.get("quantization", {})),
@@ -1468,7 +1504,9 @@ class CollectionSpec:
                 "replication_factor": self.replication_factor,
                 "write_consistency_factor": self.write_consistency_factor,
                 "read_fan_out_factor": self.read_fan_out_factor,
+                "read_fan_out_delay_ms": self.read_fan_out_delay_ms,
                 "on_disk_payload": self.on_disk_payload,
+                "payload": {"memory": self.payload_memory} if self.payload_memory else None,
             }
         )
 
@@ -1485,6 +1523,7 @@ class CollectionSpec:
                 "quantization_config": self.quantization or None,
                 "wal_config": self.wal or None,
                 "strict_mode_config": self.strict_mode or None,
+                "metadata": self.metadata or None,
                 **self.collection_params(),
             }
         )
@@ -1504,6 +1543,7 @@ class CollectionSpec:
             "optimizers_config": (self.optimizers or None, config.get("optimizer_config")),
             "quantization_config": (self.quantization or None, config.get("quantization_config")),
             "strict_mode_config": (self.strict_mode or None, config.get("strict_mode_config")),
+            "metadata": (self.metadata or None, config.get("metadata")),
         }
         body = {
             key: desired
@@ -1544,6 +1584,7 @@ class CollectionSpec:
                 "optimizer_config": self.optimizers or None,
                 "quantization_config": self.quantization or None,
                 "strict_mode_config": self.strict_mode or None,
+                "metadata": self.metadata or None,
             }
         )
 
@@ -1558,6 +1599,7 @@ class CollectionStatus:
     segments_count: int | None = None
     payload_indexes: tuple[str, ...] = ()
     aliases: tuple[str, ...] = ()
+    shard_keys: tuple[str | int, ...] = ()
     error: str | None = None
     observed_generation: int | None = None
     conditions: tuple[Condition, ...] = ()
@@ -1573,6 +1615,7 @@ class CollectionStatus:
             segments_count=data.get("segmentsCount"),
             payload_indexes=tuple(data.get("payloadIndexes", [])),
             aliases=tuple(data.get("aliases", [])),
+            shard_keys=tuple(data.get("shardKeys", [])),
             error=data.get("error"),
             observed_generation=data.get("observedGeneration"),
             conditions=tuple(conditions_from_dict(data)),
@@ -1588,6 +1631,7 @@ class CollectionStatus:
             "segmentsCount": self.segments_count,
             "payloadIndexes": list(self.payload_indexes),
             "aliases": list(self.aliases),
+            "shardKeys": list(self.shard_keys),
             "error": self.error,
             "observedGeneration": self.observed_generation,
             "conditions": [c.to_dict() for c in self.conditions],
