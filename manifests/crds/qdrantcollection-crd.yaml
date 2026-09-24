@@ -96,10 +96,11 @@ spec:
                       datatype:
                         type: string
                         enum: ["float32", "float16", "uint8", "turbo4"]
+                        description: turbo4 needs Qdrant 1.19+
                       memory:
                         type: string
-                        enum: ["cold", "cached", "pinned"]
-                        description: RAM placement of the vector storage (Qdrant 1.17+; supersedes onDisk)
+                        enum: ["cold", "cached"]
+                        description: RAM placement of the vector storage (Qdrant 1.19+; supersedes onDisk; pinned is not allowed for dense vectors)
                       multivector:
                         type: object
                         required:
@@ -160,7 +161,7 @@ spec:
                 payloadMemory:
                   type: string
                   enum: ["cold", "cached"]
-                  description: RAM placement of the payload storage (Qdrant 1.17+; supersedes onDiskPayload)
+                  description: RAM placement of the payload storage (Qdrant 1.19+; supersedes onDiskPayload)
                 shardKeys:
                   type: array
                   maxItems: 1024

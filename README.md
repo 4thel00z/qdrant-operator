@@ -220,7 +220,7 @@ spec:
     - name: text
       size: 768
       distance: Cosine
-      onDisk: true
+      memory: cold                # Qdrant 1.19+; use onDisk: true on older releases
     - name: image
       size: 512
       distance: Dot
@@ -317,9 +317,10 @@ spec:
 Points are scrolled from the source and upserted on the target, so the run is idempotent and a
 one-node source can become a three-node target (shard counts follow the target unless set under
 `target`). Missing target collections are created from the source configuration, including
-payload indexes; existing targets must have the same vector sizes and distances. Custom shard
-keys are preserved by default and created on the target as they are met, or routed with
-`target.shardKey` / `target.shardKeyField`. Progress and the scroll offset live in `status`, so a
+payload indexes; existing targets must have the same vector sizes and distances. On a
+custom-sharded target, each point keeps its source shard key (keys are created as they are met)
+unless routed with `target.shardKey` / `target.shardKeyField`; an auto-sharded target receives
+the points without shard keys. Progress and the scroll offset live in `status`, so a
 run interrupted by an operator restart resumes where it stopped.
 
 ## Configuration
