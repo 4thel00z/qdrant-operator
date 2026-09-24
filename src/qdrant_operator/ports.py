@@ -61,6 +61,34 @@ class QdrantPort(Protocol):
 
     async def ready(self, node: QdrantNode) -> bool: ...
 
+    async def collection_exists(self, node: QdrantNode, collection: str) -> bool: ...
+
+    async def create_collection(self, node: QdrantNode, collection: str, body: JsonDict) -> None:
+        """PUT /collections/{collection} with a Qdrant CreateCollection body."""
+        ...
+
+    async def update_collection(self, node: QdrantNode, collection: str, body: JsonDict) -> None:
+        """PATCH /collections/{collection} with a Qdrant UpdateCollection body."""
+        ...
+
+    async def delete_collection(self, node: QdrantNode, collection: str) -> None: ...
+
+    async def list_aliases(self, node: QdrantNode) -> dict[str, str]:
+        """Every alias on the cluster, mapped to the collection it points at."""
+        ...
+
+    async def update_aliases(self, node: QdrantNode, actions: list[JsonDict]) -> None:
+        """Apply create_alias/delete_alias actions atomically."""
+        ...
+
+    async def create_payload_index(
+        self, node: QdrantNode, collection: str, field_name: str, field_schema: str | JsonDict
+    ) -> None: ...
+
+    async def delete_payload_index(
+        self, node: QdrantNode, collection: str, field_name: str
+    ) -> None: ...
+
 
 class StoragePort(Protocol):
     async def upload_stream(

@@ -117,6 +117,62 @@ class QdrantAdapter:
         except httpx.HTTPError:
             return False
 
+    async def collection_exists(self, node: QdrantNode, collection: str) -> bool:
+        async with self.client(node, self.timeout_seconds) as client:
+            result = await self.result(client.get(f"/collections/{collection}/exists"))
+            return bool(result["exists"])
+
+    async def create_collection(self, node: QdrantNode, collection: str, body: JsonDict) -> None:
+        async with self.client(node, self.snapshot_timeout_seconds) as client:
+            await self.result(client.put(f"/collections/{collection}", json=body))
+        logger.info("collection created", node=node.url, collection=collection)
+
+    async def update_collection(self, node: QdrantNode, collection: str, body: JsonDict) -> None:
+        async with self.client(node, self.snapshot_timeout_seconds) as client:
+            await self.result(client.patch(f"/collections/{collection}", json=body))
+        logger.info("collection updated", node=node.url, collection=collection, body=body)
+
+    async def delete_collection(self, node: QdrantNode, collection: str) -> None:
+        async with self.client(node, self.snapshot_timeout_seconds) as client:
+            response = await client.delete(f"/collections/{collection}")
+            if response.status_code != 404:
+                response.raise_for_status()
+        logger.info("collection deleted", node=node.url, collection=collection)
+
+    async def list_aliases(self, node: QdrantNode) -> dict[str, str]:
+        async with self.client(node, self.timeout_seconds) as client:
+            result = await self.result(client.get("/aliases"))
+            return {a["alias_name"]: a["collection_name"] for a in result["aliases"]}
+
+    async def update_aliases(self, node: QdrantNode, actions: list[JsonDict]) -> None:
+        async with self.client(node, self.timeout_seconds) as client:
+            await self.result(client.post("/collections/aliases", json={"actions": actions}))
+        logger.info("aliases updated", node=node.url, actions=actions)
+
+    async def create_payload_index(
+        self, node: QdrantNode, collection: str, field_name: str, field_schema: str | JsonDict
+    ) -> None:
+        async with self.client(node, self.snapshot_timeout_seconds) as client:
+            await self.result(
+                client.put(
+                    f"/collections/{collection}/index",
+                    params={"wait": "true"},
+                    json={"field_name": field_name, "field_schema": field_schema},
+                )
+            )
+        logger.info("payload index created", collection=collection, field=field_name)
+
+    async def delete_payload_index(
+        self, node: QdrantNode, collection: str, field_name: str
+    ) -> None:
+        async with self.client(node, self.snapshot_timeout_seconds) as client:
+            await self.result(
+                client.delete(
+                    f"/collections/{collection}/index/{field_name}", params={"wait": "true"}
+                )
+            )
+        logger.info("payload index deleted", collection=collection, field=field_name)
+
     @staticmethod
     async def result(request: Any) -> JsonDict:
         response: httpx.Response = await request

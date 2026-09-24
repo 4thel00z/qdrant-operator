@@ -19,6 +19,7 @@ from qdrant_operator.domain import SecretRef
 from qdrant_operator.domain import Snapshot
 from qdrant_operator.domain import StatefulSetStatus
 from qdrant_operator.domain import format_time
+from qdrant_operator.domain import merge_dicts
 
 
 @dataclass
@@ -48,6 +49,77 @@ def snapshot_payload(node_url: str, collection: str) -> bytes:
     return f"{node_url}:{collection}\n".encode() * 200
 
 
+DEFAULT_HNSW: JsonDict = {
+    "m": 16,
+    "ef_construct": 100,
+    "full_scan_threshold": 10000,
+    "max_indexing_threads": 0,
+    "on_disk": False,
+    "payload_m": None,
+}
+DEFAULT_OPTIMIZERS: JsonDict = {
+    "deleted_threshold": 0.2,
+    "vacuum_min_vector_number": 1000,
+    "default_segment_number": 0,
+    "max_segment_size": None,
+    "memmap_threshold": None,
+    "indexing_threshold": 20000,
+    "flush_interval_sec": 5,
+    "max_optimization_threads": None,
+}
+
+
+def config_from_create(body: Mapping[str, Any]) -> JsonDict:
+    """What GET /collections/{c} reports after PUT with this body, defaults filled like Qdrant."""
+    return {
+        "params": {
+            "vectors": body.get("vectors", {}),
+            "shard_number": body.get("shard_number", 1),
+            "sharding_method": body.get("sharding_method"),
+            "replication_factor": body.get("replication_factor", 1),
+            "write_consistency_factor": body.get("write_consistency_factor", 1),
+            "read_fan_out_factor": body.get("read_fan_out_factor"),
+            "on_disk_payload": body.get("on_disk_payload", True),
+            "sparse_vectors": body.get("sparse_vectors"),
+        },
+        "hnsw_config": merge_dicts(DEFAULT_HNSW, body.get("hnsw_config", {})),
+        "optimizer_config": merge_dicts(DEFAULT_OPTIMIZERS, body.get("optimizers_config", {})),
+        "wal_config": {"wal_capacity_mb": 32, "wal_segments_ahead": 0},
+        "quantization_config": body.get("quantization_config"),
+        "strict_mode_config": body.get("strict_mode_config"),
+    }
+
+
+def apply_update(config: JsonDict, body: Mapping[str, Any]) -> JsonDict:
+    """Fold a PATCH /collections/{c} body into a reported config the way Qdrant does."""
+    params: JsonDict = dict(config["params"])
+    vectors = params.get("vectors", {})
+    for name, diff in body.get("vectors", {}).items():
+        if name == "":
+            vectors = merge_dicts(vectors, diff)
+            continue
+        vectors = {**vectors, name: merge_dicts(vectors.get(name, {}), diff)}
+    params["vectors"] = vectors
+    if "sparse_vectors" in body:
+        params["sparse_vectors"] = merge_dicts(
+            params.get("sparse_vectors") or {}, body["sparse_vectors"]
+        )
+    params.update(body.get("params", {}))
+    return {
+        **config,
+        "params": params,
+        "hnsw_config": merge_dicts(config["hnsw_config"], body.get("hnsw_config", {})),
+        "optimizer_config": merge_dicts(
+            config["optimizer_config"], body.get("optimizers_config", {})
+        ),
+        "quantization_config": body.get("quantization_config", config.get("quantization_config")),
+        "strict_mode_config": merge_dicts(
+            config.get("strict_mode_config") or {}, body.get("strict_mode_config", {})
+        )
+        or None,
+    }
+
+
 @dataclass
 class FakeQdrant:
     collections: dict[str, dict[str, JsonDict]] = field(
@@ -60,18 +132,31 @@ class FakeQdrant:
         default_factory=list[tuple[str, str, str, RestorePriority, str | None]]
     )
     failing_collections: set[str] = field(default_factory=set[str])
+    routes: dict[str, str] = field(default_factory=dict[str, str])
     aliases: dict[str, str] = field(default_factory=dict[str, str])
+    updates: list[tuple[str, JsonDict]] = field(default_factory=list[tuple[str, JsonDict]])
+    index_changes: list[tuple[str, str, str]] = field(default_factory=list[tuple[str, str, str]])
+    alias_changes: list[list[JsonDict]] = field(default_factory=list[list[JsonDict]])
     created: int = 0
 
     def resolve(self, node: QdrantNode) -> str:
         """Map a Service URL onto the node that would answer it."""
-        return self.aliases.get(node.url, node.url)
+        return self.routes.get(node.url, node.url)
 
-    def add_collection(self, node_url: str, collection: str, points: int = 0) -> None:
+    def add_collection(
+        self, node_url: str, collection: str, points: int = 0, body: JsonDict | None = None
+    ) -> None:
         self.collections.setdefault(node_url, {})[collection] = {
             "status": "green",
             "points_count": points,
+            "indexed_vectors_count": points,
+            "segments_count": 1,
+            "config": config_from_create(body or {"vectors": {"size": 4, "distance": "Cosine"}}),
+            "payload_schema": {},
         }
+
+    def entry(self, node: QdrantNode, collection: str) -> JsonDict:
+        return self.collections[self.resolve(node)][collection]
 
     async def list_collections(self, node: QdrantNode) -> list[str]:
         return sorted(self.collections.get(self.resolve(node), {}))
@@ -107,10 +192,58 @@ class FakeQdrant:
         self.add_collection(node.url, collection, points=42)
 
     async def collection_info(self, node: QdrantNode, collection: str) -> JsonDict:
-        return self.collections[self.resolve(node)][collection]
+        return self.entry(node, collection)
 
     async def ready(self, node: QdrantNode) -> bool:
         return True
+
+    async def collection_exists(self, node: QdrantNode, collection: str) -> bool:
+        return collection in self.collections.get(self.resolve(node), {})
+
+    async def create_collection(self, node: QdrantNode, collection: str, body: JsonDict) -> None:
+        if await self.collection_exists(node, collection):
+            raise RuntimeError(f"collection {collection} already exists")
+        self.add_collection(self.resolve(node), collection, body=body)
+
+    async def update_collection(self, node: QdrantNode, collection: str, body: JsonDict) -> None:
+        entry = self.entry(node, collection)
+        entry["config"] = apply_update(entry["config"], body)
+        self.updates.append((collection, body))
+
+    async def delete_collection(self, node: QdrantNode, collection: str) -> None:
+        self.collections.get(self.resolve(node), {}).pop(collection, None)
+        self.aliases = {a: c for a, c in self.aliases.items() if c != collection}
+
+    async def list_aliases(self, node: QdrantNode) -> dict[str, str]:
+        return dict(self.aliases)
+
+    async def update_aliases(self, node: QdrantNode, actions: list[JsonDict]) -> None:
+        self.alias_changes.append(actions)
+        for action in actions:
+            if "create_alias" in action:
+                create = action["create_alias"]
+                self.aliases[create["alias_name"]] = create["collection_name"]
+                continue
+            self.aliases.pop(action["delete_alias"]["alias_name"], None)
+
+    async def create_payload_index(
+        self, node: QdrantNode, collection: str, field_name: str, field_schema: str | JsonDict
+    ) -> None:
+        schema: JsonDict = (
+            {"type": field_schema} if isinstance(field_schema, str) else dict(field_schema)
+        )
+        self.entry(node, collection)["payload_schema"][field_name] = {
+            "data_type": schema["type"],
+            "params": schema if len(schema) > 1 else None,
+            "points": 0,
+        }
+        self.index_changes.append(("create", collection, field_name))
+
+    async def delete_payload_index(
+        self, node: QdrantNode, collection: str, field_name: str
+    ) -> None:
+        self.entry(node, collection)["payload_schema"].pop(field_name, None)
+        self.index_changes.append(("delete", collection, field_name))
 
 
 @dataclass

@@ -88,7 +88,7 @@ def qdrant() -> FakeQdrant:
     for index in range(2):
         fake.add_collection(node_url(index), "docs", points=10)
         fake.add_collection(node_url(index), "images", points=5)
-    fake.aliases[service_url()] = node_url(0)
+    fake.routes[service_url()] = node_url(0)
     return fake
 
 
@@ -239,7 +239,7 @@ async def test_restore_from_backup_ref_recovers_each_node_from_presigned_urls(
 ) -> None:
     storage = await completed_backup(kubernetes, qdrant)
     kubernetes.put_resource(cluster_body(name="target"))
-    qdrant.aliases[service_url("target")] = node_url(0, "target")
+    qdrant.routes[service_url("target")] = node_url(0, "target")
     spec = RestoreSpec.from_dict(
         {
             "targetClusterRef": {"name": "target"},
