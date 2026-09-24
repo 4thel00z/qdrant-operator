@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Kubernetes operator for Qdrant vector database using kopf framework. Manages QdrantCluster, QdrantBackup, QdrantBackupSchedule, and QdrantRestore custom resources.
+Kubernetes operator for Qdrant vector database using kopf framework. Manages QdrantCluster, QdrantBackup, QdrantBackupSchedule, QdrantRestore, QdrantCollection, QdrantAccessKey and QdrantMigration custom resources.
 
 ## Commands
 
@@ -44,6 +44,7 @@ src/qdrant_operator/
 ├── helm_adapter.py      # Driven adapter: Helm CLI
 ├── qdrant_adapter.py    # Driven adapter: Qdrant REST API
 ├── s3_adapter.py        # Driven adapter: S3/MinIO
+├── jwt_adapter.py       # Driven adapter: HS256 token signing (PyJWT)
 └── kubernetes_adapter.py # Driven adapter: K8s API
 ```
 
@@ -86,6 +87,7 @@ Tests use the in-memory fakes in `tests/fakes.py`; never `mock.patch`.
 | aioboto3 | Async S3 client |
 | croniter | Cron parsing for schedules |
 | loguru | Logging (kopf's stdlib logs are intercepted into it) |
+| pyjwt | Signing QdrantAccessKey tokens |
 
 ## CRDs
 
@@ -94,6 +96,14 @@ Source of truth is `manifests/crds/`; `make crds-sync` copies them into the char
 - `qdrantbackup-crd.yaml` - Point-in-time backups
 - `qdrantbackupschedule-crd.yaml` - Scheduled backups
 - `qdrantrestore-crd.yaml` - Restore from backup
+- `qdrantcollection-crd.yaml` - Declarative collections, payload indexes, aliases
+- `qdrantaccesskey-crd.yaml` - JWT tokens written into Secrets
+- `qdrantmigration-crd.yaml` - Point-by-point copy between clusters
+
+CEL rules live in the CRDs (`x-kubernetes-validations`); they only compile on a real API server, so
+`tests/test_integration.py` dry-run applies invalid objects on kind. Level-triggered kinds
+(collection, access key) share one handler for create/update/resume plus a timer and report
+unapplyable specs through a `Ready=False` condition rather than an exception.
 
 ## Git Workflow
 

@@ -28,6 +28,10 @@
 - **Automated Backups** - Per-node snapshots streamed to S3-compatible storage, with a manifest
 - **Scheduled Backups** - CronJob-style schedules with concurrency and retention policies
 - **Disaster Recovery** - Restore collections node-by-node from presigned URLs, with optional remapping
+- **Declarative Collections** - `QdrantCollection` keeps vectors, payload indexes and aliases in Git and re-creates what was deleted by hand
+- **Least-Privilege Tokens** - `QdrantAccessKey` signs Qdrant JWT tokens per collection and writes them into a Secret, renewing before expiry
+- **Live Migrations** - `QdrantMigration` copies collections between clusters (or from Qdrant Cloud) without an S3 round trip
+- **Admission Validation** - CEL rules on every CRD reject impossible specs before the operator sees them
 - **Async-First** - Built on kopf with fully async adapters for performance
 
 ## Installation
@@ -189,6 +193,103 @@ spec:
   collectionMapping:
     old_collection: new_collection
 ```
+
+### Declare a Collection
+
+```yaml
+apiVersion: qdrant.io/v1alpha1
+kind: QdrantCollection
+metadata:
+  name: articles
+  namespace: default
+spec:
+  clusterRef:
+    name: my-qdrant
+  collectionName: Articles        # optional; Qdrant names may use characters Kubernetes names cannot
+  vectors:
+    - name: text
+      size: 768
+      distance: Cosine
+      onDisk: true
+    - name: image
+      size: 512
+      distance: Dot
+  sparseVectors:
+    - name: bm25
+      modifier: idf
+  replicationFactor: 2
+  optimizers:                     # Qdrant's own field names, passed through
+    indexing_threshold: 10000
+  payloadIndexes:
+    - field: tenant_id
+      type: keyword
+      params: {is_tenant: true}
+    - field: body
+      type: text
+      params: {tokenizer: word, lowercase: true}
+  aliases: [articles-live]
+  deletionPolicy: Retain          # Delete drops the collection with the resource
+```
+
+A single entry without `name` is Qdrant's unnamed vector. Vector size and distance, `shardNumber`
+and `shardingMethod` cannot change on a live collection; a mismatch puts the resource into
+`phase: Degraded` with a `Ready=False` condition instead of silently ignoring the spec. Everything
+else is patched in place, and only fields you declared are compared. Indexes and aliases the
+operator did not create are left alone.
+
+### Issue a Scoped Token
+
+Requires `spec.apiKey.jwtRbac: true` on the cluster (tokens are signed with the cluster's API key).
+
+```yaml
+apiVersion: qdrant.io/v1alpha1
+kind: QdrantAccessKey
+metadata:
+  name: billing-reader
+  namespace: default
+spec:
+  clusterRef:
+    name: my-qdrant
+  collections:                    # or: access: r | m  for cluster-wide tokens
+    - name: invoices
+      access: r                   # r, rw, or prw (points only, no snapshots or indexes)
+  subject: billing-service
+  ttl: 720h
+  renewBefore: 24h                # default: a third of ttl
+  secretName: billing-qdrant      # default: metadata.name
+```
+
+The Secret gets `token` and `url` keys and is garbage-collected with the resource. The token is
+re-issued when the spec changes, the cluster's API key rotates, the Secret disappears, or
+`renewBefore` is reached.
+
+### Migrate Between Clusters
+
+```yaml
+apiVersion: qdrant.io/v1alpha1
+kind: QdrantMigration
+metadata:
+  name: cloud-to-k8s
+  namespace: default
+spec:
+  source:
+    endpoint:                     # or: clusterRef: {name: old-qdrant}
+      url: https://xyz.eu-central.aws.cloud.qdrant.io:6333
+      apiKeySecretRef: {name: qdrant-cloud, key: api-key}
+  targetClusterRef:
+    name: my-qdrant
+  collections: [articles]         # empty = all
+  collectionMapping:
+    articles: articles_v2
+  batchSize: 500
+  target:                         # for collections the migration creates
+    replicationFactor: 2
+```
+
+Points are scrolled from the source and upserted on the target, so the run is idempotent and a
+one-node source can become a three-node target (shard counts follow the target unless set under
+`target`). Missing target collections are created from the source configuration, including
+payload indexes.
 
 ## Configuration
 
