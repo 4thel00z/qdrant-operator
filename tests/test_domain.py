@@ -1,9 +1,13 @@
+from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 
 import pytest
 
+from qdrant_operator.domain import AccessKeyPhase
+from qdrant_operator.domain import AccessKeySpec
+from qdrant_operator.domain import AccessKeyStatus
 from qdrant_operator.domain import BackupManifest
 from qdrant_operator.domain import BackupPhase
 from qdrant_operator.domain import BackupRecord
@@ -25,6 +29,7 @@ from qdrant_operator.domain import format_size
 from qdrant_operator.domain import is_subset
 from qdrant_operator.domain import join_key
 from qdrant_operator.domain import merge_dicts
+from qdrant_operator.domain import parse_duration
 from qdrant_operator.domain import set_condition
 
 NOW = datetime(2026, 9, 23, 2, 30, tzinfo=UTC)
@@ -330,3 +335,67 @@ def test_payload_index_schema_and_satisfaction() -> None:
         {"data_type": "text", "params": {"type": "text", "tokenizer": "word", "lowercase": True}}
     )
     assert not text.satisfied_by({"data_type": "text", "params": {"tokenizer": "prefix"}})
+
+
+def access_key_spec(**spec: object) -> AccessKeySpec:
+    return AccessKeySpec.from_dict(
+        {"clusterRef": {"name": "db"}, **spec}, {"name": "app-token", "namespace": "tenant-a"}
+    )
+
+
+def test_parse_duration_accepts_go_style_units() -> None:
+    assert parse_duration("720h") == timedelta(hours=720)
+    assert parse_duration("1h30m15s") == timedelta(hours=1, minutes=30, seconds=15)
+    with pytest.raises(ValueError):
+        parse_duration("30d")
+
+
+def test_access_key_claims_match_qdrant_parser_layout() -> None:
+    issued = datetime(2026, 9, 24, 20, 0, tzinfo=UTC)
+    per_collection = access_key_spec(
+        collections=[{"name": "docs", "access": "rw"}, {"name": "logs", "access": "r"}],
+        subject="billing-service",
+        ttl="720h",
+        renewBefore="24h",
+        valueExists={"collection": "tenants", "matches": [{"key": "id", "value": 42}]},
+    )
+    cluster_wide = access_key_spec(access="r")
+
+    assert per_collection.claims(issued) == {
+        "sub": "billing-service",
+        "exp": int((issued + timedelta(hours=720)).timestamp()),
+        "access": [
+            {"collection": "docs", "access": "rw"},
+            {"collection": "logs", "access": "r"},
+        ],
+        "value_exists": {"collection": "tenants", "matches": [{"key": "id", "value": 42}]},
+    }
+    assert per_collection.renew_at(issued) == issued + timedelta(hours=696)
+    assert cluster_wide.claims(issued) == {"access": "r"}
+    assert cluster_wide.expires_at(issued) is None and cluster_wide.renew_at(issued) is None
+    assert cluster_wide.secret_name == "app-token"
+    assert access_key_spec(access="m", ttl="90h").renew_at(issued) == issued + timedelta(hours=60)
+
+
+def test_access_key_spec_needs_exactly_one_access_form() -> None:
+    with pytest.raises(ValueError, match="exactly one"):
+        access_key_spec()
+    with pytest.raises(ValueError, match="exactly one"):
+        access_key_spec(access="r", collections=[{"name": "docs", "access": "r"}])
+
+
+def test_access_key_status_knows_when_a_token_is_current() -> None:
+    now = datetime(2026, 9, 24, 20, 0, tzinfo=UTC)
+    ready = AccessKeyStatus(
+        phase=AccessKeyPhase.READY,
+        key_fingerprint="abc",
+        observed_generation=2,
+        renew_at=now + timedelta(hours=1),
+    )
+
+    assert ready.token_current(2, "abc", True, now)
+    assert not ready.token_current(3, "abc", True, now)
+    assert not ready.token_current(2, "rotated", True, now)
+    assert not ready.token_current(2, "abc", False, now)
+    assert not ready.token_current(2, "abc", True, now + timedelta(hours=2))
+    assert replace(ready, renew_at=None).token_current(2, "abc", True, now + timedelta(days=9))

@@ -1,5 +1,7 @@
 """Domain entities and value objects for the Qdrant operator."""
 
+import hashlib
+import re
 from collections.abc import Callable
 from collections.abc import Iterable
 from collections.abc import Mapping
@@ -256,6 +258,7 @@ class SecretRef:
 class ApiKeySpec:
     secret_ref: SecretRef | None = None
     auto_generate: bool = False
+    jwt_rbac: bool = False
 
     @staticmethod
     def from_dict(data: Mapping[str, Any], namespace: str) -> "ApiKeySpec":
@@ -263,6 +266,7 @@ class ApiKeySpec:
         return ApiKeySpec(
             secret_ref=SecretRef.from_dict(secret_ref, namespace) if secret_ref else None,
             auto_generate=data.get("autoGenerate", False),
+            jwt_rbac=data.get("jwtRbac", False),
         )
 
     def to_helm_value(self) -> JsonDict | bool:
@@ -459,7 +463,7 @@ class ClusterSpec:
                         "enable_tls": self.distributed.p2p_tls,
                     },
                 },
-                "service": {"enable_tls": self.tls.enabled},
+                "service": {"enable_tls": self.tls.enabled, "jwt_rbac": self.api_key.jwt_rbac},
             },
             self.tls_config(),
             self.config,
@@ -1566,3 +1570,163 @@ class CollectionStatus:
             "observedGeneration": self.observed_generation,
             "conditions": [c.to_dict() for c in self.conditions],
         }
+
+
+class AccessKeyPhase(StrEnum):
+    PENDING = "Pending"
+    READY = "Ready"
+    FAILED = "Failed"
+
+
+ACCESS_KEYS = ResourceKind("QdrantAccessKey", "qdrantaccesskeys")
+TOKEN_SECRET_KEY = "token"
+URL_SECRET_KEY = "url"
+DURATION_PATTERN = re.compile(r"([0-9]+)([hms])")
+DURATION_UNITS = {"h": 3600, "m": 60, "s": 1}
+
+
+def parse_duration(value: str) -> timedelta:
+    """Parse Go-style durations such as 720h or 1h30m."""
+    if not value or not re.fullmatch(r"([0-9]+[hms])+", value):
+        raise ValueError(f"Invalid duration {value!r}; use digits with h, m or s")
+    seconds = sum(int(n) * DURATION_UNITS[unit] for n, unit in DURATION_PATTERN.findall(value))
+    return timedelta(seconds=seconds)
+
+
+def key_fingerprint(api_key: str) -> str:
+    return hashlib.sha256(api_key.encode()).hexdigest()[:16]
+
+
+@dataclass(frozen=True)
+class CollectionAccess:
+    name: str
+    access: str
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "CollectionAccess":
+        return CollectionAccess(name=data["name"], access=data["access"])
+
+    def to_claim(self) -> JsonDict:
+        return {"collection": self.name, "access": self.access}
+
+
+@dataclass(frozen=True)
+class AccessKeySpec:
+    name: str
+    namespace: str
+    cluster_ref: ClusterRef
+    secret_name: str
+    global_access: str | None = None
+    collections: tuple[CollectionAccess, ...] = ()
+    subject: str | None = None
+    ttl: timedelta | None = None
+    renew_before: timedelta | None = None
+    value_exists: JsonDict | None = None
+
+    @staticmethod
+    def from_dict(spec: Mapping[str, Any], meta: Mapping[str, Any]) -> "AccessKeySpec":
+        namespace = meta["namespace"]
+        global_access = spec.get("access")
+        collections = tuple(CollectionAccess.from_dict(c) for c in spec.get("collections", []))
+        if bool(global_access) == bool(collections):
+            raise ValueError("QdrantAccessKey needs exactly one of spec.access or spec.collections")
+        ttl = spec.get("ttl")
+        renew_before = spec.get("renewBefore")
+        return AccessKeySpec(
+            name=meta["name"],
+            namespace=namespace,
+            cluster_ref=ClusterRef.from_dict(spec["clusterRef"], namespace),
+            secret_name=spec.get("secretName") or meta["name"],
+            global_access=global_access,
+            collections=collections,
+            subject=spec.get("subject"),
+            ttl=parse_duration(ttl) if ttl else None,
+            renew_before=parse_duration(renew_before) if renew_before else None,
+            value_exists=dict[str, Any](spec["valueExists"]) if spec.get("valueExists") else None,
+        )
+
+    def access_claim(self) -> str | list[JsonDict]:
+        if self.global_access:
+            return self.global_access
+        return [c.to_claim() for c in self.collections]
+
+    def expires_at(self, issued_at: datetime) -> datetime | None:
+        if not self.ttl:
+            return None
+        return issued_at + self.ttl
+
+    def renew_at(self, issued_at: datetime) -> datetime | None:
+        expires_at = self.expires_at(issued_at)
+        if not expires_at or not self.ttl:
+            return None
+        return expires_at - (self.renew_before or self.ttl / 3)
+
+    def claims(self, issued_at: datetime) -> JsonDict:
+        """JWT payload in the layout Qdrant's auth parser deserializes."""
+        expires_at = self.expires_at(issued_at)
+        return drop_empty(
+            {
+                "sub": self.subject,
+                "exp": int(expires_at.timestamp()) if expires_at else None,
+                "access": self.access_claim(),
+                "value_exists": self.value_exists,
+            }
+        )
+
+    def token_secret_ref(self) -> SecretRef:
+        return SecretRef(name=self.secret_name, key=TOKEN_SECRET_KEY, namespace=self.namespace)
+
+
+@dataclass(frozen=True)
+class AccessKeyStatus:
+    phase: AccessKeyPhase
+    secret_ref: SecretRef | None = None
+    issued_at: datetime | None = None
+    expires_at: datetime | None = None
+    renew_at: datetime | None = None
+    key_fingerprint: str | None = None
+    error: str | None = None
+    observed_generation: int | None = None
+    conditions: tuple[Condition, ...] = ()
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any], namespace: str) -> "AccessKeyStatus":
+        secret_ref = data.get("secretRef")
+        return AccessKeyStatus(
+            phase=AccessKeyPhase(data.get("phase", AccessKeyPhase.PENDING)),
+            secret_ref=SecretRef.from_dict(secret_ref, namespace) if secret_ref else None,
+            issued_at=parse_time(data.get("issuedAt")),
+            expires_at=parse_time(data.get("expiresAt")),
+            renew_at=parse_time(data.get("renewAt")),
+            key_fingerprint=data.get("keyFingerprint"),
+            error=data.get("error"),
+            observed_generation=data.get("observedGeneration"),
+            conditions=tuple(conditions_from_dict(data)),
+        )
+
+    def to_dict(self) -> JsonDict:
+        return {
+            "phase": self.phase.value,
+            "secretRef": (
+                {"name": self.secret_ref.name, "key": self.secret_ref.key}
+                if self.secret_ref
+                else None
+            ),
+            "issuedAt": format_time(self.issued_at) if self.issued_at else None,
+            "expiresAt": format_time(self.expires_at) if self.expires_at else None,
+            "renewAt": format_time(self.renew_at) if self.renew_at else None,
+            "keyFingerprint": self.key_fingerprint,
+            "error": self.error,
+            "observedGeneration": self.observed_generation,
+            "conditions": [c.to_dict() for c in self.conditions],
+        }
+
+    def token_current(
+        self, generation: int | None, fingerprint: str, secret_present: bool, now: datetime
+    ) -> bool:
+        """True when the issued token still matches spec, signing key and lifetime."""
+        if self.phase != AccessKeyPhase.READY or not secret_present:
+            return False
+        if self.observed_generation != generation or self.key_fingerprint != fingerprint:
+            return False
+        return not self.renew_at or now < self.renew_at
