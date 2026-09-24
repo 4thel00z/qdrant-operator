@@ -12,10 +12,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-%3E%3D1.26-326ce5.svg)](https://kubernetes.io/)
 
+[Documentation](https://4thel00z.github.io/qdrant-operator/) •
 [Features](#features) •
 [Installation](#installation) •
 [Usage](#usage) •
-[Configuration](#configuration) •
+[Configuration](#configuration)
 
 </div>
 

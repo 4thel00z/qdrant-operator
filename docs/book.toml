@@ -1,0 +1,18 @@
+[book]
+title = "Qdrant Operator"
+description = "Qdrant Operator documentation: run Qdrant clusters on Kubernetes through the qdrant-helm chart, declare collections, and back up every node to S3-compatible storage on demand or on a schedule."
+authors = ["4thel00z"]
+language = "en"
+src = "src"
+
+[output.html]
+site-url = "/qdrant-operator/"
+default-theme = "light"
+preferred-dark-theme = "light"
+additional-css = ["theme/book.css"]
+additional-js = ["theme/book.js"]
+git-repository-url = "https://github.com/4thel00z/qdrant-operator"
+edit-url-template = "https://github.com/4thel00z/qdrant-operator/edit/main/docs/{path}"
+
+[output.html.playground]
+runnable = false
