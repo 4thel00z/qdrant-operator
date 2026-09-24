@@ -360,6 +360,19 @@ class MetricsSpec:
 
 
 @dataclass(frozen=True)
+class PodMetadataSpec:
+    annotations: Mapping[str, str] = field(default_factory=dict[str, str])
+    labels: Mapping[str, str] = field(default_factory=dict[str, str])
+
+    @staticmethod
+    def from_dict(spec: Mapping[str, Any]) -> "PodMetadataSpec":
+        return PodMetadataSpec(
+            annotations=dict[str, str](spec.get("podAnnotations", {})),
+            labels=dict[str, str](spec.get("podLabels", {})),
+        )
+
+
+@dataclass(frozen=True)
 class SchedulingSpec:
     node_selector: Mapping[str, str] = field(default_factory=dict[str, str])
     tolerations: tuple[JsonDict, ...] = ()
@@ -407,6 +420,7 @@ class ClusterSpec:
     tls: TlsSpec = field(default_factory=TlsSpec)
     metrics: MetricsSpec = field(default_factory=MetricsSpec)
     scheduling: SchedulingSpec = field(default_factory=SchedulingSpec)
+    pod_metadata: PodMetadataSpec = field(default_factory=PodMetadataSpec)
     config: JsonDict = field(default_factory=dict[str, Any])
 
     @staticmethod
@@ -430,6 +444,7 @@ class ClusterSpec:
             tls=TlsSpec.from_dict(spec.get("tls", {})),
             metrics=MetricsSpec.from_dict(spec.get("metrics", {})),
             scheduling=SchedulingSpec.from_dict(spec),
+            pod_metadata=PodMetadataSpec.from_dict(spec),
             config=dict[str, Any](spec.get("config", {})),
         )
 
@@ -484,6 +499,8 @@ class ClusterSpec:
             "nodeSelector": dict(self.scheduling.node_selector),
             "tolerations": list(self.scheduling.tolerations),
             "affinity": dict(self.scheduling.affinity),
+            "podAnnotations": dict(self.pod_metadata.annotations),
+            "podLabels": dict(self.pod_metadata.labels),
             "config": config,
         }
         return {**values, **self.tls_volumes()}

@@ -211,6 +211,15 @@ spec:
                           type: object
                           additionalProperties:
                             type: string
+                podAnnotations:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Annotations on the Qdrant pods (e.g. scrape hints for a metrics collector)
+                podLabels:
+                  type: object
+                  additionalProperties:
+                    type: string
                 nodeSelector:
                   type: object
                   additionalProperties:

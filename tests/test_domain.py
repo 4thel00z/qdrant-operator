@@ -600,3 +600,18 @@ def test_migration_target_routing_and_vector_layout() -> None:
         "docs", "docs", MigrationPhase.RUNNING, offset=41
     )
     assert resumed.resume_point("ghost") is None
+
+
+def test_pod_annotations_and_labels_reach_the_chart() -> None:
+    spec = ClusterSpec.from_dict(
+        {
+            "version": "1.19.1",
+            "podAnnotations": {"k8s.grafana.com/scrape": "true"},
+            "podLabels": {"tier": "data"},
+        },
+        {"name": "db", "namespace": "ns"},
+    )
+
+    values = spec.to_helm_values()
+    assert values["podAnnotations"] == {"k8s.grafana.com/scrape": "true"}
+    assert values["podLabels"] == {"tier": "data"}
