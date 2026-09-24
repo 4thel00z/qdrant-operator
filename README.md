@@ -58,6 +58,16 @@ helm install qdrant-operator ./charts/qdrant-operator -n qdrant-system --create-
 kubectl get pods -l app.kubernetes.io/name=qdrant-operator
 ```
 
+#### Upgrading
+
+Helm installs the CRDs in `crds/` once and never updates them. Before `helm upgrade`, apply the
+CRDs of the new version (they are attached to every GitHub release):
+
+```bash
+kubectl apply -f manifests/crds/
+helm upgrade qdrant-operator oci://ghcr.io/4thel00z/charts/qdrant-operator -n qdrant-system
+```
+
 ### Configuration
 
 Override default values:
@@ -289,7 +299,8 @@ spec:
 Points are scrolled from the source and upserted on the target, so the run is idempotent and a
 one-node source can become a three-node target (shard counts follow the target unless set under
 `target`). Missing target collections are created from the source configuration, including
-payload indexes.
+payload indexes. Collections with `sharding_method: custom` need their shard keys created on the
+target beforehand; the migration copies points per shard key but does not create the keys.
 
 ## Configuration
 
