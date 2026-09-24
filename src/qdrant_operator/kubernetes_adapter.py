@@ -20,6 +20,7 @@ from qdrant_operator.domain import SecretRef
 from qdrant_operator.domain import StatefulSetStatus
 
 config: Any = kubernetes_config
+MERGE_PATCH = "application/merge-patch+json"
 
 
 async def load_kubernetes_config() -> None:
@@ -161,6 +162,7 @@ class KubernetesAdapter:
                 plural=ref.kind.plural,
                 name=ref.name,
                 body={"status": status},
+                _content_type=MERGE_PATCH,
             )
 
     async def get_statefulset_status(self, name: str, namespace: str) -> StatefulSetStatus | None:

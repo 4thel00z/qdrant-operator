@@ -16,12 +16,14 @@ from datetime import datetime
 import httpx
 import pytest
 
+from qdrant_operator.domain import COLLECTIONS
 from qdrant_operator.domain import AccessKeySpec
 from qdrant_operator.domain import ClusterPhase
 from qdrant_operator.domain import ClusterSpec
 from qdrant_operator.domain import ClusterStatus
 from qdrant_operator.domain import CollectionSpec
 from qdrant_operator.domain import QdrantNode
+from qdrant_operator.domain import ResourceRef
 from qdrant_operator.domain import is_subset
 from qdrant_operator.helm_adapter import HelmAdapter
 from qdrant_operator.jwt_adapter import JwtAdapter
@@ -270,3 +272,31 @@ def test_admission_accepts_a_valid_cluster() -> None:
         "spec:\n  version: v1.16.3\n  replicas: 3\n"
     )
     assert result.returncode == 0, result.stderr
+
+
+async def test_status_patch_reaches_a_real_custom_resource() -> None:
+    """The adapter's status write must be a merge patch; the client defaults to JSON Patch."""
+    subprocess.run(
+        ["kubectl", "apply", "-n", NAMESPACE, "-f", "-"],
+        input=(
+            "apiVersion: qdrant.io/v1alpha1\nkind: QdrantCollection\nmetadata:\n"
+            "  name: status-probe\nspec:\n  clusterRef:\n    name: nobody\n"
+            "  vectors:\n    - {size: 2, distance: Dot}\n"
+        ),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    await load_kubernetes_config()
+    adapter = KubernetesAdapter()
+    ref = ResourceRef(COLLECTIONS, "status-probe", NAMESPACE)
+
+    await adapter.patch_status(ref, {"phase": "Pending", "collectionName": "probe"})
+    await adapter.patch_status(ref, {"phase": "Ready"})
+    body = await adapter.get_custom_resource(ref)
+
+    assert body and body["status"] == {"phase": "Ready", "collectionName": "probe"}
+    listed = await adapter.list_custom_resources(COLLECTIONS, NAMESPACE)
+    assert [item["metadata"]["name"] for item in listed] == ["status-probe"]
+    await adapter.delete_custom_resource(ref)
+    assert await adapter.get_custom_resource(ref) is None
