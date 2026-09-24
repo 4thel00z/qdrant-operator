@@ -12,13 +12,17 @@ from qdrant_operator.domain import BackupSpec
 from qdrant_operator.domain import ClusterRef
 from qdrant_operator.domain import ClusterSpec
 from qdrant_operator.domain import CollectionBackup
+from qdrant_operator.domain import CollectionSpec
 from qdrant_operator.domain import Condition
 from qdrant_operator.domain import ConditionStatus
+from qdrant_operator.domain import DeletionPolicy
+from qdrant_operator.domain import PayloadIndexSpec
 from qdrant_operator.domain import RestoreSpec
 from qdrant_operator.domain import RetentionPolicy
 from qdrant_operator.domain import SnapshotRecord
 from qdrant_operator.domain import chart_version
 from qdrant_operator.domain import format_size
+from qdrant_operator.domain import is_subset
 from qdrant_operator.domain import join_key
 from qdrant_operator.domain import merge_dicts
 from qdrant_operator.domain import set_condition
@@ -239,3 +243,90 @@ def test_manifest_round_trips_through_dict() -> None:
     assert restored == manifest
     assert restored.size_bytes == 15
     assert restored.collection_names == ("a",)
+
+
+def collection_spec(**spec: object) -> CollectionSpec:
+    return CollectionSpec.from_dict(
+        {"clusterRef": {"name": "db"}, **spec}, {"name": "docs", "namespace": "tenant-a"}
+    )
+
+
+def test_collection_single_unnamed_vector_becomes_bare_params() -> None:
+    spec = collection_spec(vectors=[{"size": 768, "distance": "Cosine", "onDisk": True}])
+
+    assert spec.collection_name == "docs"
+    assert spec.deletion_policy == DeletionPolicy.RETAIN
+    assert spec.create_body() == {"vectors": {"size": 768, "distance": "Cosine", "on_disk": True}}
+    assert spec.update_body() == {"vectors": {"": {"on_disk": True}}}
+    assert spec.immutable_config() == {"params": {"vectors": {"size": 768, "distance": "Cosine"}}}
+
+
+def test_collection_named_vectors_and_tuning_blocks_map_to_qdrant_names() -> None:
+    spec = collection_spec(
+        collectionName="Docs_v2",
+        vectors=[
+            {"name": "text", "size": 384, "distance": "Dot", "hnsw": {"m": 32}},
+            {"name": "image", "size": 512, "distance": "Euclid", "datatype": "float16"},
+        ],
+        sparseVectors=[{"name": "bm25", "modifier": "idf", "index": {"on_disk": True}}],
+        shardNumber=6,
+        replicationFactor=2,
+        onDiskPayload=False,
+        optimizers={"indexing_threshold": 10000},
+        quantization={"scalar": {"type": "int8"}},
+        wal={"wal_capacity_mb": 64},
+        strictMode={"enabled": True, "max_query_limit": 100},
+    )
+
+    assert spec.collection_name == "Docs_v2"
+    body = spec.create_body()
+    assert body["vectors"] == {
+        "text": {"size": 384, "distance": "Dot", "hnsw_config": {"m": 32}},
+        "image": {"size": 512, "distance": "Euclid", "datatype": "float16"},
+    }
+    assert body["sparse_vectors"] == {"bm25": {"modifier": "idf", "index": {"on_disk": True}}}
+    assert (body["shard_number"], body["replication_factor"], body["on_disk_payload"]) == (
+        6,
+        2,
+        False,
+    )
+    assert body["optimizers_config"] == {"indexing_threshold": 10000}
+    assert body["wal_config"] == {"wal_capacity_mb": 64}
+    assert "wal_config" not in spec.update_body()
+    assert spec.update_body()["params"] == {"replication_factor": 2, "on_disk_payload": False}
+    assert spec.mutable_config()["optimizer_config"] == {"indexing_threshold": 10000}
+    assert spec.mutable_config()["params"]["vectors"] == {"text": {"hnsw_config": {"m": 32}}}
+
+
+def test_collection_spec_rejects_mixed_unnamed_vectors_and_empty_specs() -> None:
+    with pytest.raises(ValueError, match="unnamed"):
+        collection_spec(
+            vectors=[{"size": 4, "distance": "Dot"}, {"name": "b", "size": 4, "distance": "Dot"}]
+        )
+    with pytest.raises(ValueError, match="vectors"):
+        collection_spec()
+
+
+def test_is_subset_ignores_undeclared_keys_and_treats_null_as_false() -> None:
+    actual = {"params": {"vectors": {"size": 4, "distance": "Dot", "on_disk": None}, "x": 1}}
+
+    assert is_subset({"params": {"vectors": {"size": 4, "on_disk": False}}}, actual)
+    assert not is_subset({"params": {"vectors": {"size": 8}}}, actual)
+    assert not is_subset({"params": {"missing": {"a": 1}}}, actual)
+    assert not is_subset({"params": {"vectors": {"on_disk": True}}}, actual)
+
+
+def test_payload_index_schema_and_satisfaction() -> None:
+    plain = PayloadIndexSpec.from_dict({"field": "city", "type": "keyword"})
+    text = PayloadIndexSpec.from_dict(
+        {"field": "body", "type": "text", "params": {"tokenizer": "word", "lowercase": True}}
+    )
+
+    assert plain.field_schema() == "keyword"
+    assert text.field_schema() == {"type": "text", "tokenizer": "word", "lowercase": True}
+    assert plain.satisfied_by({"data_type": "keyword", "params": None, "points": 3})
+    assert not plain.satisfied_by({"data_type": "integer", "params": None, "points": 3})
+    assert text.satisfied_by(
+        {"data_type": "text", "params": {"type": "text", "tokenizer": "word", "lowercase": True}}
+    )
+    assert not text.satisfied_by({"data_type": "text", "params": {"tokenizer": "prefix"}})

@@ -1243,3 +1243,326 @@ class RestoreStatus:
             "error": self.error,
             "conditions": [c.to_dict() for c in self.conditions],
         }
+
+
+class CollectionPhase(StrEnum):
+    PENDING = "Pending"
+    READY = "Ready"
+    DEGRADED = "Degraded"
+    FAILED = "Failed"
+
+
+class DeletionPolicy(StrEnum):
+    RETAIN = "Retain"
+    DELETE = "Delete"
+
+
+COLLECTIONS = ResourceKind("QdrantCollection", "qdrantcollections")
+UNNAMED_VECTOR = ""
+
+
+def is_subset(desired: Any, actual: Any) -> bool:
+    """True when every value the spec declares is already what Qdrant reports.
+
+    Keys the spec leaves out are Qdrant's business; a False the spec asks for matches an
+    unset (null) value, which is how Qdrant reports booleans it never stored.
+    """
+    if isinstance(desired, Mapping):
+        if not isinstance(actual, Mapping):
+            return False
+        actual_map = cast(Mapping[str, Any], actual)
+        return all(
+            is_subset(value, actual_map.get(key))
+            for key, value in cast(Mapping[str, Any], desired).items()
+            if value is not None
+        )
+    if desired is False and actual is None:
+        return True
+    return bool(desired == actual)
+
+
+@dataclass(frozen=True)
+class VectorSpec:
+    """One dense vector space; `name` is None for Qdrant's single unnamed vector."""
+
+    size: int
+    distance: str
+    name: str | None = None
+    on_disk: bool | None = None
+    datatype: str | None = None
+    multivector: JsonDict | None = None
+    hnsw: JsonDict = field(default_factory=dict[str, Any])
+    quantization: JsonDict = field(default_factory=dict[str, Any])
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "VectorSpec":
+        return VectorSpec(
+            size=data["size"],
+            distance=data["distance"],
+            name=data.get("name"),
+            on_disk=data.get("onDisk"),
+            datatype=data.get("datatype"),
+            multivector=data.get("multivector"),
+            hnsw=dict[str, Any](data.get("hnsw", {})),
+            quantization=dict[str, Any](data.get("quantization", {})),
+        )
+
+    @property
+    def key(self) -> str:
+        return self.name or UNNAMED_VECTOR
+
+    def immutable_params(self) -> JsonDict:
+        return drop_empty(
+            {"size": self.size, "distance": self.distance, "datatype": self.datatype}
+            | ({"multivector_config": self.multivector} if self.multivector else {})
+        )
+
+    def mutable_params(self) -> JsonDict:
+        return drop_empty(
+            {
+                "on_disk": self.on_disk,
+                "hnsw_config": self.hnsw or None,
+                "quantization_config": self.quantization or None,
+            }
+        )
+
+    def to_params(self) -> JsonDict:
+        return self.immutable_params() | self.mutable_params()
+
+
+@dataclass(frozen=True)
+class SparseVectorSpec:
+    name: str
+    modifier: str | None = None
+    index: JsonDict = field(default_factory=dict[str, Any])
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "SparseVectorSpec":
+        return SparseVectorSpec(
+            name=data["name"],
+            modifier=data.get("modifier"),
+            index=dict[str, Any](data.get("index", {})),
+        )
+
+    def to_params(self) -> JsonDict:
+        return drop_empty({"modifier": self.modifier, "index": self.index or None})
+
+
+@dataclass(frozen=True)
+class PayloadIndexSpec:
+    field_name: str
+    type: str
+    params: JsonDict = field(default_factory=dict[str, Any])
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "PayloadIndexSpec":
+        return PayloadIndexSpec(
+            field_name=data["field"],
+            type=data["type"],
+            params=dict[str, Any](data.get("params", {})),
+        )
+
+    def field_schema(self) -> str | JsonDict:
+        if not self.params:
+            return self.type
+        return {"type": self.type, **self.params}
+
+    def satisfied_by(self, actual: Mapping[str, Any]) -> bool:
+        """Compare against one entry of Qdrant's `payload_schema` (data_type, params, points)."""
+        if actual.get("data_type") != self.type:
+            return False
+        return is_subset(self.params, actual.get("params") or {})
+
+
+@dataclass(frozen=True)
+class CollectionSpec:
+    name: str
+    namespace: str
+    cluster_ref: ClusterRef
+    collection_name: str
+    vectors: tuple[VectorSpec, ...] = ()
+    sparse_vectors: tuple[SparseVectorSpec, ...] = ()
+    shard_number: int | None = None
+    sharding_method: str | None = None
+    replication_factor: int | None = None
+    write_consistency_factor: int | None = None
+    read_fan_out_factor: int | None = None
+    on_disk_payload: bool | None = None
+    hnsw: JsonDict = field(default_factory=dict[str, Any])
+    optimizers: JsonDict = field(default_factory=dict[str, Any])
+    quantization: JsonDict = field(default_factory=dict[str, Any])
+    wal: JsonDict = field(default_factory=dict[str, Any])
+    strict_mode: JsonDict = field(default_factory=dict[str, Any])
+    payload_indexes: tuple[PayloadIndexSpec, ...] = ()
+    aliases: tuple[str, ...] = ()
+    deletion_policy: DeletionPolicy = DeletionPolicy.RETAIN
+
+    @staticmethod
+    def from_dict(spec: Mapping[str, Any], meta: Mapping[str, Any]) -> "CollectionSpec":
+        namespace = meta["namespace"]
+        vectors = tuple(VectorSpec.from_dict(v) for v in spec.get("vectors", []))
+        sparse = tuple(SparseVectorSpec.from_dict(v) for v in spec.get("sparseVectors", []))
+        if not vectors and not sparse:
+            raise ValueError("QdrantCollection needs spec.vectors or spec.sparseVectors")
+        if len(vectors) > 1 and any(not v.name for v in vectors):
+            raise ValueError("An unnamed vector must be the only vector")
+        return CollectionSpec(
+            name=meta["name"],
+            namespace=namespace,
+            cluster_ref=ClusterRef.from_dict(spec["clusterRef"], namespace),
+            collection_name=spec.get("collectionName") or meta["name"],
+            vectors=vectors,
+            sparse_vectors=sparse,
+            shard_number=spec.get("shardNumber"),
+            sharding_method=spec.get("shardingMethod"),
+            replication_factor=spec.get("replicationFactor"),
+            write_consistency_factor=spec.get("writeConsistencyFactor"),
+            read_fan_out_factor=spec.get("readFanOutFactor"),
+            on_disk_payload=spec.get("onDiskPayload"),
+            hnsw=dict[str, Any](spec.get("hnsw", {})),
+            optimizers=dict[str, Any](spec.get("optimizers", {})),
+            quantization=dict[str, Any](spec.get("quantization", {})),
+            wal=dict[str, Any](spec.get("wal", {})),
+            strict_mode=dict[str, Any](spec.get("strictMode", {})),
+            payload_indexes=tuple(
+                PayloadIndexSpec.from_dict(i) for i in spec.get("payloadIndexes", [])
+            ),
+            aliases=tuple(spec.get("aliases", [])),
+            deletion_policy=DeletionPolicy(spec.get("deletionPolicy", DeletionPolicy.RETAIN)),
+        )
+
+    @property
+    def single_unnamed(self) -> bool:
+        return len(self.vectors) == 1 and not self.vectors[0].name
+
+    def vectors_config(self, params: Callable[[VectorSpec], JsonDict]) -> JsonDict | None:
+        """Qdrant VectorsConfig: bare params for the unnamed vector, else a name-to-params map."""
+        if not self.vectors:
+            return None
+        if self.single_unnamed:
+            return params(self.vectors[0]) or None
+        return {v.key: params(v) for v in self.vectors if params(v)} or None
+
+    def sparse_config(self) -> JsonDict | None:
+        if not self.sparse_vectors:
+            return None
+        return {v.name: v.to_params() for v in self.sparse_vectors}
+
+    def collection_params(self) -> JsonDict:
+        return drop_empty(
+            {
+                "replication_factor": self.replication_factor,
+                "write_consistency_factor": self.write_consistency_factor,
+                "read_fan_out_factor": self.read_fan_out_factor,
+                "on_disk_payload": self.on_disk_payload,
+            }
+        )
+
+    def create_body(self) -> JsonDict:
+        """Body of PUT /collections/{name}."""
+        return drop_empty(
+            {
+                "vectors": self.vectors_config(VectorSpec.to_params),
+                "sparse_vectors": self.sparse_config(),
+                "shard_number": self.shard_number,
+                "sharding_method": self.sharding_method,
+                "hnsw_config": self.hnsw or None,
+                "optimizers_config": self.optimizers or None,
+                "quantization_config": self.quantization or None,
+                "wal_config": self.wal or None,
+                "strict_mode_config": self.strict_mode or None,
+                **self.collection_params(),
+            }
+        )
+
+    def update_body(self) -> JsonDict:
+        """Body of PATCH /collections/{name}: only what Qdrant lets a live collection change."""
+        vector_diffs = {v.key: v.mutable_params() for v in self.vectors if v.mutable_params()}
+        return drop_empty(
+            {
+                "vectors": vector_diffs or None,
+                "sparse_vectors": self.sparse_config(),
+                "params": self.collection_params() or None,
+                "hnsw_config": self.hnsw or None,
+                "optimizers_config": self.optimizers or None,
+                "quantization_config": self.quantization or None,
+                "strict_mode_config": self.strict_mode or None,
+            }
+        )
+
+    def immutable_config(self) -> JsonDict:
+        """The part of GET /collections/{name} `config` that only a re-creation can change."""
+        return {
+            "params": drop_empty(
+                {
+                    "vectors": self.vectors_config(VectorSpec.immutable_params),
+                    "shard_number": self.shard_number,
+                    "sharding_method": self.sharding_method,
+                }
+            )
+        }
+
+    def mutable_config(self) -> JsonDict:
+        """The part of `config` the operator keeps in line with PATCH; note optimizer_config."""
+        return drop_empty(
+            {
+                "params": drop_empty(
+                    {
+                        "vectors": self.vectors_config(VectorSpec.mutable_params),
+                        "sparse_vectors": self.sparse_config(),
+                        **self.collection_params(),
+                    }
+                )
+                or None,
+                "hnsw_config": self.hnsw or None,
+                "optimizer_config": self.optimizers or None,
+                "quantization_config": self.quantization or None,
+                "strict_mode_config": self.strict_mode or None,
+            }
+        )
+
+
+@dataclass(frozen=True)
+class CollectionStatus:
+    phase: CollectionPhase
+    collection_name: str | None = None
+    health: str | None = None
+    points_count: int | None = None
+    indexed_vectors_count: int | None = None
+    segments_count: int | None = None
+    payload_indexes: tuple[str, ...] = ()
+    aliases: tuple[str, ...] = ()
+    error: str | None = None
+    observed_generation: int | None = None
+    conditions: tuple[Condition, ...] = ()
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "CollectionStatus":
+        return CollectionStatus(
+            phase=CollectionPhase(data.get("phase", CollectionPhase.PENDING)),
+            collection_name=data.get("collectionName"),
+            health=data.get("health"),
+            points_count=data.get("pointsCount"),
+            indexed_vectors_count=data.get("indexedVectorsCount"),
+            segments_count=data.get("segmentsCount"),
+            payload_indexes=tuple(data.get("payloadIndexes", [])),
+            aliases=tuple(data.get("aliases", [])),
+            error=data.get("error"),
+            observed_generation=data.get("observedGeneration"),
+            conditions=tuple(conditions_from_dict(data)),
+        )
+
+    def to_dict(self) -> JsonDict:
+        return {
+            "phase": self.phase.value,
+            "collectionName": self.collection_name,
+            "health": self.health,
+            "pointsCount": self.points_count,
+            "indexedVectorsCount": self.indexed_vectors_count,
+            "segmentsCount": self.segments_count,
+            "payloadIndexes": list(self.payload_indexes),
+            "aliases": list(self.aliases),
+            "error": self.error,
+            "observedGeneration": self.observed_generation,
+            "conditions": [c.to_dict() for c in self.conditions],
+        }
