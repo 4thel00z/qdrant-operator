@@ -155,7 +155,8 @@ class KubernetesAdapter:
 
     async def patch_status(self, ref: ResourceRef, status: JsonDict) -> None:
         async with self.api() as api:
-            await client.CustomObjectsApi(api).patch_namespaced_custom_object_status(
+            custom_objects: Any = client.CustomObjectsApi(api)
+            await custom_objects.patch_namespaced_custom_object_status(
                 group=ref.kind.group,
                 version=ref.kind.version,
                 namespace=ref.namespace,
