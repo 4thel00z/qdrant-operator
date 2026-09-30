@@ -20,7 +20,7 @@ jobs:
     name: Lint, type-check, unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
@@ -39,7 +39,7 @@ jobs:
     name: Helm chart
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: azure/setup-helm@v5
       - run: helm lint charts/qdrant-operator
       - run: helm template qdrant-operator charts/qdrant-operator > /dev/null
@@ -49,7 +49,7 @@ jobs:
     name: Build wheel and image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - run: uv build
       - run: uv run --isolated --no-project --with dist/*.whl qdrant-operator --help
@@ -67,7 +67,7 @@ jobs:
     needs: [check, chart]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
