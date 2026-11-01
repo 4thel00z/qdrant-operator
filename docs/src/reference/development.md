@@ -35,6 +35,9 @@ make lint               # ruff check, ruff format --check, pyright --strict, hel
 make format
 make test               # unit tests
 make test-integration   # QDRANT_OPERATOR_INTEGRATION=1, needs a cluster and helm
+make e2e-image          # build qdrant-operator:e2e
+make e2e-deploy         # kind load the image and install the chart (KIND_CLUSTER=kind)
+make test-e2e           # QDRANT_OPERATOR_E2E=1, needs the deployed operator and helm
 make crds-sync          # copy manifests/crds into the chart
 make build              # docker image
 ```
@@ -53,8 +56,26 @@ from `manifests/crds`.
 `test_integration.py` runs against a real cluster with `helm` on the path and
 the CRDs applied: it installs a one-node cluster through `ReconcileCluster`,
 waits for `Running`, port-forwards and queries Qdrant, uninstalls, and checks
-that the API server enforces the admission rules. CI runs it on a kind
-cluster on every push and pull request.
+that the API server enforces the admission rules. It runs the use cases in
+the test process with the admin kubeconfig.
+
+`test_e2e.py` runs against the operator itself: the image built from the
+checkout, installed by its chart and running under the chart's
+ServiceAccount. It applies a `QdrantCluster`, a `QdrantCollection`, a
+`QdrantAccessKey`, a `QdrantBackup` into a RustFS bucket and a
+`QdrantRestore`, waits for each phase, checks the result in Qdrant and the
+bucket, deletes them again and fails if the operator pod restarted or logged
+a handler that failed permanently. Missing RBAC verbs, Helm or S3 problems
+inside the pod and status patches the API server rejects all fail here and
+not in the integration suite.
+
+```sh
+kind create cluster
+make e2e-image e2e-deploy test-e2e
+```
+
+CI runs both suites on separate kind clusters on every push and pull
+request.
 
 ## Releasing
 

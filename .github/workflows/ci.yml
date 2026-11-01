@@ -61,8 +61,26 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  integration:
+    name: Adapter integration on kind
+    runs-on: ubuntu-latest
+    needs: [check, chart]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: integration
+      - run: uv sync
+      - run: kubectl apply -f manifests/crds/
+      - run: QDRANT_OPERATOR_INTEGRATION=1 uv run pytest -v -m integration
+
   e2e:
-    name: End-to-end on kind
+    name: Operator end-to-end on kind
     runs-on: ubuntu-latest
     needs: [check, chart]
     timeout-minutes: 30
@@ -75,6 +93,20 @@ jobs:
       - uses: helm/kind-action@v1
         with:
           cluster_name: e2e
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: qdrant-operator:e2e
+          cache-from: type=gha
       - run: uv sync
-      - run: kubectl apply -f manifests/crds/
-      - run: QDRANT_OPERATOR_INTEGRATION=1 uv run pytest -v -m integration
+      - run: make e2e-deploy KIND_CLUSTER=e2e
+      - run: make test-e2e
+      - name: Operator logs and resource state
+        if: failure()
+        run: |
+          kubectl logs -n qdrant-system -l app.kubernetes.io/name=qdrant-operator --tail=-1 || true
+          kubectl get qc,qcol,qak,qb,qr -A -o yaml || true
+          kubectl get pods -A -o wide || true
+          kubectl get events -A --sort-by=.lastTimestamp || true

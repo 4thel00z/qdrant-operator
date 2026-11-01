@@ -55,10 +55,12 @@ Rules the code follows:
 - Adapters keep no connection state; each call builds and closes its own client.
 - Level-triggered resources (`QdrantCollection`, `QdrantAccessKey`) run one handler for
   create/update/resume and a 60s timer; a condition in status, not an exception, reports a spec
-  that cannot be applied, so the timer keeps observing without retry noise.
+  that cannot be applied, so the timer keeps observing without retry noise. The timer waits
+  until the resource has been unchanged for 30s (kopf `idle`), so it never runs next to the
+  create/update/resume handler; both would otherwise create the same collection at once.
 - CRDs carry CEL `x-kubernetes-validations` for what the schema alone cannot say (exactly-one
-  choices, immutable fields, one-shot specs). The kind e2e job applies invalid objects with
-  `--dry-run=server` and expects the rejection messages.
+  choices, immutable fields, one-shot specs). The kind integration job applies invalid objects
+  with `--dry-run=server` and expects the rejection messages.
 - Names never carry an underscore prefix; control flow uses guard clauses.
 
 ## Runtime
@@ -77,3 +79,9 @@ Rules the code follows:
 - `tests/test_domain.py`, `tests/test_usecases.py`: pure unit tests, run in well under a second.
 - `tests/test_crds.py`: the chart's CRDs must be identical to `manifests/crds` (`make crds-sync`).
 - `tests/test_integration.py`: real cluster + helm, enabled with `QDRANT_OPERATOR_INTEGRATION=1`.
+  Use cases and adapters run in the test process with the admin kubeconfig.
+- `tests/test_e2e.py`: the operator image deployed by its own chart on kind, enabled with
+  `QDRANT_OPERATOR_E2E=1`. Applies a cluster, collection, access key, backup to a RustFS bucket
+  and restore, deletes them, and checks the operator pod neither restarted nor logged a handler
+  that failed permanently. Runs under the chart's ServiceAccount, so missing RBAC verbs and
+  in-pod Helm or S3 problems fail here.

@@ -358,6 +358,9 @@ uv run pytest
 # Run integration tests (requires k8s cluster + helm)
 make test-integration
 
+# Run end-to-end tests against the operator deployed on kind
+make e2e-image e2e-deploy test-e2e
+
 # Lint and format
 uv run ruff check src tests
 uv run ruff format src tests
@@ -367,8 +370,9 @@ uv run pyright src tests
 ```
 
 ## Releasing
-CI (`.github/workflows/ci.yml`) runs lint, pyright, unit tests, chart lint, a wheel/image build and the
-kind-based end-to-end suite on every push and pull request.
+CI (`.github/workflows/ci.yml`) runs lint, pyright, unit tests, chart lint, a wheel/image build, the
+adapter integration suite on kind and an end-to-end run of the operator deployed by its chart on
+kind, on every push and pull request.
 
 Releases are driven by [release-please](https://github.com/googleapis/release-please) from the
 conventional commit history, all inside `.github/workflows/release.yml` on pushes to `main`:

@@ -20,6 +20,9 @@ uv run pytest
 uv run pytest tests/test_domain.py -v        # single file
 uv run pytest -k "test_backup" -v            # by name pattern
 
+# End-to-end: build the image, install the chart on kind, run tests/test_e2e.py
+make e2e-image e2e-deploy test-e2e   # KIND_CLUSTER=<name> when not "kind"
+
 # Lint and format
 uv run ruff check src tests
 uv run ruff format src tests
@@ -103,7 +106,8 @@ Source of truth is `manifests/crds/`; `make crds-sync` copies them into the char
 CEL rules live in the CRDs (`x-kubernetes-validations`); they only compile on a real API server, so
 `tests/test_integration.py` dry-run applies invalid objects on kind. Level-triggered kinds
 (collection, access key) share one handler for create/update/resume plus a timer and report
-unapplyable specs through a `Ready=False` condition rather than an exception.
+unapplyable specs through a `Ready=False` condition rather than an exception. Their timers take
+`idle=TIMER_IDLE_SECONDS` so they never run concurrently with that handler.
 
 ## Git Workflow
 
