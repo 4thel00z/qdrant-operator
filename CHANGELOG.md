@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.3](https://github.com/4thel00z/qdrant-operator/compare/v0.3.2...v0.3.3) (2026-11-01)
+
+
+### Bug Fixes
+
+* **handlers:** keep level-triggered timers off the create handler ([0bb910f](https://github.com/4thel00z/qdrant-operator/commit/0bb910feb3e55b3f9cdb6d02f16973df7a1d8dbc))
+* **kubernetes:** keep merge-patch content type under kubernetes-asyncio 36 stubs ([3fd4a36](https://github.com/4thel00z/qdrant-operator/commit/3fd4a362fea5a552d82d1620e3d17f2d79ade698))
+
+
+### Build
+
+* **deps:** bump the python group across 1 directory with 7 updates ([51343df](https://github.com/4thel00z/qdrant-operator/commit/51343df96512180078ad38e896031f824c7a8b6d))
+* **docker:** python 3.14-slim base image ([99b185b](https://github.com/4thel00z/qdrant-operator/commit/99b185b77da834a5327175cdcaa183c2f9086cae))
+
+
+### CI
+
+* download the dist and chart artifacts by name ([034ec75](https://github.com/4thel00z/qdrant-operator/commit/034ec757ad9487cb725a52cd635464ac180c21ef))
+* end-to-end job against the operator deployed by its chart ([bebbb74](https://github.com/4thel00z/qdrant-operator/commit/bebbb74109933b0590504b9f70be9710719c3d53))
+* end-to-end job against the operator deployed by its chart ([3044acd](https://github.com/4thel00z/qdrant-operator/commit/3044acd7a2a15d09496229613b3ec956f91e1db5))
+
 ## [0.3.2](https://github.com/4thel00z/qdrant-operator/compare/v0.3.1...v0.3.2) (2026-09-24)
 
 
