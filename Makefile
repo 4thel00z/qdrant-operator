@@ -1,10 +1,13 @@
-.PHONY: help dev lint format test test-integration dist logo build push install uninstall crds-sync clean
+.PHONY: help dev lint format test test-integration e2e-image e2e-deploy test-e2e dist logo build push install uninstall crds-sync clean
 
 # Variables
 IMAGE_REPO ?= ghcr.io/4thel00z/qdrant-operator
 IMAGE_TAG ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 NAMESPACE ?= qdrant-system
 HELM_RELEASE ?= qdrant-operator
+KIND_CLUSTER ?= kind
+E2E_IMAGE_REPO ?= qdrant-operator
+E2E_IMAGE_TAG ?= e2e
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -28,6 +31,25 @@ test: ## Run unit tests
 
 test-integration: ## Run integration tests against the current kubeconfig
 	QDRANT_OPERATOR_INTEGRATION=1 uv run pytest -v -m integration
+
+e2e-image: ## Build the operator image for the kind end-to-end tests
+	docker build -t $(E2E_IMAGE_REPO):$(E2E_IMAGE_TAG) .
+
+e2e-deploy: ## Load the e2e image into kind and install the chart from this checkout
+	kind load docker-image $(E2E_IMAGE_REPO):$(E2E_IMAGE_TAG) --name $(KIND_CLUSTER)
+	helm upgrade --install $(HELM_RELEASE) charts/qdrant-operator \
+		--namespace $(NAMESPACE) \
+		--create-namespace \
+		--set image.repository=$(E2E_IMAGE_REPO) \
+		--set image.tag=$(E2E_IMAGE_TAG) \
+		--set image.pullPolicy=Never \
+		--set operator.logFormat=text \
+		--wait --timeout 5m
+	kubectl rollout restart deployment -n $(NAMESPACE) -l app.kubernetes.io/instance=$(HELM_RELEASE)
+	kubectl rollout status deployment -n $(NAMESPACE) -l app.kubernetes.io/instance=$(HELM_RELEASE) --timeout 5m
+
+test-e2e: ## Run the end-to-end tests against the operator deployed by e2e-deploy
+	QDRANT_OPERATOR_E2E=1 uv run pytest -v -x -m e2e
 
 test-cov: ## Run tests with coverage
 	uv run pytest --cov=src --cov-report=term-missing

@@ -20,6 +20,9 @@ uv run pytest
 uv run pytest tests/test_domain.py -v        # single file
 uv run pytest -k "test_backup" -v            # by name pattern
 
+# End-to-end: build the image, install the chart on kind, run tests/test_e2e.py
+make e2e-image e2e-deploy test-e2e   # KIND_CLUSTER=<name> when not "kind"
+
 # Lint and format
 uv run ruff check src tests
 uv run ruff format src tests
