@@ -54,6 +54,7 @@ COLLECTION_RECONCILE_INTERVAL = 60.0
 ACCESS_KEY_RENEW_INTERVAL = 60.0
 BACKUP_EXPIRY_INTERVAL = 300.0
 RETRY_DELAY_SECONDS = 30.0
+TIMER_IDLE_SECONDS = 30.0
 
 
 def resource_ref(kind: ResourceKind, meta: Mapping[str, Any]) -> ResourceRef:
@@ -208,7 +209,13 @@ async def process_schedule(
 @kopf.on.create(GROUP, VERSION, COLLECTIONS.plural)
 @kopf.on.update(GROUP, VERSION, COLLECTIONS.plural, field="spec")
 @kopf.on.resume(GROUP, VERSION, COLLECTIONS.plural)
-@kopf.timer(GROUP, VERSION, COLLECTIONS.plural, interval=COLLECTION_RECONCILE_INTERVAL)
+@kopf.timer(
+    GROUP,
+    VERSION,
+    COLLECTIONS.plural,
+    interval=COLLECTION_RECONCILE_INTERVAL,
+    idle=TIMER_IDLE_SECONDS,
+)
 async def reconcile_collection(
     spec: kopf.Spec,
     meta: kopf.Meta,
@@ -252,7 +259,13 @@ async def delete_collection(
 @kopf.on.create(GROUP, VERSION, ACCESS_KEYS.plural)
 @kopf.on.update(GROUP, VERSION, ACCESS_KEYS.plural, field="spec")
 @kopf.on.resume(GROUP, VERSION, ACCESS_KEYS.plural)
-@kopf.timer(GROUP, VERSION, ACCESS_KEYS.plural, interval=ACCESS_KEY_RENEW_INTERVAL)
+@kopf.timer(
+    GROUP,
+    VERSION,
+    ACCESS_KEYS.plural,
+    interval=ACCESS_KEY_RENEW_INTERVAL,
+    idle=TIMER_IDLE_SECONDS,
+)
 async def issue_access_key(
     spec: kopf.Spec,
     meta: kopf.Meta,

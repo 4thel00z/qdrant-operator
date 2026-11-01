@@ -55,7 +55,9 @@ Rules the code follows:
 - Adapters keep no connection state; each call builds and closes its own client.
 - Level-triggered resources (`QdrantCollection`, `QdrantAccessKey`) run one handler for
   create/update/resume and a 60s timer; a condition in status, not an exception, reports a spec
-  that cannot be applied, so the timer keeps observing without retry noise.
+  that cannot be applied, so the timer keeps observing without retry noise. The timer waits
+  until the resource has been unchanged for 30s (kopf `idle`), so it never runs next to the
+  create/update/resume handler; both would otherwise create the same collection at once.
 - CRDs carry CEL `x-kubernetes-validations` for what the schema alone cannot say (exactly-one
   choices, immutable fields, one-shot specs). The kind e2e job applies invalid objects with
   `--dry-run=server` and expects the rejection messages.
