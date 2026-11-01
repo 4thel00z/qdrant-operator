@@ -53,7 +53,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: uv build
       - run: uv run --isolated --no-project --with dist/*.whl qdrant-operator --help
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v6
         with:
           context: .
