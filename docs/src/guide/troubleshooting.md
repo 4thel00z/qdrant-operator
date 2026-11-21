@@ -25,7 +25,9 @@ error into the status and stop.
 | `Upgrading` for a long time | A rolling update is stuck on one pod | The StatefulSet waits for each pod to be ready before the next; fix that pod |
 
 Only `Pending`, `Upgrading` and `Running` are set by the operator; a Helm
-error keeps the previous phase and is retried.
+error keeps the previous phase, sets the `Progressing` condition to `False`
+with reason `HelmApplyFailed` and Helm's error as the message, and is retried
+every minute.
 
 ## QdrantCollection
 
@@ -38,7 +40,7 @@ error keeps the previous phase and is retried.
 | `Failed` with an HTTP error | Qdrant rejected a request; the message carries Qdrant's response. Usually a field name Qdrant does not know inside `hnsw`, `optimizers`, `quantization`, `strictMode` or `params` |
 
 A `401` or `403` from Qdrant means the operator's API key does not match: it
-uses `apiKey.secretRef` or the generated `qdrant-<name>-apikey` Secret, and
+uses `apiKey.secretRef` or the generated `qdrant-<name>-generated-keys` Secret, and
 nothing else.
 
 ## QdrantAccessKey

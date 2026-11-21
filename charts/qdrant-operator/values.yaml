@@ -12,7 +12,7 @@ serviceAccount:
 resources:
   limits:
     cpu: 500m
-    memory: 512Mi   # snapshot streaming buffers up to ~32MiB of multipart parts on top of the interpreter
+    memory: 1Gi   # interpreter and kopf's per-resource state; a migration loop alone held ~320Mi, a backup ~280Mi, and both can run at once (S3 upload parts: 8MiB x 2; Qdrant stream chunks: 1MiB)
   requests:
     cpu: 100m
     memory: 128Mi
@@ -20,3 +20,12 @@ resources:
 operator:
   logLevel: INFO
   logFormat: json  # json | text
+  chartRepo: ""  # qdrant-helm repository for mirrored or air-gapped installs; an oci:// URL also works. Empty uses https://qdrant.github.io/qdrant-helm
+
+metrics:
+  enabled: true
+  port: 9090
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}

@@ -47,8 +47,10 @@ spec:
               x-kubernetes-validations:
                 - rule: "self.replicas == 1 || !has(self.cluster) || self.cluster.enabled"
                   message: "replicas > 1 requires cluster.enabled"
-                - rule: "(has(self.persistence) ? self.persistence.size : '10Gi') == (has(oldSelf.persistence) ? oldSelf.persistence.size : '10Gi')"
-                  message: "persistence.size is immutable (StatefulSet volume claim templates cannot change)"
+                - rule: "(has(self.persistence) && has(self.persistence.size) ? quantity(self.persistence.size) : quantity('10Gi')).compareTo(has(oldSelf.persistence) && has(oldSelf.persistence.size) ? quantity(oldSelf.persistence.size) : quantity('10Gi')) >= 0"
+                  message: "persistence.size can grow but not shrink"
+                - rule: "(has(self.snapshotPersistence) && has(self.snapshotPersistence.size) ? quantity(self.snapshotPersistence.size) : quantity('10Gi')).compareTo(has(oldSelf.snapshotPersistence) && has(oldSelf.snapshotPersistence.size) ? quantity(oldSelf.snapshotPersistence.size) : quantity('10Gi')) >= 0"
+                  message: "snapshotPersistence.size can grow but not shrink"
                 - rule: "(has(self.persistence) && has(self.persistence.storageClassName) ? self.persistence.storageClassName : '') == (has(oldSelf.persistence) && has(oldSelf.persistence.storageClassName) ? oldSelf.persistence.storageClassName : '')"
                   message: "persistence.storageClassName is immutable"
               properties:
@@ -92,7 +94,9 @@ spec:
                   properties:
                     size:
                       type: string
+                      maxLength: 20
                       default: "10Gi"
+                      description: Volume size per pod; increases are applied to the PVCs and the StatefulSet is recreated, decreases are rejected
                     storageClassName:
                       type: string
                     accessModes:
@@ -100,6 +104,11 @@ spec:
                       items:
                         type: string
                       default: ["ReadWriteOnce"]
+                    reclaimPolicy:
+                      type: string
+                      enum: ["Retain", "Delete"]
+                      default: "Retain"
+                      description: Delete removes the cluster's PersistentVolumeClaims (data and snapshots) when the QdrantCluster is deleted; Retain keeps them
                 snapshotPersistence:
                   type: object
                   properties:
@@ -108,7 +117,9 @@ spec:
                       default: false
                     size:
                       type: string
+                      maxLength: 20
                       default: "10Gi"
+                      description: Snapshot volume size per pod; size it for the largest snapshot of one node (a full copy of its shards)
                     storageClassName:
                       type: string
                 cluster:
@@ -242,6 +253,79 @@ spec:
                 affinity:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
+                podDisruptionBudget:
+                  type: object
+                  x-kubernetes-validations:
+                    - rule: "!(has(self.maxUnavailable) && has(self.minAvailable))"
+                      message: "set either maxUnavailable or minAvailable, not both"
+                  description: PodDisruptionBudget of the pods; enabled by default when replicas > 1 with maxUnavailable 1
+                  properties:
+                    enabled:
+                      type: boolean
+                      description: Unset means on when replicas > 1
+                    maxUnavailable:
+                      x-kubernetes-int-or-string: true
+                    minAvailable:
+                      x-kubernetes-int-or-string: true
+                topologySpread:
+                  type: object
+                  description: Spread of pods over nodes (on by default when replicas > 1) and zones (opt in)
+                  properties:
+                    hostname:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        maxSkew:
+                          type: integer
+                          minimum: 1
+                          default: 1
+                        whenUnsatisfiable:
+                          type: string
+                          enum: ["ScheduleAnyway", "DoNotSchedule"]
+                          default: "ScheduleAnyway"
+                    zone:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                        maxSkew:
+                          type: integer
+                          minimum: 1
+                          default: 1
+                        whenUnsatisfiable:
+                          type: string
+                          enum: ["ScheduleAnyway", "DoNotSchedule"]
+                          default: "ScheduleAnyway"
+                    constraints:
+                      type: array
+                      description: Replaces the generated constraints; labelSelector defaults to the cluster's pods; an empty list disables spreading
+                      items:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                minReadySeconds:
+                  type: integer
+                  minimum: 0
+                  default: 0
+                  description: Seconds a pod must be Ready before the rolling update moves to the next one
+                scaling:
+                  type: object
+                  description: Opt-in peer management when the replica count changes or pods are rebuilt
+                  properties:
+                    drainOnScaleDown:
+                      type: boolean
+                      default: false
+                      description: Before removing pods, move their shard replicas to the remaining peers and remove the peers from consensus
+                    removeDeadPeers:
+                      type: boolean
+                      default: false
+                      description: Re-replicate shards off peers whose pod was rebuilt on an empty volume, then remove those peers
+                    rebalance:
+                      type: boolean
+                      default: false
+                      description: Keep every collection at its replication factor and its replicas spread evenly over the pods, e.g. after a scale-up, a restore or a peer repair; one shard operation per collection at a time
                 config:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
@@ -255,6 +339,15 @@ spec:
                   type: integer
                 readyReplicas:
                   type: integer
+                updatedReplicas:
+                  type: integer
+                currentRevision:
+                  type: string
+                updateRevision:
+                  type: string
+                appliedHash:
+                  type: string
+                  description: Digest of the chart version and values last applied; an unchanged digest skips the helm upgrade
                 version:
                   type: string
                 helmRelease:

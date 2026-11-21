@@ -75,7 +75,7 @@ Override default values:
 ```bash
 helm install qdrant-operator ./charts/qdrant-operator \
   --set operator.logLevel=DEBUG \
-  --set resources.limits.memory=512Mi
+  --set resources.limits.memory=2Gi
 ```
 
 Or use a values file:

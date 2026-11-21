@@ -74,9 +74,30 @@ and CA the way it does for backups. Set exactly one of `clusterRef` and
    node to three gets three shards, unless `target` overrides them.
 4. Points are scrolled from the source in pages of `batchSize` with payload
    and vectors, and upserted on the target with `wait=true`, grouped by shard
-   key. Progress is written every twenty batches.
-5. `Completed`, or `Failed` when any collection failed.
+   key. Progress is written every `checkpointBatches` batches (default
+   twenty, so up to 5120 points at the default batch size are copied again
+   after a crash).
+5. When the scroll reaches the end, exact point counts of the source and
+   target are compared. While the target has fewer points, up to
+   `verifyPasses` (default one) further passes scroll the source from the
+   start and upsert again, which picks up points written during the copy.
+   A collection is `Completed` only when the target holds at least as many
+   points as the source (`message` says so when it holds more); otherwise it
+   is `Failed` with an error such as `target has 879183 of 1000000 source
+   points after 1 verify pass`. `sourceCount` and `targetCount` in the
+   collection status carry the exact figures. `pointsTotal` is refreshed from
+   the source at every checkpoint.
+6. `Completed`, or `Failed` when any collection failed.
    `status.collections` carries each one's counts and error.
+
+Connection errors and timeouts are retried with exponential backoff (30s
+doubling to ten minutes) and keep the recorded offset; they do not fail the
+migration. A `Failed` migration can be re-run, resuming from the offsets in
+its status, by changing an annotation:
+
+```sh
+kubectl annotate qdrantmigration move qdrant.io/retry="$(date +%s)" --overwrite
+```
 
 Upserts are idempotent by point id. If the operator restarts in the middle,
 kopf re-runs the handler and points already copied are written again with
@@ -86,9 +107,12 @@ with the same spec brings a target up to date.
 ## Consistency
 
 The copy is not a snapshot. Points written to the source while a collection
-is being scrolled may or may not be in the target, and points deleted on the
-source are never deleted on the target. Stop writers before the final run,
-or run once for the bulk and once more after cutover to pick up the rest.
+is being scrolled may or may not be in the target, which the verify passes
+catch up on while the count comparison still shows a gap; a source that keeps
+growing faster than a pass copies ends `Failed` with both counts. Points
+deleted on the source are never deleted on the target. Stop writers before
+the final run, or run once for the bulk and once more after cutover to pick
+up the rest.
 `pointsTotal` is Qdrant's approximate count, so `percentage` can end short
 of or above the real figure while running.
 

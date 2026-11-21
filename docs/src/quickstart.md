@@ -46,7 +46,7 @@ The chart generated a Secret named `qdrant-my-qdrant-apikey` with the key
 
 ```sh
 kubectl get qc my-qdrant -o jsonpath='{.status.endpoint}{"\n"}'
-API_KEY=$(kubectl get secret qdrant-my-qdrant-apikey -o jsonpath='{.data.api-key}' | base64 -d)
+API_KEY=$(kubectl get secret qdrant-my-qdrant-generated-keys -o jsonpath='{.data.api-key}' | base64 -d)
 kubectl port-forward svc/qdrant-my-qdrant 6333:6333 &
 curl -H "api-key: $API_KEY" http://127.0.0.1:6333/collections
 ```

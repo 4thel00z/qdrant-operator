@@ -15,8 +15,9 @@ spec:
 ```
 
 Set either `secretRef` or `autoGenerate` on each key, not both; the API
-server rejects the combination. With `autoGenerate` the chart creates a
-Secret named `qdrant-<name>-apikey` holding the key under `api-key`. With
+server rejects the combination. With `autoGenerate` the operator creates a
+Secret named `qdrant-<name>-generated-keys`, owned by the cluster, holding the
+key under `api-key` (and the read-only key under `read-only-api-key`). With
 `secretRef` you bring your own Secret in the cluster's namespace, and the
 chart mounts it through `valueFrom.secretKeyRef`.
 
@@ -71,7 +72,7 @@ must cover the headless pod names.
 
 | Secret | Namespace | Used for |
 |---|---|---|
-| `apiKey.secretRef` / `qdrant-<name>-apikey` | the cluster's | Header on every operator call to Qdrant |
+| `apiKey.secretRef` / `qdrant-<name>-generated-keys` | the cluster's | Header on every operator call to Qdrant |
 | `tls.secretRef` | the cluster's | Served by Qdrant; `ca.crt` verifies the operator's calls |
 | `storage.s3.credentialsSecretRef` | the backup's, schedule's or restore's own | Bucket access |
 

@@ -38,9 +38,56 @@ spec:
 `cluster.enabled` defaults to `true`, and the API server rejects
 `replicas > 1` with `cluster.enabled: false`, because a multi-pod StatefulSet
 of stand-alone nodes would not form a cluster. Scaling up adds pods that join
-through the p2p port. Scaling down is the chart's business; Qdrant does not
-move shards off a node by itself, so drain a node's shards before you lower
-`replicas`.
+through the p2p port. By default scaling down only lowers the StatefulSet's
+replica count: Qdrant does not move shards off a node by itself, and the
+operator flags shards that would be stranded in the `ScaleDownUnsafe`
+condition. Set `scaling.drainOnScaleDown: true` to have the operator move
+every shard replica off the pods being removed (to the remaining peers with
+the fewest replicas), wait for the transfers, remove those peers from
+consensus and only then lower the count. A replica that is not `Active` and
+has no healthy copy elsewhere blocks the drain (`ScalingDown` condition,
+reason `ShardsUnsafe`). Once the count is lowered the operator deletes the
+PersistentVolumeClaims of the removed pods: their peers have left the cluster,
+and a later scale-up that reused such a volume would start a pod that passes
+its readiness probe but belongs to no cluster. Without `drainOnScaleDown` the
+claims stay, because the removed pods' peers are still members and may hold
+the only copy of a shard.
+
+`scaling.rebalance: true` makes the operator keep shard replicas even once
+the StatefulSet is settled: it drops replicas beyond a collection's
+replication factor (a restore recovers every node's snapshot and can leave
+one replica too many), replicates shards that are short of it, and moves
+replicas from the busiest to the idlest peer while their counts differ by more
+than one, which spreads shards onto pods added by a scale-up. It issues at
+most one operation per collection and per peer at a time and reports progress
+in the `Rebalancing` condition.
+
+`scaling.removeDeadPeers: true` handles pods rebuilt on an empty volume: when
+every pod is ready and a peer is left over at the address of a pod that
+reports another peer id, the operator replicates its shards from Active
+replicas up to the collections' replication factor and then force-removes the
+dead peer (`DeadPeers` condition). A pod whose volume was lost does not get
+that far on its own: Qdrant refuses to join with "peer URI ... already used by
+peer N which still has shards" and the pod crash-loops. The operator reads
+that error from the pod's previous log and repairs peer N the same way, after
+which the pod joins. A peer is never called dead because its pod is merely
+unreachable or crashing for another reason.
+
+## Deletion
+
+Deleting a `QdrantCluster` uninstalls the Helm release. The PersistentVolumeClaims
+stay unless `persistence.reclaimPolicy: Delete` is set, in which case the
+operator deletes every PVC of the release as well.
+
+## Availability
+
+A PodDisruptionBudget is created for clusters with more than one replica
+(`podDisruptionBudget.maxUnavailable: 1`; set `enabled`, `maxUnavailable` or
+`minAvailable` to change it). Pods are spread over nodes with
+`topologySpread.hostname` (`maxSkew: 1`, `ScheduleAnyway`); enable
+`topologySpread.zone` for zones, or give `topologySpread.constraints` to
+replace the generated list (`[]` turns spreading off). `minReadySeconds` makes
+the rolling update wait after a pod turns Ready.
 
 ## Persistence
 
@@ -56,16 +103,21 @@ spec:
 ```
 
 Each pod gets a PersistentVolumeClaim from the StatefulSet's claim template.
-`persistence.size` and `storageClassName` are immutable after creation and
-the API server rejects the update naming the field. To grow a volume, expand
-the PVCs directly if the storage class allows it.
+`persistence.size` and `snapshotPersistence.size` can grow but not shrink; the
+API server rejects a smaller value. On an increase the operator patches each
+PVC, orphan-deletes the StatefulSet (the pods keep running) and lets Helm
+recreate it with the new claim template. The storage class must allow volume
+expansion, otherwise the PVC patch fails and the reconcile retries.
+`storageClassName` stays immutable.
 
 `snapshotPersistence` gives each pod a second volume for the snapshots Qdrant
 writes before the operator streams them out. Without it, snapshots are written to
 the data volume, so leave headroom equal to your largest collection's shards
-on a node, or turn this on. Like `persistence`, it becomes a volume claim
-template and cannot be changed on an existing cluster; the API server does
-not reject the change, Helm does.
+on a node, or turn this on. Size it for the snapshot of one node, which is a
+full copy of that node's shards: for a 1M point collection of 4096-dimension
+float vectors that is more than 10Gi. The default is 10Gi. Switching it on or
+off for an existing cluster recreates the StatefulSet the same way a resize
+does; pods pick up the new volume when they roll.
 
 ## Resources and scheduling
 

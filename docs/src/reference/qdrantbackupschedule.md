@@ -12,7 +12,8 @@ a cron schedule with retention.
 | `suspend` | `false` | Stop creating backups; retention continues |
 | `concurrencyPolicy` | `Forbid` | `Allow`, `Forbid` or `Replace` |
 | `startingDeadlineSeconds` | unset | Skip a missed slot older than this |
-| `retentionPolicy.keepLast` | unset | Keep the N newest finished backups |
+| `deleteBackupsWithSchedule` | `false` | Own the backups so deleting the schedule deletes them and their objects |
+| `retentionPolicy.keepLast` | unset | Keep the N newest completed backups |
 | `retentionPolicy.keepDaily` | unset | Keep the newest per day for N days |
 | `retentionPolicy.keepWeekly` | unset | Keep the newest per ISO week for N weeks |
 | `retentionPolicy.keepMonthly` | unset | Keep the newest per month for N months |

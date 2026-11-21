@@ -14,7 +14,7 @@ version.
 | `persistence.size`, `accessModes`, `storageClassName` | `persistence.size`, `persistence.accessModes`, `persistence.storageClassName` |
 | `snapshotPersistence` | `snapshotPersistence.enabled`, `.size`, `.storageClassName` |
 | `service.type`, `service.annotations` | `service.type`, `service.annotations` |
-| `apiKey.autoGenerate` | `apiKey: true` or `false` |
+| `apiKey.autoGenerate` | `apiKey: {valueFrom: {secretKeyRef: {name: qdrant-<name>-generated-keys, key: api-key}}}` |
 | `apiKey.secretRef` | `apiKey: {valueFrom: {secretKeyRef: {name, key}}}` |
 | `readOnlyApiKey` | `readOnlyApiKey`, same encoding |
 | `apiKey.jwtRbac` | `config.service.jwt_rbac` |
@@ -38,7 +38,7 @@ For a `QdrantCluster` named `my-qdrant` in namespace `prod`:
 | Client Service | `qdrant-my-qdrant.prod.svc.cluster.local`, ports 6333 HTTP, 6334 gRPC, 6335 p2p |
 | Headless Service | `qdrant-my-qdrant-headless.prod.svc.cluster.local` |
 | Pod DNS | `qdrant-my-qdrant-<i>.qdrant-my-qdrant-headless.prod.svc.cluster.local` |
-| Generated API key Secret | `qdrant-my-qdrant-apikey`, key `api-key` |
+| Generated API key Secret | `qdrant-my-qdrant-generated-keys`, key `api-key` (read-only key under `read-only-api-key`) |
 | PersistentVolumeClaims | Created by the StatefulSet from the chart's claim template |
 
 The operator relies on these names when it talks to Qdrant: the client

@@ -1,5 +1,6 @@
 """Kubernetes API adapter. Client configuration is loaded once at operator startup."""
 
+import asyncio
 import base64
 from collections.abc import AsyncGenerator
 from collections.abc import Mapping
@@ -18,9 +19,12 @@ from qdrant_operator.domain import ResourceKind
 from qdrant_operator.domain import ResourceRef
 from qdrant_operator.domain import SecretRef
 from qdrant_operator.domain import StatefulSetStatus
+from qdrant_operator.domain import VolumeClaim
 
 config: Any = kubernetes_config
 MERGE_PATCH = "application/merge-patch+json"
+ORPHAN_WAIT_SECONDS = 60.0
+ORPHAN_POLL_SECONDS = 1.0
 
 
 async def load_kubernetes_config() -> None:
@@ -178,5 +182,103 @@ class KubernetesAdapter:
                 raise
         status = statefulset.status
         return StatefulSetStatus(
-            replicas=status.replicas or 0, ready_replicas=status.ready_replicas or 0
+            replicas=status.replicas or 0,
+            ready_replicas=status.ready_replicas or 0,
+            updated_replicas=status.updated_replicas or 0,
+            current_revision=status.current_revision,
+            update_revision=status.update_revision,
         )
+
+    async def get_statefulset_claims(self, name: str, namespace: str) -> dict[str, str] | None:
+        async with self.api() as api:
+            try:
+                statefulset: Any = await client.AppsV1Api(api).read_namespaced_stateful_set(
+                    name=name, namespace=namespace
+                )
+            except ApiException as error:
+                if error.status == 404:
+                    return None
+                raise
+        templates: list[Any] = statefulset.spec.volume_claim_templates or []
+        return {t.metadata.name: t.spec.resources.requests["storage"] for t in templates}
+
+    async def list_volume_claims(self, namespace: str, label_selector: str) -> list[VolumeClaim]:
+        async with self.api() as api:
+            claims: Any = await client.CoreV1Api(api).list_namespaced_persistent_volume_claim(
+                namespace=namespace, label_selector=label_selector
+            )
+        return [
+            VolumeClaim(c.metadata.name, c.spec.resources.requests["storage"]) for c in claims.items
+        ]
+
+    async def resize_volume_claim(self, name: str, namespace: str, size: str) -> None:
+        async with self.api() as api:
+            core: Any = client.CoreV1Api(api)
+            await core.patch_namespaced_persistent_volume_claim(
+                name=name,
+                namespace=namespace,
+                body={"spec": {"resources": {"requests": {"storage": size}}}},
+                _content_type=MERGE_PATCH,
+            )
+        logger.info("volume claim resized", name=name, namespace=namespace, size=size)
+
+    async def delete_volume_claim(self, name: str, namespace: str) -> None:
+        async with self.api() as api:
+            try:
+                await client.CoreV1Api(api).delete_namespaced_persistent_volume_claim(
+                    name=name, namespace=namespace
+                )
+            except ApiException as error:
+                if error.status != 404:
+                    raise
+        logger.info("volume claim deleted", name=name, namespace=namespace)
+
+    async def crash_log(self, name: str, namespace: str, tail_lines: int) -> str:
+        async with self.api() as api:
+            core: Any = client.CoreV1Api(api)
+            runs = [
+                await self.container_log(core, name, namespace, tail_lines, p)
+                for p in (False, True)
+            ]
+        return "\n".join(runs)
+
+    @staticmethod
+    async def container_log(
+        core: Any, name: str, namespace: str, tail_lines: int, previous: bool
+    ) -> str:
+        try:
+            log: Any = await core.read_namespaced_pod_log(
+                name=name, namespace=namespace, previous=previous, tail_lines=tail_lines
+            )
+        except ApiException as error:
+            if error.status not in (400, 404):
+                raise
+            return ""
+        return str(log)
+
+    async def orphan_statefulset(self, name: str, namespace: str) -> None:
+        async with self.api() as api:
+            apps: Any = client.AppsV1Api(api)
+            try:
+                await apps.delete_namespaced_stateful_set(
+                    name=name, namespace=namespace, propagation_policy="Orphan"
+                )
+            except ApiException as error:
+                if error.status != 404:
+                    raise
+            deadline = asyncio.get_running_loop().time() + ORPHAN_WAIT_SECONDS
+            while await self.statefulset_exists(apps, name, namespace):
+                if asyncio.get_running_loop().time() > deadline:
+                    raise TimeoutError(f"StatefulSet {namespace}/{name} still present after delete")
+                await asyncio.sleep(ORPHAN_POLL_SECONDS)
+        logger.info("statefulset orphan-deleted", name=name, namespace=namespace)
+
+    @staticmethod
+    async def statefulset_exists(apps: Any, name: str, namespace: str) -> bool:
+        try:
+            await apps.read_namespaced_stateful_set(name=name, namespace=namespace)
+        except ApiException as error:
+            if error.status == 404:
+                return False
+            raise
+        return True

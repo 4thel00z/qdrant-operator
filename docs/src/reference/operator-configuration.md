@@ -10,9 +10,13 @@
 | `image.pullPolicy` | `IfNotPresent` | |
 | `serviceAccount.create` | `true` | |
 | `serviceAccount.name` | release full name | |
-| `resources` | `100m`/`128Mi` requests, `500m`/`256Mi` limits | Snapshot streaming is I/O bound and buffers one megabyte at a time |
+| `resources` | `100m`/`128Mi` requests, `500m`/`1Gi` limits | Streaming itself is small (8 MiB upload parts, two at a time, 1 MiB reads); the memory goes to the interpreter and kopf state. A migration loop alone held about 320 Mi and a backup about 280 Mi, so concurrent ones need the headroom |
 | `operator.logLevel` | `INFO` | loguru level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `operator.logFormat` | `json` | `json` or `text` |
+| `operator.chartRepo` | public qdrant-helm | Chart repository for mirrors and air-gapped installs; `oci://` registries work too |
+| `metrics.enabled` | `true` | Prometheus endpoint, plus a `-metrics` Service |
+| `metrics.port` | `9090` | |
+| `metrics.serviceMonitor.enabled`, `.interval`, `.labels` | `false`, `30s`, `{}` | Optional ServiceMonitor |
 
 ## Environment variables
 
@@ -20,6 +24,8 @@
 |---|---|---|
 | `LOG_LEVEL` | `INFO` | |
 | `LOG_FORMAT` | `json` | `json` writes one JSON object per line; `text` is for a terminal |
+| `QDRANT_CHART_REPO` | `https://qdrant.github.io/qdrant-helm` | Where the qdrant chart is pulled from |
+| `METRICS_PORT` | `9090` | Port of the Prometheus endpoint; `0` turns it off |
 | `KUBECONFIG` | in-cluster | Used when no service account token is mounted |
 | `HELM_CACHE_HOME`, `HELM_CONFIG_HOME`, `HELM_DATA_HOME` | `/tmp/helm/*` in the chart | Where the bundled `helm` keeps its state on the read-only root filesystem |
 
@@ -48,6 +54,7 @@ The chart's ClusterRole grants:
 | `clusterkopfpeerings.kopf.dev` | all | kopf peering between operator instances |
 | `events` | create | kopf posts events on handled resources |
 | `secrets` | get, list, watch, create, update, patch, delete | API keys, TLS CA and bucket credentials; access key Secrets are written; the chart renders Secrets |
+| `persistentvolumeclaims` | get, list, watch, patch | Grow the data and snapshot volumes |
 | `services`, `namespaces`, `configmaps`, `serviceaccounts`, `statefulsets`, `poddisruptionbudgets`, `ingresses`, `servicemonitors` | all | Everything the qdrant chart may render |
 
 Helm runs inside the operator pod with the pod's service account, so the
@@ -77,3 +84,25 @@ resource is `qdrant.io/finalizer`. Removing the finalizer by hand skips the
 delete handler: the Helm release, the bucket objects or the Qdrant
 collection then stay. Access key Secrets are removed by owner reference
 either way.
+
+## Metrics
+
+The operator serves Prometheus metrics on `METRICS_PORT`:
+
+| Metric | Labels | Meaning |
+|---|---|---|
+| `qdrant_operator_reconcile_errors_total` | `kind` | Handler failures |
+| `qdrant_operator_operations_total` | `kind`, `outcome` | Finished backups, restores and migrations |
+| `qdrant_operator_operation_duration_seconds` | `kind` | Wall time of the same |
+| `qdrant_operator_cluster_phase` | `namespace`, `name`, `phase` | `1` for the cluster's current phase |
+
+## Metrics
+
+The operator serves Prometheus metrics on `METRICS_PORT`:
+
+| Metric | Labels | Meaning |
+|---|---|---|
+| `qdrant_operator_reconcile_errors_total` | `kind` | Handler failures |
+| `qdrant_operator_operations_total` | `kind`, `outcome` | Finished backups, restores and migrations |
+| `qdrant_operator_operation_duration_seconds` | `kind` | Wall time of the same |
+| `qdrant_operator_cluster_phase` | `namespace`, `name`, `phase` | `1` for the cluster's current phase |

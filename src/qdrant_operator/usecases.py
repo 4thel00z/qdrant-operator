@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import secrets
+import string
 from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Mapping
@@ -12,7 +14,10 @@ from datetime import datetime
 from functools import partial
 from typing import Any
 
+from qdrant_operator.domain import API_VERSION
+from qdrant_operator.domain import AUTO_GENERATED_API_KEY_KEY
 from qdrant_operator.domain import BACKUPS
+from qdrant_operator.domain import CLUSTERS
 from qdrant_operator.domain import MANIFEST_KEY
 from qdrant_operator.domain import TOKEN_SECRET_KEY
 from qdrant_operator.domain import URL_SECRET_KEY
@@ -42,11 +47,13 @@ from qdrant_operator.domain import Condition
 from qdrant_operator.domain import ConditionStatus
 from qdrant_operator.domain import CredentialsSecretRef
 from qdrant_operator.domain import DeletionPolicy
+from qdrant_operator.domain import InProgressSnapshot
 from qdrant_operator.domain import JsonDict
 from qdrant_operator.domain import MigrationPhase
 from qdrant_operator.domain import MigrationSpec
 from qdrant_operator.domain import MigrationStatus
 from qdrant_operator.domain import QdrantNode
+from qdrant_operator.domain import ReclaimPolicy
 from qdrant_operator.domain import ResourceRef
 from qdrant_operator.domain import RestoredCollection
 from qdrant_operator.domain import RestorePhase
@@ -56,20 +63,37 @@ from qdrant_operator.domain import RestoreStatus
 from qdrant_operator.domain import S3Credentials
 from qdrant_operator.domain import S3StorageSpec
 from qdrant_operator.domain import SchedulePhase
+from qdrant_operator.domain import SecretRef
 from qdrant_operator.domain import SnapshotRecord
+from qdrant_operator.domain import StatefulSetStatus
 from qdrant_operator.domain import chart_version
 from qdrant_operator.domain import create_body_from_config
 from qdrant_operator.domain import format_size
 from qdrant_operator.domain import group_by_shard_key
+from qdrant_operator.domain import indexing_timeout_message
 from qdrant_operator.domain import is_subset
 from qdrant_operator.domain import join_key
 from qdrant_operator.domain import key_fingerprint
 from qdrant_operator.domain import owner_reference
+from qdrant_operator.domain import parse_quantity
 from qdrant_operator.domain import parse_time
 from qdrant_operator.domain import payload_indexes_from_schema
+from qdrant_operator.domain import plan_volumes
 from qdrant_operator.domain import set_condition
 from qdrant_operator.domain import to_point_struct
+from qdrant_operator.domain import values_digest
 from qdrant_operator.domain import vector_layout
+from qdrant_operator.peers import ClusterTopology
+from qdrant_operator.peers import CollectionShards
+from qdrant_operator.peers import ShardOperationKind
+from qdrant_operator.peers import ShardPlan
+from qdrant_operator.peers import dead_peers
+from qdrant_operator.peers import departing_peers
+from qdrant_operator.peers import plan_evacuation
+from qdrant_operator.peers import plan_rebalance
+from qdrant_operator.peers import plan_recovery
+from qdrant_operator.peers import replaced_peer
+from qdrant_operator.peers import surviving_peers
 from qdrant_operator.ports import HelmPort
 from qdrant_operator.ports import KubernetesPort
 from qdrant_operator.ports import QdrantPort
@@ -77,8 +101,9 @@ from qdrant_operator.ports import StoragePort
 from qdrant_operator.ports import TokenPort
 
 RECENT_BACKUPS_LIMIT = 10
-PROGRESS_EVERY_BATCHES = 20
 PRESIGNED_URL_TTL_SECONDS = 3600
+CRASH_LOG_LINES = 50
+HELM_ERROR_CHARS = 2000
 
 
 class ClusterNotFoundError(LookupError):
@@ -112,7 +137,9 @@ class ResolveCluster:
         body = await self.kubernetes.get_custom_resource(ref.to_resource_ref())
         if not body:
             raise ClusterNotFoundError(f"QdrantCluster {ref.namespace}/{ref.name} not found")
-        spec = ClusterSpec.from_dict(body["spec"], body["metadata"])
+        return await self.connect(ClusterSpec.from_dict(body["spec"], body["metadata"]))
+
+    async def connect(self, spec: ClusterSpec) -> ClusterConnection:
         api_key = await self.read_api_key(spec)
         ca_cert = await self.read_ca_cert(spec)
         return ClusterConnection(
@@ -136,20 +163,194 @@ class ResolveCluster:
             return None
 
 
+class ScaleDownPendingError(RuntimeError):
+    """Peers are still being emptied; the reconcile retries and the status carries the progress."""
+
+    def __init__(self, message: str, status: ClusterStatus) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class ReleaseApplyError(RuntimeError):
+    """helm install/upgrade failed; the status carries the error so `kubectl describe` shows it."""
+
+    def __init__(self, message: str, status: ClusterStatus) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class ShardsUnsafeError(RuntimeError):
+    """Moving a replica would lose data: no healthy copy exists outside the removed peers."""
+
+
+def progress_condition(type: str, active: bool, reason: str, message: str) -> Condition:
+    return Condition(
+        type=type,
+        status=ConditionStatus.TRUE if active else ConditionStatus.FALSE,
+        last_transition_time=now_utc(),
+        reason=reason,
+        message=message,
+    )
+
+
+async def survey_collections(qdrant: QdrantPort, node: QdrantNode) -> list[CollectionShards]:
+    return [
+        await qdrant.collection_shards(node, name) for name in await qdrant.list_collections(node)
+    ]
+
+
+def describe_plan(plan: ShardPlan) -> str:
+    parts = [f"{len(plan.operations)} shard operations issued"]
+    if plan.in_flight:
+        parts.append(f"{plan.in_flight} transfers running")
+    if plan.blocked:
+        parts.append(f"waiting on {', '.join(plan.blocked)}")
+    return "; ".join(parts)
+
+
+@dataclass
+class ExpandVolumes:
+    """Grow PVCs and recreate the StatefulSet (pods kept) when its volume claims change."""
+
+    kubernetes: KubernetesPort
+
+    async def execute(self, spec: ClusterSpec) -> bool:
+        """Returns True when the StatefulSet was deleted, so the helm apply must recreate it."""
+        live = await self.kubernetes.get_statefulset_claims(spec.release_name, spec.namespace)
+        if live is None:
+            return False
+        desired = spec.claim_sizes()
+        plan = plan_volumes(desired, live)
+        await self.grow_claims(spec, desired)
+        if not plan.recreate:
+            return False
+        await self.kubernetes.orphan_statefulset(spec.release_name, spec.namespace)
+        return True
+
+    async def grow_claims(self, spec: ClusterSpec, desired: Mapping[str, str]) -> None:
+        """Patch every PVC that requests less than the spec; never asks for a shrink."""
+        claims = await self.kubernetes.list_volume_claims(spec.namespace, spec.volume_selector)
+        for template, size in desired.items():
+            prefix = f"{template}-{spec.release_name}-"
+            for claim in claims:
+                if not claim.name.startswith(prefix):
+                    continue
+                if parse_quantity(claim.size) >= parse_quantity(size):
+                    continue
+                await self.kubernetes.resize_volume_claim(claim.name, spec.namespace, size)
+
+
+@dataclass
+class DrainPeers:
+    """Move shard replicas off the peers a scale-down removes, then remove those peers."""
+
+    qdrant: QdrantPort
+
+    async def execute(self, spec: ClusterSpec, node: QdrantNode) -> ShardPlan:
+        """Issue the next operations; an empty plan means the peers were emptied and removed."""
+        topology = await self.qdrant.cluster_topology(node)
+        leaving = departing_peers(topology, spec.release_name, spec.replicas)
+        survey = await survey_collections(self.qdrant, node)
+        plan = plan_evacuation(
+            survey, leaving, surviving_peers(topology, spec.release_name, spec.replicas)
+        )
+        if plan.lost:
+            lost = ", ".join(loss.describe() for loss in plan.lost)
+            raise ShardsUnsafeError(f"no healthy replica to move off the removed peers: {lost}")
+        for operation in plan.operations:
+            await self.qdrant.apply_shard_operation(node, operation)
+        if plan.operations or plan.in_flight or plan.blocked:
+            return plan
+        for peer_id in sorted(leaving):
+            await self.qdrant.remove_peer(node, peer_id, force=False)
+        return plan
+
+
+@dataclass
+class GenerateApiKeys:
+    """Create the cluster's generated API keys before helm renders them.
+
+    A key the chart already generated (release installed with apiKey: true) is carried over,
+    so switching to the operator-generated secret changes neither the key nor the pods.
+    """
+
+    kubernetes: KubernetesPort
+
+    async def execute(self, spec: ClusterSpec) -> None:
+        wanted = spec.generated_keys()
+        if not wanted:
+            return
+        current = {key: await self.read(spec.generated_key_ref(key)) for key in wanted}
+        if all(current.values()):
+            return
+        body = await self.kubernetes.get_custom_resource(
+            ResourceRef(CLUSTERS, spec.name, spec.namespace)
+        )
+        if not body:
+            raise ClusterNotFoundError(f"QdrantCluster {spec.namespace}/{spec.name} not found")
+        chart = SecretRef(spec.chart_keys_secret, AUTO_GENERATED_API_KEY_KEY, spec.namespace)
+        values = {
+            key: current[key] or await self.read(replace(chart, key=key)) or random_key()
+            for key in wanted
+        }
+        owner = {
+            "apiVersion": API_VERSION,
+            "kind": CLUSTERS.kind,
+            "name": spec.name,
+            "uid": body["metadata"]["uid"],
+        }
+        await self.kubernetes.apply_secret(
+            spec.generated_keys_secret, spec.namespace, values, owner
+        )
+
+    async def read(self, ref: SecretRef) -> str:
+        try:
+            return await self.kubernetes.get_secret_value(ref)
+        except KeyError:
+            return ""
+
+
+def random_key() -> str:
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(32))
+
+
 @dataclass
 class ReconcileCluster:
     helm: HelmPort
+    kubernetes: KubernetesPort
+    qdrant: QdrantPort
 
     async def execute(
         self, spec: ClusterSpec, generation: int | None, current: ClusterStatus
     ) -> ClusterStatus:
+        await GenerateApiKeys(self.kubernetes).execute(spec)
+        live = await self.kubernetes.get_statefulset_status(spec.release_name, spec.namespace)
+        current = await self.prepare_scale_down(spec, live, current)
+        recreated = await ExpandVolumes(self.kubernetes).execute(spec)
+        values = spec.to_helm_values()
+        digest = values_digest(chart_version(spec.version), values)
         exists = await self.helm.release_exists(spec.release_name, spec.namespace)
-        await self.helm.apply(
-            release_name=spec.release_name,
-            namespace=spec.namespace,
-            chart_version=chart_version(spec.version),
-            values=spec.to_helm_values(),
-        )
+        if exists and not recreated and current.applied_hash == digest:
+            return replace(current, observed_generation=generation)
+        try:
+            await self.helm.apply(
+                release_name=spec.release_name,
+                namespace=spec.namespace,
+                chart_version=chart_version(spec.version),
+                values=values,
+            )
+        except RuntimeError as error:
+            message = str(error)[-HELM_ERROR_CHARS:]
+            failed = progress_condition("Progressing", False, "HelmApplyFailed", message)
+            status = replace(
+                current,
+                conditions=tuple(set_condition(current.conditions, failed)),
+                observed_generation=generation,
+            )
+            raise ReleaseApplyError(message, status) from error
+        if spec.scaling.drain_on_scale_down and live and live.replicas > spec.replicas:
+            await self.delete_departed_claims(spec)
         phase = ClusterPhase.UPGRADING if exists else ClusterPhase.PENDING
         conditions = set_condition(
             current.conditions,
@@ -170,7 +371,96 @@ class ReconcileCluster:
             version=spec.version,
             conditions=tuple(conditions),
             observed_generation=generation,
+            applied_hash=digest,
         )
+
+    async def delete_departed_claims(self, spec: ClusterSpec) -> None:
+        """Delete the volumes of drained pods: their peers left consensus, so a later scale-up
+        must start them empty instead of as a removed peer with no cluster."""
+        claims = await self.kubernetes.list_volume_claims(spec.namespace, spec.volume_selector)
+        for name in spec.departed_claims(c.name for c in claims):
+            await self.kubernetes.delete_volume_claim(name, spec.namespace)
+
+    async def prepare_scale_down(
+        self, spec: ClusterSpec, live: StatefulSetStatus | None, current: ClusterStatus
+    ) -> ClusterStatus:
+        """Drain the peers a scale-down removes, or flag the shards it would strand."""
+        if not live or live.replicas <= spec.replicas:
+            return current
+        connection = await ResolveCluster(self.kubernetes).connect(spec)
+        node = connection.nodes[0]
+        if spec.scaling.drain_on_scale_down:
+            return await self.drain(spec, node, current)
+        return await self.warn_unsafe(spec, node, current)
+
+    async def drain(
+        self, spec: ClusterSpec, node: QdrantNode, current: ClusterStatus
+    ) -> ClusterStatus:
+        try:
+            plan = await DrainPeers(self.qdrant).execute(spec, node)
+        except ShardsUnsafeError as error:
+            blocked = replace(
+                current,
+                conditions=tuple(
+                    set_condition(
+                        current.conditions,
+                        progress_condition("ScalingDown", True, "ShardsUnsafe", str(error)),
+                    )
+                ),
+            )
+            raise ScaleDownPendingError(str(error), blocked) from error
+        if not (plan.operations or plan.in_flight or plan.blocked):
+            return replace(
+                current,
+                conditions=tuple(
+                    set_condition(
+                        current.conditions,
+                        progress_condition(
+                            "ScalingDown", False, "PeersRemoved", "removed peers are empty"
+                        ),
+                    )
+                ),
+            )
+        message = describe_plan(plan)
+        pending = replace(
+            current,
+            phase=ClusterPhase.UPGRADING,
+            conditions=tuple(
+                set_condition(
+                    current.conditions,
+                    progress_condition("ScalingDown", True, "DrainingPeers", message),
+                )
+            ),
+        )
+        raise ScaleDownPendingError(message, pending)
+
+    async def warn_unsafe(
+        self, spec: ClusterSpec, node: QdrantNode, current: ClusterStatus
+    ) -> ClusterStatus:
+        try:
+            topology = await self.qdrant.cluster_topology(node)
+            survey = await survey_collections(self.qdrant, node)
+        except ConnectionError:
+            return current
+        plan = plan_evacuation(
+            survey,
+            departing_peers(topology, spec.release_name, spec.replicas),
+            surviving_peers(topology, spec.release_name, spec.replicas),
+        )
+        stranded = [
+            f"{o.collection}/{o.shard_id}"
+            for o in plan.operations
+            if o.kind is ShardOperationKind.MOVE
+        ]
+        stranded += [loss.describe() for loss in plan.lost]
+        if not stranded:
+            return current
+        message = f"scale-down strands shard replicas: {', '.join(stranded[:10])}"
+        conditions = set_condition(
+            current.conditions,
+            progress_condition("ScaleDownUnsafe", True, "ShardsOnRemovedPeers", message),
+        )
+        return replace(current, conditions=tuple(conditions))
 
 
 @dataclass
@@ -184,7 +474,8 @@ class ObserveCluster:
             spec.release_name, spec.namespace
         )
         ready_replicas = statefulset.ready_replicas if statefulset else 0
-        ready = ready_replicas >= spec.replicas
+        rolling = bool(statefulset and statefulset.rolling)
+        ready = ready_replicas >= spec.replicas and not rolling
         phase = ClusterPhase.RUNNING if ready else self.pending_phase(current)
         conditions = set_condition(
             current.conditions,
@@ -193,7 +484,7 @@ class ObserveCluster:
                 status=ConditionStatus.TRUE if ready else ConditionStatus.FALSE,
                 last_transition_time=now_utc(),
                 reason="AllReplicasReady" if ready else "ReplicasNotReady",
-                message=f"{ready_replicas}/{spec.replicas} replicas ready",
+                message=self.ready_message(spec, statefulset, ready_replicas),
             ),
         )
         if ready:
@@ -212,9 +503,21 @@ class ObserveCluster:
             phase=phase,
             replicas=spec.replicas,
             ready_replicas=ready_replicas,
+            updated_replicas=statefulset.updated_replicas if statefulset else 0,
+            current_revision=statefulset.current_revision if statefulset else None,
+            update_revision=statefulset.update_revision if statefulset else None,
             endpoint=spec.service_url(),
             conditions=tuple(conditions),
         )
+
+    @staticmethod
+    def ready_message(
+        spec: ClusterSpec, statefulset: StatefulSetStatus | None, ready_replicas: int
+    ) -> str:
+        message = f"{ready_replicas}/{spec.replicas} replicas ready"
+        if not statefulset or not statefulset.rolling:
+            return message
+        return f"{message}; rolling update {statefulset.updated_replicas}/{spec.replicas} updated"
 
     @staticmethod
     def pending_phase(current: ClusterStatus) -> ClusterPhase:
@@ -224,13 +527,162 @@ class ObserveCluster:
 
 
 @dataclass
+class RecoverDeadPeers:
+    """Re-replicate shards off peers no pod answers for, then remove those peers.
+
+    Two cases count as dead. With every pod answering: a peer whose ordinal now reports another
+    peer id, or is beyond the replica count. With pods not answering: a peer that one of them
+    names in Qdrant's join error ("peer URI ... already used by peer N"), which is what a pod
+    rebuilt on an empty volume logs while it crash-loops. A pod that is merely slow is never
+    judged. Nothing is done while the StatefulSet is resizing or rolling.
+    """
+
+    qdrant: QdrantPort
+    kubernetes: KubernetesPort
+
+    async def execute(self, spec: ClusterSpec, current: ClusterStatus) -> ClusterStatus:
+        statefulset = await self.kubernetes.get_statefulset_status(
+            spec.release_name, spec.namespace
+        )
+        if not statefulset or statefulset.replicas != spec.replicas or statefulset.rolling:
+            return current
+        connection = await ResolveCluster(self.kubernetes).connect(spec)
+        reports = [await self.topology(node) for node in connection.nodes]
+        answering = {ordinal: t for ordinal, t in enumerate(reports) if t}
+        if not answering:
+            return current
+        everyone_ready = len(answering) == spec.replicas
+        if everyone_ready and statefulset.ready_replicas < spec.replicas:
+            return current
+        ordinal, topology = next(iter(answering.items()))
+        dead = await self.find_dead(spec, answering, topology)
+        if not dead and not everyone_ready:
+            return current
+        if not dead:
+            return self.with_condition(current, False, "NoDeadPeers", "every peer has a pod")
+        node = connection.nodes[ordinal]
+        plan = plan_recovery(
+            await survey_collections(self.qdrant, node),
+            dead,
+            sorted(t.peer_id for t in answering.values()),
+        )
+        if plan.lost:
+            lost = ", ".join(loss.describe() for loss in plan.lost)
+            return self.with_condition(
+                current, True, "ShardsLost", f"no healthy replica to restore from: {lost}"
+            )
+        for operation in plan.operations:
+            await self.qdrant.apply_shard_operation(node, operation)
+        if plan.operations or plan.in_flight or plan.blocked:
+            return self.with_condition(current, True, "RestoringReplicas", describe_plan(plan))
+        for peer_id in sorted(dead):
+            await self.qdrant.remove_peer(node, peer_id, force=True)
+        return self.with_condition(
+            current, False, "DeadPeersRemoved", f"removed {len(dead)} dead peers"
+        )
+
+    async def topology(self, node: QdrantNode) -> ClusterTopology | None:
+        try:
+            return await self.qdrant.cluster_topology(node)
+        except ConnectionError:
+            return None
+
+    async def find_dead(
+        self,
+        spec: ClusterSpec,
+        answering: Mapping[int, ClusterTopology],
+        topology: ClusterTopology,
+    ) -> frozenset[int]:
+        silent = [o for o in range(spec.replicas) if o not in answering]
+        if not silent:
+            pod_peer_ids = {o: t.peer_id for o, t in answering.items()}
+            return dead_peers(topology, pod_peer_ids, spec.release_name, spec.replicas)
+        known = {p.peer_id for p in topology.peers}
+        logs = [
+            await self.kubernetes.crash_log(
+                f"{spec.release_name}-{o}", spec.namespace, CRASH_LOG_LINES
+            )
+            for o in silent
+        ]
+        return frozenset(
+            peer_id for log in logs if (peer_id := replaced_peer(log)) and peer_id in known
+        )
+
+    @staticmethod
+    def with_condition(
+        current: ClusterStatus, active: bool, reason: str, message: str
+    ) -> ClusterStatus:
+        condition = progress_condition("DeadPeers", active, reason, message)
+        return replace(current, conditions=tuple(set_condition(current.conditions, condition)))
+
+
+@dataclass
+class RebalanceShards:
+    """Bring every collection to its replication factor and spread replicas evenly.
+
+    One step per collection per call, only while the StatefulSet is settled and every pod
+    answers; covers a scale-up (new peers start empty), a restore that recovered every
+    node's snapshot (extra replicas), and peers that came back empty after a repair.
+    """
+
+    qdrant: QdrantPort
+    kubernetes: KubernetesPort
+
+    async def execute(self, spec: ClusterSpec, current: ClusterStatus) -> ClusterStatus:
+        statefulset = await self.kubernetes.get_statefulset_status(
+            spec.release_name, spec.namespace
+        )
+        settled = (
+            statefulset
+            and statefulset.replicas == spec.replicas
+            and statefulset.ready_replicas >= spec.replicas
+            and not statefulset.rolling
+        )
+        if not settled:
+            return current
+        connection = await ResolveCluster(self.kubernetes).connect(spec)
+        try:
+            live = sorted(
+                [(await self.qdrant.cluster_topology(n)).peer_id for n in connection.nodes]
+            )
+            node = connection.nodes[0]
+            plan = plan_rebalance(await survey_collections(self.qdrant, node), live)
+        except ConnectionError:
+            return current
+        for operation in plan.operations:
+            await self.qdrant.apply_shard_operation(node, operation)
+        if plan.operations or plan.in_flight:
+            return self.with_condition(current, True, "Rebalancing", describe_plan(plan))
+        return self.with_condition(
+            current,
+            False,
+            "Balanced",
+            "replicas match the replication factor and are spread evenly",
+        )
+
+    @staticmethod
+    def with_condition(
+        current: ClusterStatus, active: bool, reason: str, message: str
+    ) -> ClusterStatus:
+        condition = progress_condition("Rebalancing", active, reason, message)
+        return replace(current, conditions=tuple(set_condition(current.conditions, condition)))
+
+
+@dataclass
 class DeleteCluster:
+    """Uninstall the release; with reclaimPolicy Delete also delete its volume claims."""
+
     helm: HelmPort
+    kubernetes: KubernetesPort
 
     async def execute(self, spec: ClusterSpec) -> None:
-        if not await self.helm.release_exists(spec.release_name, spec.namespace):
+        if await self.helm.release_exists(spec.release_name, spec.namespace):
+            await self.helm.uninstall(spec.release_name, spec.namespace)
+        if spec.persistence.reclaim_policy is not ReclaimPolicy.DELETE:
             return
-        await self.helm.uninstall(spec.release_name, spec.namespace)
+        claims = await self.kubernetes.list_volume_claims(spec.namespace, spec.volume_selector)
+        for claim in claims:
+            await self.kubernetes.delete_volume_claim(claim.name, spec.namespace)
 
 
 @dataclass
@@ -239,8 +691,10 @@ class ExecuteBackup:
     storage: StoragePort
     kubernetes: KubernetesPort
 
-    async def execute(self, spec: BackupSpec, ref: ResourceRef) -> BackupStatus:
-        start_time = now_utc()
+    async def execute(
+        self, spec: BackupSpec, ref: ResourceRef, previous: BackupStatus | None = None
+    ) -> BackupStatus:
+        start_time = (previous.start_time if previous else None) or now_utc()
         connection = await ResolveCluster(self.kubernetes).execute(spec.cluster_ref)
         credentials = await read_credentials(self.kubernetes, spec.storage.credentials_secret_ref)
         await self.kubernetes.patch_status(
@@ -250,8 +704,15 @@ class ExecuteBackup:
         collections = spec.collections or tuple(
             await self.qdrant.list_collections(connection.service)
         )
+        await CleanupBackupSnapshots(self.qdrant, self.kubernetes).delete_leftovers(
+            connection,
+            collections,
+            start_time,
+            previous.in_progress_snapshot if previous else None,
+        )
+        await self.storage.abort_uploads(spec.storage, credentials, spec.root_key)
         statuses = [
-            await self.backup_collection(spec, credentials, connection, collection)
+            await self.backup_collection(spec, ref, credentials, connection, collection)
             for collection in collections
         ]
         completed = [s for s in statuses if s.status == BackupPhase.COMPLETED]
@@ -296,13 +757,14 @@ class ExecuteBackup:
     async def backup_collection(
         self,
         spec: BackupSpec,
+        ref: ResourceRef,
         credentials: S3Credentials,
         connection: ClusterConnection,
         collection: str,
     ) -> CollectionBackupStatus:
         try:
             records = [
-                await self.backup_node(spec, credentials, node, index, collection)
+                await self.backup_node(spec, ref, credentials, node, index, collection)
                 for index, node in enumerate(connection.nodes)
             ]
         except Exception as error:
@@ -316,6 +778,7 @@ class ExecuteBackup:
     async def backup_node(
         self,
         spec: BackupSpec,
+        ref: ResourceRef,
         credentials: S3Credentials,
         node: QdrantNode,
         index: int,
@@ -324,6 +787,8 @@ class ExecuteBackup:
         """Snapshot one node's shards of a collection and stream them straight into the bucket."""
         snapshot = await self.qdrant.create_snapshot(node, collection)
         key = spec.snapshot_key(collection, index, snapshot.name)
+        marker = InProgressSnapshot(index, collection, snapshot.name)
+        await self.kubernetes.patch_status(ref, {"inProgressSnapshot": marker.to_dict()})
         try:
             size = await self.storage.upload_stream(
                 spec.storage,
@@ -333,6 +798,7 @@ class ExecuteBackup:
             )
         finally:
             await self.qdrant.delete_snapshot(node, collection, snapshot.name)
+            await self.kubernetes.patch_status(ref, {"inProgressSnapshot": None})
         return SnapshotRecord(
             node_index=index,
             key=key,
@@ -343,12 +809,65 @@ class ExecuteBackup:
 
 
 @dataclass
+class CleanupBackupSnapshots:
+    """Delete node snapshots an interrupted backup attempt left behind."""
+
+    qdrant: QdrantPort
+    kubernetes: KubernetesPort
+
+    async def execute(self, spec: BackupSpec, status: BackupStatus) -> int:
+        if not status.start_time or status.phase == BackupPhase.COMPLETED:
+            return 0
+        connection = await ResolveCluster(self.kubernetes).execute(spec.cluster_ref)
+        collections = spec.collections or tuple(
+            await self.qdrant.list_collections(connection.service)
+        )
+        return await self.delete_leftovers(
+            connection, collections, status.start_time, status.in_progress_snapshot
+        )
+
+    async def delete_leftovers(
+        self,
+        connection: ClusterConnection,
+        collections: tuple[str, ...],
+        start_time: datetime,
+        marker: InProgressSnapshot | None,
+    ) -> int:
+        """Remove snapshots created at or after start_time, plus the one the marker names."""
+        targets = [
+            (node, collection, name)
+            for index, node in enumerate(connection.nodes)
+            for collection in collections
+            for name in await self.leftover_names(node, index, collection, start_time, marker)
+        ]
+        for node, collection, name in targets:
+            await self.qdrant.delete_snapshot(node, collection, name)
+        return len(targets)
+
+    async def leftover_names(
+        self,
+        node: QdrantNode,
+        index: int,
+        collection: str,
+        start_time: datetime,
+        marker: InProgressSnapshot | None,
+    ) -> set[str]:
+        listed = await self.qdrant.list_snapshots(node, collection)
+        names = {s.name for s in listed if s.created_at and s.created_at >= start_time}
+        if marker and marker.node_index == index and marker.collection == collection:
+            names.add(marker.snapshot)
+        return names
+
+
+@dataclass
 class DeleteBackupData:
     storage: StoragePort
     kubernetes: KubernetesPort
 
     async def execute(self, spec: BackupSpec) -> int:
+        """Delete the backup's objects and abort its unfinished uploads; returns objects deleted."""
         credentials = await read_credentials(self.kubernetes, spec.storage.credentials_secret_ref)
+        await self.storage.abort_uploads(spec.storage, credentials, spec.root_key)
         return await self.storage.delete_prefix(spec.storage, credentials, spec.root_key)
 
 
@@ -378,7 +897,6 @@ class ExecuteRestore:
     storage: StoragePort
     kubernetes: KubernetesPort
     indexing_poll_seconds: float = 5.0
-    indexing_timeout_seconds: float = 3600.0
 
     async def execute(self, spec: RestoreSpec, ref: ResourceRef) -> RestoreStatus:
         start_time = now_utc()
@@ -526,13 +1044,13 @@ class ExecuteRestore:
     async def await_indexing(
         self, spec: RestoreSpec, node: QdrantNode, collection: str
     ) -> int | None:
-        deadline = asyncio.get_running_loop().time() + self.indexing_timeout_seconds
+        deadline = asyncio.get_running_loop().time() + spec.indexing_timeout_seconds
         while True:
             info = await self.qdrant.collection_info(node, collection)
             if not spec.wait_for_indexing or info.get("status") == "green":
                 return info.get("points_count")
             if asyncio.get_running_loop().time() >= deadline:
-                raise TimeoutError(f"Collection {collection} did not turn green in time")
+                raise TimeoutError(indexing_timeout_message(spec, collection, info))
             await asyncio.sleep(self.indexing_poll_seconds)
 
 
@@ -633,7 +1151,8 @@ class ReconcileCollection:
     """Make the Qdrant collection, its payload indexes and aliases match the spec.
 
     Runs on every spec change and on a timer, so a hand-deleted collection or index comes
-    back. Only fields the spec declares are compared; the rest stays Qdrant's default.
+    back. Only fields the spec declares are compared. A field the operator applied earlier and the
+    spec has since dropped goes back to Qdrant's default; the rest is left alone.
     """
 
     qdrant: QdrantPort
@@ -664,9 +1183,11 @@ class ReconcileCollection:
                 message="vectors, shardNumber or shardingMethod differ from the live collection; "
                 "only re-creating the collection can change them",
             )
-        update = spec.update_body(config)
+        resets = spec.resets(config, current.applied_fields)
+        update = spec.update_body(config, resets)
         if update:
             await self.qdrant.update_collection(node, name, update)
+        reset_names = [f"{key}.{name}" for key, fields in resets.items() for name in fields]
 
         shard_keys = await self.reconcile_shard_keys(node, spec)
         indexes = await self.reconcile_indexes(
@@ -681,8 +1202,10 @@ class ReconcileCollection:
                 info,
                 CollectionPhase.READY,
                 reason="CollectionReady",
-                message=f"Collection {name} matches the spec",
+                message=f"Collection {name} matches the spec"
+                + (f"; reset to Qdrant defaults: {', '.join(reset_names)}" if reset_names else ""),
             ),
+            applied_fields=spec.declared_fields(),
             payload_indexes=indexes,
             aliases=aliases,
             shard_keys=shard_keys,
@@ -765,6 +1288,7 @@ class ReconcileCollection:
             segments_count=info.get("segments_count"),
             payload_indexes=current.payload_indexes,
             aliases=current.aliases,
+            applied_fields=current.applied_fields,
             error=None if ready else message,
             observed_generation=generation,
             conditions=tuple(
@@ -908,8 +1432,15 @@ class ExecuteMigration:
     lands under (its source key by default, or a fixed key / payload field from spec.target).
     Missing target collections are created from the source configuration and payload schema,
     shard and replication counts left to the target cluster unless the spec overrides them.
-    Progress and the scroll offset are recorded in status, so a re-run after an interruption
-    resumes where it stopped; upserts are idempotent by point id.
+    Progress and the scroll offset are recorded in status every spec.checkpoint_batches batches,
+    so a re-run after an interruption resumes there (at most that many batches are copied again);
+    upserts are idempotent by point id. pointsTotal is re-read from the source at each checkpoint.
+    After a scroll reaches the end, exact source and target counts are compared; while the target
+    holds fewer points, up to spec.verify_passes further passes scroll the source from the start
+    (the pass number is kept in status so a restart resumes the same pass). A collection is
+    Completed only when the target holds at least as many points as the source, otherwise Failed
+    with both counts. Connection errors and timeouts propagate so the handler
+    retries with backoff instead of recording the collection as failed.
     """
 
     qdrant: QdrantPort
@@ -937,7 +1468,7 @@ class ExecuteMigration:
         for index, collection in enumerate(collections):
             if collection.status == MigrationPhase.COMPLETED:
                 continue
-            report = partial(self.report_progress, ref, running, collections, index)
+            report = partial(self.report_progress, ref, running, collections, index, source)
             collections[index] = await self.migrate_collection(
                 spec, source, target, collection, report
             )
@@ -979,6 +1510,9 @@ class ExecuteMigration:
             points_total=await self.qdrant.count_points(source, name),
             points_copied=previous.points_copied if previous else 0,
             offset=previous.offset if previous else None,
+            verify_pass=previous.verify_pass
+            if previous and previous.status == MigrationPhase.RUNNING
+            else 0,
         )
 
     async def report_progress(
@@ -987,11 +1521,13 @@ class ExecuteMigration:
         running: MigrationStatus,
         collections: list[CollectionMigration],
         index: int,
-        copied: int,
-        offset: Any,
+        source: QdrantNode,
+        progress: CollectionMigration,
     ) -> None:
         collections[index] = replace(
-            collections[index], status=MigrationPhase.RUNNING, points_copied=copied, offset=offset
+            progress,
+            status=MigrationPhase.RUNNING,
+            points_total=await self.qdrant.count_points(source, progress.name),
         )
         await self.kubernetes.patch_status(
             ref, replace(running, collections=tuple(collections)).to_dict()
@@ -1019,16 +1555,72 @@ class ExecuteMigration:
         source: QdrantNode,
         target: QdrantNode,
         collection: CollectionMigration,
-        report: Callable[[int, Any], Awaitable[None]],
+        report: Callable[[CollectionMigration], Awaitable[None]],
     ) -> CollectionMigration:
         try:
             shard_keys = await self.ensure_target_collection(spec, source, target, collection)
-            copied = await self.copy_points(spec, source, target, collection, shard_keys, report)
+            return await self.copy_and_verify(spec, source, target, collection, shard_keys, report)
+        except (ConnectionError, TimeoutError):
+            raise
         except Exception as error:
             return replace(collection, status=MigrationPhase.FAILED, error=str(error))
-        return replace(
-            collection, status=MigrationPhase.COMPLETED, points_copied=copied, offset=None
-        )
+
+    async def copy_and_verify(
+        self,
+        spec: MigrationSpec,
+        source: QdrantNode,
+        target: QdrantNode,
+        collection: CollectionMigration,
+        shard_keys: set[Any] | None,
+        report: Callable[[CollectionMigration], Awaitable[None]],
+    ) -> CollectionMigration:
+        """Scroll, compare exact counts, and rescroll from the start while the target is short."""
+        current = collection
+        while True:
+            copied = await self.copy_points(spec, source, target, current, shard_keys, report)
+            source_count = await self.qdrant.count_points(source, current.name, exact=True)
+            target_count = await self.qdrant.count_points(target, current.target_name, exact=True)
+            counted = replace(
+                current,
+                points_total=source_count,
+                points_copied=copied,
+                source_count=source_count,
+                target_count=target_count,
+            )
+            if target_count >= source_count:
+                return replace(
+                    counted,
+                    status=MigrationPhase.COMPLETED,
+                    points_copied=source_count,
+                    offset=None,
+                    error=None,
+                    message=(
+                        f"target has {target_count} points, more than the {source_count} "
+                        "on the source"
+                    )
+                    if target_count > source_count
+                    else None,
+                )
+            if current.verify_pass >= spec.verify_passes:
+                passes = (
+                    f"{current.verify_pass} verify pass{'' if current.verify_pass == 1 else 'es'}"
+                )
+                return replace(
+                    counted,
+                    status=MigrationPhase.FAILED,
+                    offset=None,
+                    error=(
+                        f"target has {target_count} of {source_count} source points after {passes}"
+                    ),
+                )
+            current = replace(
+                counted,
+                status=MigrationPhase.RUNNING,
+                verify_pass=current.verify_pass + 1,
+                points_copied=0,
+                offset=None,
+            )
+            await report(current)
 
     async def ensure_target_collection(
         self,
@@ -1106,7 +1698,7 @@ class ExecuteMigration:
         target: QdrantNode,
         collection: CollectionMigration,
         shard_keys: set[Any] | None,
-        report: Callable[[int, Any], Awaitable[None]],
+        report: Callable[[CollectionMigration], Awaitable[None]],
     ) -> int:
         offset: Any = collection.offset
         copied = collection.points_copied if collection.offset is not None else 0
@@ -1122,7 +1714,7 @@ class ExecuteMigration:
             batches += 1
             if offset is None or not points:
                 return copied
-            if batches % PROGRESS_EVERY_BATCHES == 0:
-                await report(copied, offset)
+            if batches % spec.checkpoint_batches == 0:
+                await report(replace(collection, points_copied=copied, offset=offset))
             if spec.batch_delay_ms:
                 await asyncio.sleep(spec.batch_delay_ms / 1000)

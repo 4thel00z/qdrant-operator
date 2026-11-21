@@ -126,6 +126,16 @@ spec:
                   minimum: 0
                   default: 0
                   description: Pause between batches to throttle load on both clusters
+                checkpointBatches:
+                  type: integer
+                  minimum: 1
+                  default: 20
+                  description: Batches between progress checkpoints in status; a crash re-copies at most this many batches
+                verifyPasses:
+                  type: integer
+                  minimum: 0
+                  default: 1
+                  description: Extra scroll passes over the source when the target has fewer points than the source after the copy (writes made during the copy are picked up); 0 disables them but the counts are still compared
                 createMissing:
                   type: boolean
                   default: true
@@ -189,6 +199,18 @@ spec:
                         description: Scroll offset to resume from after an interruption
                       error:
                         type: string
+                      message:
+                        type: string
+                        description: Note on the outcome, such as the target holding more points than the source
+                      verifyPass:
+                        type: integer
+                        description: Extra verify passes started so far
+                      sourceCount:
+                        type: integer
+                        description: Exact source point count at the last verification
+                      targetCount:
+                        type: integer
+                        description: Exact target point count at the last verification
                 progress:
                   type: object
                   properties:
