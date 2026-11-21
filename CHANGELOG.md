@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.1](https://github.com/4thel00z/qdrant-operator/compare/v0.4.0...v0.4.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* **ci:** uv.lock for 0.4.0 and kind integration tests ([eec1ce9](https://github.com/4thel00z/qdrant-operator/commit/eec1ce9fad82ebbaa9a4b6593f4785facc285d99))
+
+
+### Build
+
+* refresh uv.lock for 0.4.0 and bump it on release ([b9b7089](https://github.com/4thel00z/qdrant-operator/commit/b9b70894d3255db69409bb861434d97183d90513))
+
+
+### CI
+
+* **release:** publish an existing tag to PyPI on demand ([328579d](https://github.com/4thel00z/qdrant-operator/commit/328579d719b3a5854b1be83d8a4e9c9d2bec8ddf))
+* **release:** publish an existing tag to PyPI on demand ([75584c5](https://github.com/4thel00z/qdrant-operator/commit/75584c5e64bbc1c0103e55a2112233ede4909d1b))
+
 ## [0.4.0](https://github.com/4thel00z/qdrant-operator/compare/v0.3.2...v0.4.0) (2026-11-21)
 
 
