@@ -57,6 +57,11 @@
           "type": "yaml",
           "path": "charts/qdrant-operator/Chart.yaml",
           "jsonpath": "$.appVersion"
+        },
+        {
+          "type": "toml",
+          "path": "uv.lock",
+          "jsonpath": "$.package[?(@.name.value=='qdrant-operator')].version"
         }
       ]
     }
