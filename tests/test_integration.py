@@ -71,6 +71,11 @@ def namespace() -> Iterator[None]:
     )
 
 
+@pytest.fixture(autouse=True)
+async def kubernetes_config() -> None:
+    await load_kubernetes_config()
+
+
 @pytest.fixture
 def spec() -> ClusterSpec:
     return ClusterSpec.from_dict(
@@ -96,7 +101,6 @@ async def test_reconcile_installs_release(spec: ClusterSpec) -> None:
 
 
 async def test_cluster_becomes_running(spec: ClusterSpec) -> None:
-    await load_kubernetes_config()
     use_case = ObserveCluster(KubernetesAdapter())
     status = ClusterStatus(ClusterPhase.PENDING)
     for _ in range(60):
@@ -289,7 +293,6 @@ async def test_status_patch_reaches_a_real_custom_resource() -> None:
         text=True,
         check=True,
     )
-    await load_kubernetes_config()
     adapter = KubernetesAdapter()
     ref = ResourceRef(COLLECTIONS, "status-probe", NAMESPACE)
 
