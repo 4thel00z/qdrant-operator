@@ -5,6 +5,8 @@ from collections.abc import AsyncGenerator
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import UTC
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -14,8 +16,22 @@ from qdrant_operator.domain import JsonDict
 from qdrant_operator.domain import QdrantNode
 from qdrant_operator.domain import RestorePriority
 from qdrant_operator.domain import Snapshot
+from qdrant_operator.domain import SnapshotInfo
+from qdrant_operator.domain import parse_time
+from qdrant_operator.peers import ClusterTopology
+from qdrant_operator.peers import CollectionShards
+from qdrant_operator.peers import Peer
+from qdrant_operator.peers import Replica
+from qdrant_operator.peers import ShardOperation
 
 STREAM_CHUNK_BYTES = 1024 * 1024
+HTTP_NOT_FOUND = 404
+
+
+def utc(value: datetime | None) -> datetime | None:
+    if not value:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 @dataclass
@@ -76,14 +92,30 @@ class QdrantAdapter:
             async for chunk in response.aiter_bytes(STREAM_CHUNK_BYTES):
                 yield chunk
 
+    async def list_snapshots(self, node: QdrantNode, collection: str) -> list[SnapshotInfo]:
+        async with self.client(node, self.timeout_seconds) as client:
+            response = await client.get(f"/collections/{collection}/snapshots")
+        if response.status_code == HTTP_NOT_FOUND:
+            return []
+        response.raise_for_status()
+        return [
+            SnapshotInfo(
+                name=item["name"],
+                created_at=utc(parse_time(item.get("creation_time"))),
+                size_bytes=item.get("size", 0),
+            )
+            for item in response.json()["result"]
+        ]
+
     async def delete_snapshot(self, node: QdrantNode, collection: str, snapshot_name: str) -> None:
         async with self.client(node, self.timeout_seconds) as client:
-            await self.result(
-                client.delete(
-                    f"/collections/{collection}/snapshots/{snapshot_name}",
-                    params={"wait": "true"},
-                )
+            response = await client.delete(
+                f"/collections/{collection}/snapshots/{snapshot_name}",
+                params={"wait": "true"},
             )
+        if response.status_code == HTTP_NOT_FOUND:
+            return
+        response.raise_for_status()
         logger.info(
             "snapshot deleted", node=node.url, collection=collection, snapshot=snapshot_name
         )
@@ -188,10 +220,10 @@ class QdrantAdapter:
             await self.result(client.put(f"/collections/{collection}/shards", json=body))
         logger.info("shard key created", collection=collection, shard_key=body["shard_key"])
 
-    async def count_points(self, node: QdrantNode, collection: str) -> int:
+    async def count_points(self, node: QdrantNode, collection: str, exact: bool = False) -> int:
         async with self.client(node, self.timeout_seconds) as client:
             result = await self.result(
-                client.post(f"/collections/{collection}/points/count", json={"exact": False})
+                client.post(f"/collections/{collection}/points/count", json={"exact": exact})
             )
             return int(result["count"])
 
@@ -223,3 +255,50 @@ class QdrantAdapter:
         response: httpx.Response = await request
         response.raise_for_status()
         return response.json()["result"]
+
+    async def cluster_topology(self, node: QdrantNode) -> ClusterTopology:
+        async with self.client(node, self.timeout_seconds) as client:
+            result = await self.result(client.get("/cluster"))
+        peers = result.get("peers", {})
+        return ClusterTopology(
+            peer_id=int(result.get("peer_id", 0)),
+            peers=tuple(Peer(int(peer_id), info["uri"]) for peer_id, info in peers.items()),
+        )
+
+    async def collection_shards(self, node: QdrantNode, collection: str) -> CollectionShards:
+        async with self.client(node, self.timeout_seconds) as client:
+            cluster = await self.result(client.get(f"/collections/{collection}/cluster"))
+            info = await self.result(client.get(f"/collections/{collection}"))
+        own = int(cluster["peer_id"])
+        local = [Replica(s["shard_id"], own, s["state"]) for s in cluster.get("local_shards", [])]
+        remote = [
+            Replica(s["shard_id"], int(s["peer_id"]), s["state"])
+            for s in cluster.get("remote_shards", [])
+        ]
+        transfers = len(cluster.get("shard_transfers", [])) + len(
+            cluster.get("resharding_operations", [])
+        )
+        return CollectionShards(
+            collection=collection,
+            replicas=tuple(local + remote),
+            replication_factor=info["config"]["params"].get("replication_factor", 1),
+            transfers=transfers,
+        )
+
+    async def apply_shard_operation(self, node: QdrantNode, operation: ShardOperation) -> None:
+        async with self.client(node, self.timeout_seconds) as client:
+            await self.result(
+                client.post(
+                    f"/collections/{operation.collection}/cluster",
+                    params={"wait": "true"},
+                    json=operation.to_body(),
+                )
+            )
+        logger.info("shard operation applied", node=node.url, operation=operation.describe())
+
+    async def remove_peer(self, node: QdrantNode, peer_id: int, force: bool) -> None:
+        async with self.client(node, self.timeout_seconds) as client:
+            await self.result(
+                client.delete(f"/cluster/peer/{peer_id}", params={"force": str(force).lower()})
+            )
+        logger.info("peer removed", node=node.url, peer_id=peer_id, force=force)

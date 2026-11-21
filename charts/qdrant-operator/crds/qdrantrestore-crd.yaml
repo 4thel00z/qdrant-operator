@@ -120,6 +120,11 @@ spec:
                   type: boolean
                   default: true
                   description: Wait for HNSW index to be built after restore
+                indexingTimeoutSeconds:
+                  type: integer
+                  minimum: 0
+                  default: 3600
+                  description: How long to wait for each restored collection to turn green
             status:
               type: object
               properties:

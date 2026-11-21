@@ -17,7 +17,8 @@ backup into a cluster. The spec is immutable.
 | `collections[]` | all in the manifest | Subset to restore |
 | `collectionMapping` | `{}` | Source name to target name |
 | `priority` | `snapshot` | `snapshot`, `replica` or `no_sync` |
-| `waitForIndexing` | `true` | Poll until the collection is `green`, up to one hour |
+| `waitForIndexing` | `true` | Poll until the collection is `green` |
+| `indexingTimeoutSeconds` | `3600` | Longest wait per collection, minimum 0. On timeout the error states the collection status and, when the restored `optimizer_config` has `indexing_threshold` or `max_optimization_threads` at 0, says that indexing is disabled in the restored config and names the field |
 
 Admission rules: exactly one of `backupRef` and `source`; the spec cannot
 change.

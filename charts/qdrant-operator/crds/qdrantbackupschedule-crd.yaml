@@ -125,6 +125,12 @@ spec:
                   type: boolean
                   default: false
                   description: Suspend scheduled backups
+                deleteBackupsWithSchedule:
+                  type: boolean
+                  default: false
+                  description: >-
+                    Delete every backup this schedule created, including its S3 data, when the
+                    schedule is deleted. By default the backups are kept.
                 concurrencyPolicy:
                   type: string
                   enum: ["Allow", "Forbid", "Replace"]

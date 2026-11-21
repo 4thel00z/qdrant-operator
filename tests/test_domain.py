@@ -93,7 +93,11 @@ def test_cluster_spec_maps_every_declared_field_into_helm_values() -> None:
     assert values["snapshotPersistence"] == {"enabled": True, "size": "20Gi"}
     assert values["service"] == {"type": "LoadBalancer", "annotations": {"a": "b"}}
     assert values["apiKey"] == {"valueFrom": {"secretKeyRef": {"name": "keys", "key": "api"}}}
-    assert values["readOnlyApiKey"] is True
+    assert values["readOnlyApiKey"] == {
+        "valueFrom": {
+            "secretKeyRef": {"name": "qdrant-demo-generated-keys", "key": "read-only-api-key"}
+        }
+    }
     assert values["metrics"]["serviceMonitor"]["enabled"] is True
     assert values["metrics"]["serviceMonitor"]["scrapeInterval"] == "15s"
     assert values["nodeSelector"] == {"pool": "db"}
@@ -109,7 +113,8 @@ def test_cluster_spec_maps_every_declared_field_into_helm_values() -> None:
 def test_cluster_spec_defaults_and_addresses() -> None:
     spec = ClusterSpec.from_dict({"version": "v1.16.3", "replicas": 2}, META)
 
-    assert spec.api_key.to_helm_value() is False
+    assert spec.to_helm_values()["apiKey"] is False
+    assert spec.generated_keys() == ()
     assert spec.service_url() == "http://qdrant-demo.tenant-a.svc.cluster.local:6333"
     assert spec.node_urls() == (
         "http://qdrant-demo-0.qdrant-demo-headless.tenant-a.svc.cluster.local:6333",
@@ -187,6 +192,26 @@ def test_retention_keeps_newest_and_one_per_daily_bucket() -> None:
     assert [b.name for b in expired] == ["b3", "b4", "b5"]
 
 
+def failed_record(name: str, days_ago: int) -> BackupRecord:
+    return BackupRecord(name, NOW - timedelta(days=days_ago), BackupPhase.FAILED)
+
+
+def test_retention_never_lets_failed_backups_push_out_completed_ones() -> None:
+    backups = [failed_record("f0", 0), failed_record("f1", 1), record("c2", 2), record("c3", 3)]
+
+    expired = RetentionPolicy(keep_last=2).expired(backups)
+
+    assert [b.name for b in expired] == ["f1"]
+
+
+def test_retention_drops_failed_backups_older_than_the_newest_completed() -> None:
+    backups = [record("c0", 0), failed_record("f1", 1), record("c2", 2)]
+
+    expired = RetentionPolicy(keep_last=2).expired(backups)
+
+    assert [b.name for b in expired] == ["f1"]
+
+
 def schedule(**extra: object) -> BackupScheduleSpec:
     return BackupScheduleSpec.from_dict(
         {
@@ -210,18 +235,26 @@ def test_schedule_due_follows_cronjob_semantics() -> None:
     assert schedule().next_slot(NOW) == slot + timedelta(days=1)
 
 
-def test_schedule_spawns_owned_labelled_backup_without_null_collections() -> None:
-    owner = {
-        "apiVersion": "qdrant.io/v1alpha1",
-        "kind": "QdrantBackupSchedule",
-        "metadata": {"name": "demo", "uid": "u1"},
-    }
-    body = schedule().to_backup_resource("demo-20260923-020000", owner)
+SCHEDULE_OWNER = {
+    "apiVersion": "qdrant.io/v1alpha1",
+    "kind": "QdrantBackupSchedule",
+    "metadata": {"name": "demo", "uid": "u1"},
+}
+
+
+def test_schedule_spawns_labelled_backup_that_outlives_the_schedule() -> None:
+    body = schedule().to_backup_resource("demo-20260923-020000", SCHEDULE_OWNER)
 
     assert body["metadata"]["labels"] == {"qdrant.io/schedule": "demo"}
-    assert body["metadata"]["ownerReferences"][0]["uid"] == "u1"
+    assert "ownerReferences" not in body["metadata"]
     assert "collections" not in body["spec"]
     assert body["spec"]["storage"]["s3"]["credentialsSecretRef"]["name"] == "c"
+
+
+def test_schedule_owns_its_backups_when_asked_to_delete_them_with_it() -> None:
+    body = schedule(deleteBackupsWithSchedule=True).to_backup_resource("demo-1", SCHEDULE_OWNER)
+
+    assert body["metadata"]["ownerReferences"][0]["uid"] == "u1"
 
 
 def test_set_condition_keeps_transition_time_while_status_is_stable() -> None:
@@ -615,3 +648,16 @@ def test_pod_annotations_and_labels_reach_the_chart() -> None:
     values = spec.to_helm_values()
     assert values["podAnnotations"] == {"k8s.grafana.com/scrape": "true"}
     assert values["podLabels"] == {"tier": "data"}
+
+
+def test_auto_optimization_threads_match_the_null_qdrant_reports() -> None:
+    spec = collection_spec(
+        vectors=[{"size": 4, "distance": "Cosine"}],
+        optimizers={"max_optimization_threads": "auto", "indexing_threshold": 10000},
+    )
+    live = {"optimizer_config": {"max_optimization_threads": None, "indexing_threshold": 10000}}
+
+    assert spec.update_body(live) == {}
+    assert spec.update_body({"optimizer_config": {"max_optimization_threads": 2}}) == {
+        "optimizers_config": {"max_optimization_threads": "auto", "indexing_threshold": 10000}
+    }

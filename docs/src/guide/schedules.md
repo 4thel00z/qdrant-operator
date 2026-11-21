@@ -46,9 +46,10 @@ was down for a day, one catch-up backup is taken, not twenty-four.
 have passed since it was due. Without it a missed slot is always caught up.
 
 The backup is named `<schedule>-<YYYYmmdd-HHMMSS>` after the slot time,
-carries the label `qdrant.io/schedule=<schedule>`, and has the schedule as
-its controller owner. Deleting the schedule therefore garbage-collects its
-backups, and with them their objects in the bucket. `collections` and
+carries the label `qdrant.io/schedule=<schedule>`. Deleting the schedule
+keeps its backups and their objects in the bucket; set
+`deleteBackupsWithSchedule: true` to make the schedule their controller owner,
+so that deleting it garbage-collects them together with their objects. `collections` and
 `storage` are copied into each backup.
 
 ## Concurrency
@@ -71,8 +72,11 @@ finished backups, newest first:
 - `keepWeekly`: the same per ISO week.
 - `keepMonthly`: the same per month.
 
-Every finished backup outside that union is deleted at the next tick, which
-deletes its objects in the bucket. Backups still running are never pruned.
+Only completed backups count toward these selections, so failed runs never
+push a good backup out. Every finished backup outside that union is deleted at
+the next tick, which deletes its objects in the bucket; the newest failed
+backup is kept while it is newer than every completed one, so the failure
+stays visible. Backups still running are never pruned.
 Without a `retentionPolicy` nothing is deleted. Retention runs even while the
 schedule is suspended.
 

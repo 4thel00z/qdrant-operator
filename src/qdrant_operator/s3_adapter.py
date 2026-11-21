@@ -112,6 +112,21 @@ class S3Adapter:
         logger.info("s3 prefix deleted", uri=storage.uri(prefix), objects=deleted)
         return deleted
 
+    async def abort_uploads(
+        self, storage: S3StorageSpec, credentials: S3Credentials, prefix: str
+    ) -> int:
+        aborted = 0
+        async with self.client(storage, credentials) as s3:
+            paginator = s3.get_paginator("list_multipart_uploads")
+            async for page in paginator.paginate(Bucket=storage.bucket, Prefix=f"{prefix}/"):
+                for upload in page.get("Uploads", []):
+                    await s3.abort_multipart_upload(
+                        Bucket=storage.bucket, Key=upload["Key"], UploadId=upload["UploadId"]
+                    )
+                    aborted += 1
+        logger.info("s3 uploads aborted", uri=storage.uri(prefix), uploads=aborted)
+        return aborted
+
     async def presigned_get_url(
         self,
         storage: S3StorageSpec,

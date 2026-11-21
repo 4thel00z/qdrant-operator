@@ -2,14 +2,30 @@
 
 import asyncio
 import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from dataclasses import field
 from typing import Any
 
 from loguru import logger
 
 QDRANT_CHART = "qdrant"
 QDRANT_CHART_REPO = "https://qdrant.github.io/qdrant-helm"
+CHART_REPO_ENV = "QDRANT_CHART_REPO"
+OCI_SCHEME = "oci://"
+
+
+def chart_repo_from_env() -> str:
+    """The chart repository from QDRANT_CHART_REPO, else the public qdrant-helm repository."""
+    return os.environ.get(CHART_REPO_ENV) or QDRANT_CHART_REPO
+
+
+def chart_arguments(chart: str, repo: str) -> list[str]:
+    """Helm arguments that name the chart; OCI registries carry the chart in the reference."""
+    if repo.startswith(OCI_SCHEME):
+        return [f"{repo.rstrip('/')}/{chart}"]
+    return [chart, "--repo", repo]
 
 
 class HelmError(RuntimeError):
@@ -19,7 +35,7 @@ class HelmError(RuntimeError):
 @dataclass
 class HelmAdapter:
     chart: str = QDRANT_CHART
-    repo: str = QDRANT_CHART_REPO
+    repo: str = field(default_factory=chart_repo_from_env)
     kubeconfig: str | None = None
     timeout_seconds: float = 600.0
 
@@ -35,9 +51,7 @@ class HelmAdapter:
             "upgrade",
             "--install",
             release_name,
-            self.chart,
-            "--repo",
-            self.repo,
+            *chart_arguments(self.chart, self.repo),
             "--version",
             chart_version,
             "--namespace",

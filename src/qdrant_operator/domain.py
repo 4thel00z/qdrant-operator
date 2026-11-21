@@ -1,6 +1,8 @@
 """Domain entities and value objects for the Qdrant operator."""
 
 import hashlib
+import json
+import math
 import re
 from collections.abc import Callable
 from collections.abc import Iterable
@@ -11,6 +13,7 @@ from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 from typing import cast
@@ -22,9 +25,15 @@ VERSION = "v1alpha1"
 API_VERSION = f"{GROUP}/{VERSION}"
 SCHEDULE_LABEL = f"{GROUP}/schedule"
 QDRANT_HTTP_PORT = 6333
+HOSTNAME_TOPOLOGY_KEY = "kubernetes.io/hostname"
+ZONE_TOPOLOGY_KEY = "topology.kubernetes.io/zone"
+CHART_NAME = "qdrant"
+STORAGE_CLAIM = "qdrant-storage"
+SNAPSHOT_CLAIM = "qdrant-snapshots"
 CLUSTER_DOMAIN = "cluster.local"
 MANIFEST_KEY = "manifest.json"
 AUTO_GENERATED_API_KEY_KEY = "api-key"
+AUTO_GENERATED_READ_ONLY_API_KEY_KEY = "read-only-api-key"
 TLS_MOUNT_PATH = "/qdrant/tls"
 
 JsonDict = dict[str, Any]
@@ -36,6 +45,11 @@ class ClusterPhase(StrEnum):
     FAILED = "Failed"
     UPGRADING = "Upgrading"
     TERMINATING = "Terminating"
+
+
+class ReclaimPolicy(StrEnum):
+    RETAIN = "Retain"
+    DELETE = "Delete"
 
 
 class BackupPhase(StrEnum):
@@ -113,6 +127,11 @@ def join_key(*parts: str) -> str:
     return "/".join(segment for part in parts for segment in part.split("/") if segment)
 
 
+def retry_delay(retry: int, base_seconds: float = 30.0, cap_seconds: float = 600.0) -> float:
+    """Exponential backoff for the nth retry of a handler, capped."""
+    return min(base_seconds * 2 ** max(retry, 0), cap_seconds)
+
+
 def format_size(size_bytes: int) -> str:
     size = float(size_bytes)
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -132,12 +151,45 @@ def format_time(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+def values_digest(version: str, values: Mapping[str, Any]) -> str:
+    """Fingerprint of what a helm upgrade would be given; equal digests mean nothing to apply."""
+    payload = json.dumps({"chart": version, "values": values}, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
 def release_name(cluster_name: str) -> str:
     return f"qdrant-{cluster_name}"
 
 
 def chart_version(version: str) -> str:
     return version.removeprefix("v")
+
+
+QUANTITY_PATTERN = re.compile(r"^([0-9]+(?:\.[0-9]+)?)(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)?$")
+QUANTITY_FACTORS = {
+    "": 1,
+    "Ki": 2**10,
+    "Mi": 2**20,
+    "Gi": 2**30,
+    "Ti": 2**40,
+    "Pi": 2**50,
+    "Ei": 2**60,
+    "k": 10**3,
+    "M": 10**6,
+    "G": 10**9,
+    "T": 10**12,
+    "P": 10**15,
+    "E": 10**18,
+}
+
+
+def parse_quantity(value: str) -> int:
+    """Bytes in a Kubernetes storage quantity such as 10Gi or 500M, rounded up."""
+    match = QUANTITY_PATTERN.match(value)
+    if not match:
+        raise ValueError(f"not a storage quantity: {value!r}")
+    number, suffix = match.groups()
+    return math.ceil(Decimal(number) * QUANTITY_FACTORS[suffix or ""])
 
 
 def drop_empty(values: Mapping[str, Any]) -> JsonDict:
@@ -199,6 +251,7 @@ class PersistenceSpec:
     size: str = "10Gi"
     storage_class: str | None = None
     access_modes: tuple[str, ...] = ("ReadWriteOnce",)
+    reclaim_policy: ReclaimPolicy = ReclaimPolicy.RETAIN
 
     @staticmethod
     def from_dict(data: Mapping[str, Any]) -> "PersistenceSpec":
@@ -206,7 +259,12 @@ class PersistenceSpec:
             size=data.get("size", PersistenceSpec.size),
             storage_class=data.get("storageClassName"),
             access_modes=tuple(data.get("accessModes", PersistenceSpec.access_modes)),
+            reclaim_policy=ReclaimPolicy(data.get("reclaimPolicy", ReclaimPolicy.RETAIN)),
         )
+
+    @property
+    def size_bytes(self) -> int:
+        return parse_quantity(self.size)
 
     def to_helm_values(self) -> JsonDict:
         return drop_empty(
@@ -231,6 +289,10 @@ class SnapshotPersistenceSpec:
             size=data.get("size", SnapshotPersistenceSpec.size),
             storage_class=data.get("storageClassName"),
         )
+
+    @property
+    def size_bytes(self) -> int:
+        return parse_quantity(self.size)
 
     def to_helm_values(self) -> JsonDict:
         return drop_empty(
@@ -269,10 +331,21 @@ class ApiKeySpec:
             jwt_rbac=data.get("jwtRbac", False),
         )
 
-    def to_helm_value(self) -> JsonDict | bool:
+    @property
+    def generated(self) -> bool:
+        return self.auto_generate and not self.secret_ref
+
+    def to_helm_value(self, generated_ref: SecretRef) -> JsonDict | bool:
+        """The user's secret, the operator-generated one, or false.
+
+        Never `true`: qdrant-helm then renders its random key twice on install, so the pod
+        checksum annotation matches no stored key and the first upgrade rolls every pod.
+        """
         if self.secret_ref:
             return self.secret_ref.to_helm_value_from()
-        return self.auto_generate
+        if self.auto_generate:
+            return generated_ref.to_helm_value_from()
+        return False
 
     def resolve_secret_ref(self, cluster_name: str, namespace: str) -> SecretRef | None:
         """Where the operator reads the key from: the user's secret or the chart-generated one."""
@@ -404,6 +477,102 @@ class DistributedSpec:
 
 
 @dataclass(frozen=True)
+class DisruptionBudgetSpec:
+    """PodDisruptionBudget of the cluster; unset `enabled` means on when there are replicas > 1."""
+
+    enabled: bool | None = None
+    max_unavailable: int | str | None = None
+    min_available: int | str | None = None
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "DisruptionBudgetSpec":
+        return DisruptionBudgetSpec(
+            enabled=data.get("enabled"),
+            max_unavailable=data.get("maxUnavailable"),
+            min_available=data.get("minAvailable"),
+        )
+
+    def to_helm_values(self, replicas: int) -> JsonDict:
+        enabled = replicas > 1 if self.enabled is None else self.enabled
+        if self.min_available is not None:
+            return {"enabled": enabled, "minAvailable": self.min_available, "maxUnavailable": None}
+        max_unavailable = 1 if self.max_unavailable is None else self.max_unavailable
+        return {"enabled": enabled, "maxUnavailable": max_unavailable}
+
+
+@dataclass(frozen=True)
+class TopologyRule:
+    enabled: bool = False
+    max_skew: int = 1
+    when_unsatisfiable: str = "ScheduleAnyway"
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any], enabled: bool) -> "TopologyRule":
+        return TopologyRule(
+            enabled=data.get("enabled", enabled),
+            max_skew=data.get("maxSkew", TopologyRule.max_skew),
+            when_unsatisfiable=data.get("whenUnsatisfiable", TopologyRule.when_unsatisfiable),
+        )
+
+    def constraint(self, topology_key: str, selector: Mapping[str, str]) -> JsonDict:
+        return {
+            "maxSkew": self.max_skew,
+            "topologyKey": topology_key,
+            "whenUnsatisfiable": self.when_unsatisfiable,
+            "labelSelector": {"matchLabels": dict(selector)},
+        }
+
+
+@dataclass(frozen=True)
+class TopologySpreadSpec:
+    """Spread of the pods across nodes (on by default) and zones (opt in)."""
+
+    hostname: TopologyRule = field(default_factory=lambda: TopologyRule(enabled=True))
+    zone: TopologyRule = field(default_factory=TopologyRule)
+    constraints: tuple[JsonDict, ...] | None = None
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "TopologySpreadSpec":
+        constraints = data.get("constraints")
+        return TopologySpreadSpec(
+            hostname=TopologyRule.from_dict(data.get("hostname", {}), enabled=True),
+            zone=TopologyRule.from_dict(data.get("zone", {}), enabled=False),
+            constraints=None if constraints is None else tuple[JsonDict, ...](constraints),
+        )
+
+    def to_helm_values(self, replicas: int, selector: Mapping[str, str]) -> list[JsonDict]:
+        """Explicit constraints win; generated ones only matter once there is more than one pod."""
+        if self.constraints is not None:
+            return [
+                {"labelSelector": {"matchLabels": dict(selector)}, **c} for c in self.constraints
+            ]
+        if replicas < 2:
+            return []
+        rules = (
+            (self.hostname, HOSTNAME_TOPOLOGY_KEY),
+            (self.zone, ZONE_TOPOLOGY_KEY),
+        )
+        return [rule.constraint(key, selector) for rule, key in rules if rule.enabled]
+
+
+@dataclass(frozen=True)
+class ScalingSpec:
+    """Opt-in peer management; with both off the operator only changes the replica count."""
+
+    drain_on_scale_down: bool = False
+    remove_dead_peers: bool = False
+    rebalance: bool = False
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "ScalingSpec":
+        return ScalingSpec(
+            drain_on_scale_down=data.get("drainOnScaleDown", False),
+            remove_dead_peers=data.get("removeDeadPeers", False),
+            rebalance=data.get("rebalance", False),
+        )
+
+
+@dataclass(frozen=True)
 class ClusterSpec:
     name: str
     namespace: str
@@ -421,6 +590,10 @@ class ClusterSpec:
     metrics: MetricsSpec = field(default_factory=MetricsSpec)
     scheduling: SchedulingSpec = field(default_factory=SchedulingSpec)
     pod_metadata: PodMetadataSpec = field(default_factory=PodMetadataSpec)
+    disruption_budget: DisruptionBudgetSpec = field(default_factory=DisruptionBudgetSpec)
+    topology_spread: TopologySpreadSpec = field(default_factory=TopologySpreadSpec)
+    scaling: ScalingSpec = field(default_factory=ScalingSpec)
+    min_ready_seconds: int = 0
     config: JsonDict = field(default_factory=dict[str, Any])
 
     @staticmethod
@@ -445,12 +618,63 @@ class ClusterSpec:
             metrics=MetricsSpec.from_dict(spec.get("metrics", {})),
             scheduling=SchedulingSpec.from_dict(spec),
             pod_metadata=PodMetadataSpec.from_dict(spec),
+            disruption_budget=DisruptionBudgetSpec.from_dict(spec.get("podDisruptionBudget", {})),
+            topology_spread=TopologySpreadSpec.from_dict(spec.get("topologySpread", {})),
+            scaling=ScalingSpec.from_dict(spec.get("scaling", {})),
+            min_ready_seconds=spec.get("minReadySeconds", 0),
             config=dict[str, Any](spec.get("config", {})),
         )
 
     @property
+    def generated_keys_secret(self) -> str:
+        return f"{self.release_name}-generated-keys"
+
+    @property
+    def chart_keys_secret(self) -> str:
+        return f"{self.release_name}-apikey"
+
+    def generated_key_ref(self, key: str) -> SecretRef:
+        return SecretRef(name=self.generated_keys_secret, key=key, namespace=self.namespace)
+
+    def generated_keys(self) -> tuple[str, ...]:
+        """Secret keys the operator generates instead of letting the chart do it."""
+        wanted = (
+            (self.api_key, AUTO_GENERATED_API_KEY_KEY),
+            (self.read_only_api_key, AUTO_GENERATED_READ_ONLY_API_KEY_KEY),
+        )
+        return tuple(key for spec, key in wanted if spec.generated)
+
+    @property
     def release_name(self) -> str:
         return release_name(self.name)
+
+    def claim_sizes(self) -> dict[str, str]:
+        """Requested size per volume claim template of the StatefulSet."""
+        sizes = {STORAGE_CLAIM: self.persistence.size}
+        if not self.snapshot_persistence.enabled:
+            return sizes
+        return {**sizes, SNAPSHOT_CLAIM: self.snapshot_persistence.size}
+
+    @property
+    def volume_selector(self) -> str:
+        return f"app.kubernetes.io/instance={self.release_name}"
+
+    def departed_claims(self, names: Iterable[str]) -> list[str]:
+        """Claims `<template>-<release>-<ordinal>` of ordinals at or beyond the replica count."""
+        pattern = re.compile(rf"^.+-{re.escape(self.release_name)}-([0-9]+)$")
+        return [
+            name
+            for name in names
+            if (match := pattern.match(name)) and int(match.group(1)) >= self.replicas
+        ]
+
+    @property
+    def pod_selector(self) -> JsonDict:
+        """Labels the qdrant-helm chart puts on the pods of this release."""
+        return {
+            "app.kubernetes.io/name": CHART_NAME,
+            "app.kubernetes.io/instance": self.release_name,
+        }
 
     @property
     def scheme(self) -> str:
@@ -493,14 +717,23 @@ class ClusterSpec:
             "persistence": self.persistence.to_helm_values(),
             "snapshotPersistence": self.snapshot_persistence.to_helm_values(),
             "service": self.service.to_helm_values(),
-            "apiKey": self.api_key.to_helm_value(),
-            "readOnlyApiKey": self.read_only_api_key.to_helm_value(),
+            "apiKey": self.api_key.to_helm_value(
+                self.generated_key_ref(AUTO_GENERATED_API_KEY_KEY)
+            ),
+            "readOnlyApiKey": self.read_only_api_key.to_helm_value(
+                self.generated_key_ref(AUTO_GENERATED_READ_ONLY_API_KEY_KEY)
+            ),
             "metrics": self.metrics.to_helm_values(),
             "nodeSelector": dict(self.scheduling.node_selector),
             "tolerations": list(self.scheduling.tolerations),
             "affinity": dict(self.scheduling.affinity),
             "podAnnotations": dict(self.pod_metadata.annotations),
             "podLabels": dict(self.pod_metadata.labels),
+            "podDisruptionBudget": self.disruption_budget.to_helm_values(self.replicas),
+            "topologySpreadConstraints": self.topology_spread.to_helm_values(
+                self.replicas, self.pod_selector
+            ),
+            "minReadySeconds": self.min_ready_seconds,
             "config": config,
         }
         return {**values, **self.tls_volumes()}
@@ -589,6 +822,10 @@ class ClusterStatus:
     version: str | None = None
     conditions: tuple[Condition, ...] = ()
     observed_generation: int | None = None
+    updated_replicas: int = 0
+    current_revision: str | None = None
+    update_revision: str | None = None
+    applied_hash: str | None = None
 
     @staticmethod
     def from_dict(data: Mapping[str, Any]) -> "ClusterStatus":
@@ -596,6 +833,10 @@ class ClusterStatus:
             phase=ClusterPhase(data.get("phase", ClusterPhase.PENDING)),
             replicas=data.get("replicas", 0),
             ready_replicas=data.get("readyReplicas", 0),
+            updated_replicas=data.get("updatedReplicas", 0),
+            current_revision=data.get("currentRevision"),
+            update_revision=data.get("updateRevision"),
+            applied_hash=data.get("appliedHash"),
             helm_release=data.get("helmRelease"),
             endpoint=data.get("endpoint"),
             version=data.get("version"),
@@ -608,6 +849,10 @@ class ClusterStatus:
             "phase": self.phase.value,
             "replicas": self.replicas,
             "readyReplicas": self.ready_replicas,
+            "updatedReplicas": self.updated_replicas,
+            "currentRevision": self.current_revision,
+            "updateRevision": self.update_revision,
+            "appliedHash": self.applied_hash,
             "helmRelease": self.helm_release,
             "endpoint": self.endpoint,
             "version": self.version,
@@ -620,6 +865,49 @@ class ClusterStatus:
 class StatefulSetStatus:
     replicas: int
     ready_replicas: int
+    updated_replicas: int = 0
+    current_revision: str | None = None
+    update_revision: str | None = None
+
+    @property
+    def rolling(self) -> bool:
+        """True while pods still run an older revision than the StatefulSet's target."""
+        return bool(self.update_revision) and self.current_revision != self.update_revision
+
+
+@dataclass(frozen=True)
+class VolumeClaim:
+    name: str
+    size: str
+
+
+@dataclass(frozen=True)
+class VolumePlan:
+    """What a spec change asks of the volumes: PVCs to grow and whether the template changes."""
+
+    grow: tuple[tuple[str, str], ...] = ()
+    recreate: bool = False
+
+
+def plan_volumes(desired: Mapping[str, str], live_templates: Mapping[str, str]) -> VolumePlan:
+    """Compare desired claim sizes with the StatefulSet's volume claim templates.
+
+    Growing is allowed; shrinking is a ValueError. Any difference in the claim set or sizes
+    means the immutable template has to be recreated (the StatefulSet orphan-deleted).
+    """
+    shrunk = [
+        name
+        for name, size in desired.items()
+        if name in live_templates and parse_quantity(size) < parse_quantity(live_templates[name])
+    ]
+    if shrunk:
+        raise ValueError(f"volume claims cannot shrink: {', '.join(sorted(shrunk))}")
+    grow = tuple(
+        (name, size)
+        for name, size in desired.items()
+        if name in live_templates and parse_quantity(size) > parse_quantity(live_templates[name])
+    )
+    return VolumePlan(grow=grow, recreate=bool(grow) or set(desired) != set(live_templates))
 
 
 @dataclass(frozen=True)
@@ -628,6 +916,15 @@ class Snapshot:
     collection: str
     size_bytes: int
     checksum: str | None = None
+
+
+@dataclass(frozen=True)
+class SnapshotInfo:
+    """A snapshot as a node lists it."""
+
+    name: str
+    created_at: datetime | None
+    size_bytes: int
 
 
 @dataclass(frozen=True)
@@ -890,6 +1187,28 @@ class CollectionBackupStatus:
 
 
 @dataclass(frozen=True)
+class InProgressSnapshot:
+    """The node snapshot a backup is streaming right now."""
+
+    node_index: int
+    collection: str
+    snapshot: str
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "InProgressSnapshot | None":
+        if not data:
+            return None
+        return InProgressSnapshot(data["nodeIndex"], data["collection"], data["snapshot"])
+
+    def to_dict(self) -> JsonDict:
+        return {
+            "nodeIndex": self.node_index,
+            "collection": self.collection,
+            "snapshot": self.snapshot,
+        }
+
+
+@dataclass(frozen=True)
 class BackupStatus:
     phase: BackupPhase
     start_time: datetime | None = None
@@ -900,6 +1219,7 @@ class BackupStatus:
     collections: tuple[CollectionBackupStatus, ...] = ()
     error: str | None = None
     conditions: tuple[Condition, ...] = ()
+    in_progress_snapshot: InProgressSnapshot | None = None
 
     @staticmethod
     def from_dict(data: Mapping[str, Any]) -> "BackupStatus":
@@ -912,11 +1232,15 @@ class BackupStatus:
             total_size=data.get("totalSize"),
             error=data.get("error"),
             conditions=tuple(conditions_from_dict(data)),
+            in_progress_snapshot=InProgressSnapshot.from_dict(data.get("inProgressSnapshot") or {}),
         )
 
     def to_dict(self) -> JsonDict:
         return {
             "phase": self.phase.value,
+            "inProgressSnapshot": (
+                self.in_progress_snapshot.to_dict() if self.in_progress_snapshot else None
+            ),
             "startTime": format_time(self.start_time) if self.start_time else None,
             "completionTime": (format_time(self.completion_time) if self.completion_time else None),
             "expiresAt": format_time(self.expires_at) if self.expires_at else None,
@@ -956,14 +1280,22 @@ class RetentionPolicy:
         )
 
     def expired(self, backups: Iterable["BackupRecord"]) -> list["BackupRecord"]:
-        """Backups no bucket of the policy keeps, newest-first grandfather-father-son selection."""
+        """Backups no bucket of the policy keeps, newest-first grandfather-father-son selection.
+
+        Buckets count completed backups only. Of the failed ones, only the newest is kept,
+        and only while no completed backup is newer.
+        """
         if not self.configured:
             return []
         ordered = sorted(backups, key=lambda b: b.creation_time, reverse=True)
-        keep = {b.name for b in ordered[: self.keep_last or 0]}
-        keep |= newest_per_bucket(ordered, self.keep_daily, lambda t: t.strftime("%Y-%m-%d"))
-        keep |= newest_per_bucket(ordered, self.keep_weekly, lambda t: t.strftime("%G-W%V"))
-        keep |= newest_per_bucket(ordered, self.keep_monthly, lambda t: t.strftime("%Y-%m"))
+        completed = [b for b in ordered if b.phase == BackupPhase.COMPLETED]
+        keep = {b.name for b in completed[: self.keep_last or 0]}
+        keep |= newest_per_bucket(completed, self.keep_daily, lambda t: t.strftime("%Y-%m-%d"))
+        keep |= newest_per_bucket(completed, self.keep_weekly, lambda t: t.strftime("%G-W%V"))
+        keep |= newest_per_bucket(completed, self.keep_monthly, lambda t: t.strftime("%Y-%m"))
+        latest = ordered[0] if ordered else None
+        if latest and latest.phase != BackupPhase.COMPLETED:
+            keep.add(latest.name)
         return [b for b in ordered if b.name not in keep]
 
 
@@ -1028,6 +1360,7 @@ class BackupScheduleSpec:
     suspend: bool = False
     concurrency_policy: ConcurrencyPolicy = ConcurrencyPolicy.FORBID
     starting_deadline_seconds: int | None = None
+    delete_backups_with_schedule: bool = False
 
     @staticmethod
     def from_dict(spec: Mapping[str, Any], meta: Mapping[str, Any]) -> "BackupScheduleSpec":
@@ -1043,6 +1376,7 @@ class BackupScheduleSpec:
             suspend=spec.get("suspend", False),
             concurrency_policy=ConcurrencyPolicy(spec.get("concurrencyPolicy", "Forbid")),
             starting_deadline_seconds=spec.get("startingDeadlineSeconds"),
+            delete_backups_with_schedule=spec.get("deleteBackupsWithSchedule", False),
         )
 
     @property
@@ -1070,24 +1404,25 @@ class BackupScheduleSpec:
         return slot
 
     def to_backup_resource(self, backup_name: str, owner: Mapping[str, Any]) -> JsonDict:
-        """Body of the QdrantBackup this schedule spawns; owned by the schedule for GC."""
+        """Body of the QdrantBackup this schedule spawns.
+
+        Owned by the schedule (and garbage-collected with it) only when
+        deleteBackupsWithSchedule is set; otherwise backups outlive the schedule.
+        """
         spec: JsonDict = {
             "clusterRef": self.cluster_ref.to_dict(),
             "storage": {"s3": self.storage.to_dict()},
         }
         if self.collections:
             spec["collections"] = list(self.collections)
-        return {
-            "apiVersion": API_VERSION,
-            "kind": BACKUPS.kind,
-            "metadata": {
-                "name": backup_name,
-                "namespace": self.namespace,
-                "labels": {SCHEDULE_LABEL: self.name},
-                "ownerReferences": [owner_reference(owner)],
-            },
-            "spec": spec,
+        metadata: JsonDict = {
+            "name": backup_name,
+            "namespace": self.namespace,
+            "labels": {SCHEDULE_LABEL: self.name},
         }
+        if self.delete_backups_with_schedule:
+            metadata["ownerReferences"] = [owner_reference(owner)]
+        return {"apiVersion": API_VERSION, "kind": BACKUPS.kind, "metadata": metadata, "spec": spec}
 
 
 def owner_reference(owner: Mapping[str, Any]) -> JsonDict:
@@ -1184,6 +1519,7 @@ class RestoreSpec:
     collection_mapping: Mapping[str, str] = field(default_factory=dict[str, str])
     priority: RestorePriority = RestorePriority.SNAPSHOT
     wait_for_indexing: bool = True
+    indexing_timeout_seconds: float = 3600.0
 
     @staticmethod
     def from_dict(spec: Mapping[str, Any], meta: Mapping[str, Any]) -> "RestoreSpec":
@@ -1202,6 +1538,7 @@ class RestoreSpec:
             collection_mapping=dict[str, str](spec.get("collectionMapping", {})),
             priority=RestorePriority(spec.get("priority", RestorePriority.SNAPSHOT)),
             wait_for_indexing=spec.get("waitForIndexing", True),
+            indexing_timeout_seconds=float(spec.get("indexingTimeoutSeconds", 3600)),
         )
 
     def target_name(self, collection: str) -> str:
@@ -1209,6 +1546,22 @@ class RestoreSpec:
 
     def select_collections(self, available: Iterable[str]) -> tuple[str, ...]:
         return select_collections(self.collections, available, "backup")
+
+
+def indexing_timeout_message(spec: RestoreSpec, collection: str, info: Mapping[str, Any]) -> str:
+    message = (
+        f"Collection {collection} did not turn green within "
+        f"{spec.indexing_timeout_seconds:g}s (status {info.get('status')})"
+    )
+    optimizers: Mapping[str, Any] = info.get("config", {}).get("optimizer_config") or {}
+    disabled = [
+        f"optimizer_config.{key}"
+        for key in ("indexing_threshold", "max_optimization_threads")
+        if optimizers.get(key) == 0
+    ]
+    if not disabled:
+        return message
+    return f"{message}; indexing is disabled in the restored config ({', '.join(disabled)} is 0)"
 
 
 @dataclass(frozen=True)
@@ -1310,6 +1663,75 @@ def is_subset(desired: Any, actual: Any) -> bool:
     if desired is False and actual is None:
         return True
     return bool(desired == actual)
+
+
+@dataclass(frozen=True)
+class ResetGroup:
+    """A PATCH-able config block and the values Qdrant falls back to when the spec drops a field.
+
+    `defaults` maps a field to (value to PATCH, value the live config reports at default).
+    Fields Qdrant cannot unset (a null diff means "unchanged") are left out.
+    """
+
+    patch_key: str
+    live_key: str
+    defaults: Mapping[str, tuple[Any, Any]]
+
+
+def live_optimizers(config: Mapping[str, Any]) -> JsonDict | None:
+    """The live optimizer config with Qdrant's null max_optimization_threads read as "auto"."""
+    optimizers: JsonDict | None = config.get("optimizer_config")
+    if not optimizers or optimizers.get("max_optimization_threads") is not None:
+        return optimizers
+    return {**optimizers, "max_optimization_threads": "auto"}
+
+
+RESET_GROUPS: Mapping[str, ResetGroup] = {
+    "optimizers": ResetGroup(
+        "optimizers_config",
+        "optimizer_config",
+        {
+            "deleted_threshold": (0.2, 0.2),
+            "vacuum_min_vector_number": (1000, 1000),
+            "default_segment_number": (0, 0),
+            "indexing_threshold": (10000, 10000),
+            "flush_interval_sec": (5, 5),
+            "max_optimization_threads": ("auto", None),
+        },
+    ),
+    "hnsw": ResetGroup(
+        "hnsw_config",
+        "hnsw_config",
+        {
+            "m": (16, 16),
+            "ef_construct": (100, 100),
+            "full_scan_threshold": (10000, 10000),
+            "max_indexing_threads": (0, 0),
+            "on_disk": (False, False),
+        },
+    ),
+    "params": ResetGroup(
+        "params",
+        "params",
+        {
+            "replication_factor": (1, 1),
+            "write_consistency_factor": (1, 1),
+            "on_disk_payload": (True, True),
+        },
+    ),
+    "quantization": ResetGroup(
+        "quantization_config", "quantization_config", {"quantization": ("Disabled", None)}
+    ),
+    "strict_mode": ResetGroup(
+        "strict_mode_config", "strict_mode_config", {"enabled": (False, False)}
+    ),
+}
+
+
+def at_default(live: Any, default: Any) -> bool:
+    if default is False:
+        return not live
+    return bool(live == default)
 
 
 @dataclass(frozen=True)
@@ -1545,11 +1967,44 @@ class CollectionSpec:
             }
         )
 
-    def update_body(self, config: Mapping[str, Any]) -> JsonDict:
+    def declared_fields(self) -> dict[str, tuple[str, ...]]:
+        """Fields per resettable group that the spec sets; recorded in status once applied."""
+        groups: dict[str, Any] = {
+            "optimizers": drop_empty(self.optimizers),
+            "hnsw": drop_empty(self.hnsw),
+            "params": self.collection_params(),
+            "quantization": {"quantization": True} if self.quantization else {},
+            "strict_mode": drop_empty(self.strict_mode),
+        }
+        return {group: tuple(sorted(fields)) for group, fields in groups.items() if fields}
+
+    def resets(
+        self, config: Mapping[str, Any], applied: Mapping[str, tuple[str, ...]]
+    ) -> dict[str, JsonDict]:
+        """Fields applied earlier, no longer declared and off Qdrant's default, by PATCH key."""
+        declared = self.declared_fields()
+        resets: dict[str, JsonDict] = {}
+        for group, reset_group in RESET_GROUPS.items():
+            live: Mapping[str, Any] = config.get(reset_group.live_key) or {}
+            for name in applied.get(group, ()):
+                default = reset_group.defaults.get(name)
+                if not default or name in declared.get(group, ()):
+                    continue
+                if group == "quantization" and not config.get(reset_group.live_key):
+                    continue
+                if group != "quantization" and at_default(live.get(name), default[1]):
+                    continue
+                resets.setdefault(reset_group.patch_key, {})[name] = default[0]
+        return resets
+
+    def update_body(
+        self, config: Mapping[str, Any], resets: Mapping[str, JsonDict] | None = None
+    ) -> JsonDict:
         """Body of PATCH /collections/{name}: only the declared blocks the live config misses.
 
         Sending a block Qdrant already satisfies is not free: optimizers_config blocks until
-        running optimizations finish, so an unchanged block is left out.
+        running optimizations finish, so an unchanged block is left out. `resets` adds the
+        default values of fields the spec stopped declaring.
         """
         live_params: Mapping[str, Any] = config.get("params", {})
         blocks: dict[str, tuple[Any, Any]] = {
@@ -1557,7 +2012,7 @@ class CollectionSpec:
             "sparse_vectors": (self.sparse_config(), live_params.get("sparse_vectors")),
             "params": (self.collection_params() or None, live_params),
             "hnsw_config": (self.hnsw or None, config.get("hnsw_config")),
-            "optimizers_config": (self.optimizers or None, config.get("optimizer_config")),
+            "optimizers_config": (self.optimizers or None, live_optimizers(config)),
             "quantization_config": (self.quantization or None, config.get("quantization_config")),
             "strict_mode_config": (self.strict_mode or None, config.get("strict_mode_config")),
             "metadata": (self.metadata or None, config.get("metadata")),
@@ -1571,6 +2026,12 @@ class CollectionSpec:
             body["vectors"] = {
                 v.key: v.mutable_params() for v in self.vectors if v.mutable_params()
             }
+        for key, fields in (resets or {}).items():
+            body[key] = (
+                fields["quantization"]
+                if key == "quantization_config"
+                else {**fields, **body.get(key, {})}
+            )
         return body
 
     def immutable_config(self) -> JsonDict:
@@ -1620,6 +2081,9 @@ class CollectionStatus:
     error: str | None = None
     observed_generation: int | None = None
     conditions: tuple[Condition, ...] = ()
+    applied_fields: Mapping[str, tuple[str, ...]] = field(
+        default_factory=dict[str, tuple[str, ...]]
+    )
 
     @staticmethod
     def from_dict(data: Mapping[str, Any]) -> "CollectionStatus":
@@ -1636,6 +2100,11 @@ class CollectionStatus:
             error=data.get("error"),
             observed_generation=data.get("observedGeneration"),
             conditions=tuple(conditions_from_dict(data)),
+            applied_fields={
+                group: tuple(names)
+                for group, names in data.get("appliedFields", {}).items()
+                if names
+            },
         )
 
     def to_dict(self) -> JsonDict:
@@ -1649,6 +2118,9 @@ class CollectionStatus:
             "payloadIndexes": list(self.payload_indexes),
             "aliases": list(self.aliases),
             "shardKeys": list(self.shard_keys),
+            "appliedFields": {
+                group: list(self.applied_fields.get(group, ())) for group in RESET_GROUPS
+            },
             "error": self.error,
             "observedGeneration": self.observed_generation,
             "conditions": [c.to_dict() for c in self.conditions],
@@ -1935,6 +2407,8 @@ class MigrationSpec:
     collection_mapping: Mapping[str, str] = field(default_factory=dict[str, str])
     batch_size: int = 256
     batch_delay_ms: int = 0
+    checkpoint_batches: int = 20
+    verify_passes: int = 1
     create_missing: bool = True
     ensure_payload_indexes: bool = True
     target: TargetOverrides = field(default_factory=TargetOverrides)
@@ -1951,6 +2425,8 @@ class MigrationSpec:
             collection_mapping=dict[str, str](spec.get("collectionMapping", {})),
             batch_size=spec.get("batchSize", 256),
             batch_delay_ms=spec.get("batchDelayMs", 0),
+            checkpoint_batches=spec.get("checkpointBatches", MigrationSpec.checkpoint_batches),
+            verify_passes=spec.get("verifyPasses", MigrationSpec.verify_passes),
             create_missing=spec.get("createMissing", True),
             ensure_payload_indexes=spec.get("ensurePayloadIndexes", True),
             target=TargetOverrides.from_dict(spec.get("target", {})),
@@ -2031,6 +2507,10 @@ class CollectionMigration:
     points_copied: int = 0
     offset: Any = None
     error: str | None = None
+    verify_pass: int = 0
+    source_count: int | None = None
+    target_count: int | None = None
+    message: str | None = None
 
     @staticmethod
     def from_dict(data: Mapping[str, Any]) -> "CollectionMigration":
@@ -2042,6 +2522,10 @@ class CollectionMigration:
             points_copied=data.get("pointsCopied", 0),
             offset=data.get("offset"),
             error=data.get("error"),
+            verify_pass=data.get("verifyPass", 0),
+            source_count=data.get("sourceCount"),
+            target_count=data.get("targetCount"),
+            message=data.get("message"),
         )
 
     def to_dict(self) -> JsonDict:
@@ -2053,6 +2537,10 @@ class CollectionMigration:
             "pointsCopied": self.points_copied,
             "offset": self.offset,
             "error": self.error,
+            "verifyPass": self.verify_pass,
+            "sourceCount": self.source_count,
+            "targetCount": self.target_count,
+            "message": self.message,
         }
 
 

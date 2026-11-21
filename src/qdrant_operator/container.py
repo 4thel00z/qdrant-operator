@@ -8,6 +8,7 @@ from qdrant_operator.jwt_adapter import JwtAdapter
 from qdrant_operator.kubernetes_adapter import KubernetesAdapter
 from qdrant_operator.qdrant_adapter import QdrantAdapter
 from qdrant_operator.s3_adapter import S3Adapter
+from qdrant_operator.usecases import CleanupBackupSnapshots
 from qdrant_operator.usecases import DeleteBackupData
 from qdrant_operator.usecases import DeleteCluster
 from qdrant_operator.usecases import DeleteCollection
@@ -18,8 +19,10 @@ from qdrant_operator.usecases import ExpireBackup
 from qdrant_operator.usecases import IssueAccessKey
 from qdrant_operator.usecases import ObserveCluster
 from qdrant_operator.usecases import ProcessSchedule
+from qdrant_operator.usecases import RebalanceShards
 from qdrant_operator.usecases import ReconcileCluster
 from qdrant_operator.usecases import ReconcileCollection
+from qdrant_operator.usecases import RecoverDeadPeers
 
 
 @dataclass
@@ -31,16 +34,25 @@ class Container:
     token: JwtAdapter = field(default_factory=JwtAdapter)
 
     def reconcile_cluster(self) -> ReconcileCluster:
-        return ReconcileCluster(helm=self.helm)
+        return ReconcileCluster(helm=self.helm, kubernetes=self.kubernetes, qdrant=self.qdrant)
 
     def observe_cluster(self) -> ObserveCluster:
         return ObserveCluster(kubernetes=self.kubernetes)
 
+    def recover_dead_peers(self) -> RecoverDeadPeers:
+        return RecoverDeadPeers(qdrant=self.qdrant, kubernetes=self.kubernetes)
+
+    def rebalance_shards(self) -> RebalanceShards:
+        return RebalanceShards(qdrant=self.qdrant, kubernetes=self.kubernetes)
+
     def delete_cluster(self) -> DeleteCluster:
-        return DeleteCluster(helm=self.helm)
+        return DeleteCluster(helm=self.helm, kubernetes=self.kubernetes)
 
     def execute_backup(self) -> ExecuteBackup:
         return ExecuteBackup(qdrant=self.qdrant, storage=self.storage, kubernetes=self.kubernetes)
+
+    def cleanup_backup_snapshots(self) -> CleanupBackupSnapshots:
+        return CleanupBackupSnapshots(qdrant=self.qdrant, kubernetes=self.kubernetes)
 
     def delete_backup_data(self) -> DeleteBackupData:
         return DeleteBackupData(storage=self.storage, kubernetes=self.kubernetes)

@@ -16,18 +16,42 @@ Fields that change the pod template roll the pods: `version`, `image`,
 
 ## What cannot change
 
-`persistence.size` and `persistence.storageClassName` are rejected by the
-API server, because a StatefulSet's volume claim template cannot change.
-Expand the PVCs in place if the storage class allows it, or take a
-[backup](./backups.md) and [restore](./restore.md) into a new cluster.
+`persistence.storageClassName` is rejected by the API server, and so is a
+smaller `persistence.size` or `snapshotPersistence.size`. Larger sizes are
+applied by the operator (see [persistence](./cluster.md#persistence)). To
+change the storage class, take a [backup](./backups.md) and
+[restore](./restore.md) into a new cluster.
 
 `replicas > 1` with `cluster.enabled: false` is rejected as well.
 
-`snapshotPersistence` is a second volume claim template in the chart's
-StatefulSet, so it is just as immutable, but the CRD does not guard it:
-turning it on or off on an existing cluster makes `helm upgrade` fail and
-the reconcile retry until the spec is reverted. Decide on it when creating
-the cluster.
+Enabling or disabling `snapshotPersistence` changes the StatefulSet's claim
+templates; the operator recreates the StatefulSet (pods kept) before the
+Helm upgrade.
+
+## Operator restarts
+
+The operator stores a digest of the chart version and rendered values in
+`status.appliedHash`. When it restarts it runs the Helm upgrade only for
+clusters whose digest changed, so a restart no longer adds a Helm revision to
+every cluster or rolls pods. Clusters created before this version have no
+digest and get one more upgrade.
+
+With `apiKey.autoGenerate` the operator, not the chart, generates the key: it
+writes it into the Secret `qdrant-<name>-generated-keys` and passes it to the
+chart by reference. The chart's own generator calls `randAlphaNum` once per
+render, so its `checksum/secret` annotation never matched the stored key and
+the first upgrade after install rolled every pod. A key the chart already
+generated in `qdrant-<name>-apikey` is copied over, so existing clients keep
+working; the switch rolls the pods once.
+
+## Rolling progress
+
+`status.updatedReplicas`, `currentRevision` and `updateRevision` mirror the
+StatefulSet, the `Ready` condition reports `rolling update N/M updated` and
+the phase stays out of `Running` until every pod runs the new revision. Under
+write load each pod takes minutes to become Ready; set `minReadySeconds` to
+pace the roll and keep client retries on for the UNAVAILABLE errors a stopping
+pod produces.
 
 ## Upgrading Qdrant
 
@@ -46,10 +70,10 @@ major one. Downgrades are not guaranteed.
 
 Raising `replicas` adds pods that join the cluster through the p2p port and
 start empty. Qdrant does not rebalance existing shards onto them by itself;
-use the cluster API to move shards or set `replicationFactor` on your
-collections so new replicas are created. Lowering `replicas` removes the
-highest ordinals; move their shards away first, or the collections holding
-them turn yellow or red.
+set `scaling.rebalance: true` to have the operator move replicas onto them.
+Lowering `replicas` removes the highest ordinals; with
+`scaling.drainOnScaleDown: true` the operator moves their shards away first,
+otherwise the collections holding them turn yellow or red.
 
 A `QdrantCollection` with `shardNumber` unset lets Qdrant pick the shard
 count at creation time from the node count then, and the number never

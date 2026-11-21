@@ -60,13 +60,16 @@ resource.
 1. The operator resolves the cluster: its Service URL, one URL per
    StatefulSet pod, the API key and the CA certificate. A missing cluster or
    Secret is retried every thirty seconds rather than failed.
-2. The phase moves to `InProgress` with `startTime`.
+2. The phase moves to `InProgress` with `startTime`. After a restart the
+   original `startTime` is kept. Before snapshotting, the operator deletes on
+   every node the snapshots of the backup's collections created at or after
+   `startTime`, which can only be leftovers of the interrupted attempt.
 3. For each collection, for each node in ordinal order: `POST
    /collections/<c>/snapshots?wait=true` on that node, then `GET` the snapshot
    as a stream into a multipart upload at
    `<prefix>/<backup>/<collection>/node-<i>/<snapshot>`, then `DELETE` the
    snapshot on the node. The node-local snapshot is deleted even when the
-   upload fails.
+   upload fails. `status.inProgressSnapshot` names it while it is streamed.
 4. `manifest.json` is written at `<prefix>/<backup>/` listing the completed
    collections, their snapshots, sizes and checksums, and the node count.
 5. The phase becomes `Completed`, or `Failed` when any collection failed.
@@ -80,6 +83,9 @@ the handler and the backup is taken again from the start. Snapshot names
 carry Qdrant's timestamp, so the second run writes new objects and only
 `manifest.json` is overwritten; the first run's partial objects stay under
 the same root until the resource is deleted, when everything under it goes.
+The first run's node snapshots are deleted when the second starts. Do not
+create other snapshots of the same collections by hand while a backup runs:
+a snapshot made after `startTime` is treated as a leftover.
 
 ## Consistency
 
@@ -95,11 +101,15 @@ many days. A timer checks every five minutes and deletes the resource once
 the time has passed.
 
 Deleting a `QdrantBackup`, by hand, by expiry or by a schedule's retention,
-deletes every object under `<prefix>/<backup>/` in the bucket. When the
-credentials Secret is gone at that point, the operator logs a warning and
-leaves the objects in place. To keep the data but drop the resource, copy
-the objects first, or point a later `QdrantRestore` at their path through
-`source.s3`.
+deletes every object under `<prefix>/<backup>/` in the bucket and aborts
+unfinished multipart uploads there, which an upload cut off by an operator
+restart leaves behind and the bucket still bills for. A re-run backup aborts
+them as well before it uploads again. When the credentials Secret is gone at
+that point, the operator logs a warning and leaves the objects in place.
+Deleting a backup that did not complete also deletes the node snapshots it
+left behind, by the same `startTime` rule. To keep the data but drop the
+resource, copy the objects first, or point a later `QdrantRestore` at their
+path through `source.s3`.
 
 ## Cross-namespace clusters
 

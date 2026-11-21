@@ -31,6 +31,7 @@ from qdrant_operator.domain import CollectionPhase
 from qdrant_operator.domain import CollectionSpec
 from qdrant_operator.domain import CollectionStatus
 from qdrant_operator.domain import ConditionStatus
+from qdrant_operator.domain import InProgressSnapshot
 from qdrant_operator.domain import JsonDict
 from qdrant_operator.domain import MigrationPhase
 from qdrant_operator.domain import MigrationSpec
@@ -44,6 +45,7 @@ from qdrant_operator.domain import SchedulePhase
 from qdrant_operator.domain import StatefulSetStatus
 from qdrant_operator.domain import format_time
 from qdrant_operator.jwt_adapter import JwtAdapter
+from qdrant_operator.usecases import CleanupBackupSnapshots
 from qdrant_operator.usecases import ClusterNotFoundError
 from qdrant_operator.usecases import DeleteBackupData
 from qdrant_operator.usecases import DeleteCluster
@@ -118,13 +120,13 @@ async def test_reconcile_applies_release_and_reports_pending_then_upgrading() ->
     spec = ClusterSpec.from_dict(
         {"version": "v1.16.3", "replicas": 2}, {"name": "db", "namespace": NS}
     )
-    use_case = ReconcileCluster(helm)
+    use_case = ReconcileCluster(helm, FakeKubernetes(clock=NOW), FakeQdrant())
 
     first = await use_case.execute(spec, 1, ClusterStatus(ClusterPhase.PENDING))
-    second = await use_case.execute(spec, 2, first)
+    second = await use_case.execute(replace(spec, replicas=3), 2, first)
 
     assert helm.releases[(NS, "qdrant-db")]["chartVersion"] == "1.16.3"
-    assert helm.releases[(NS, "qdrant-db")]["values"]["replicaCount"] == 2
+    assert helm.releases[(NS, "qdrant-db")]["values"]["replicaCount"] == 3
     assert (first.phase, second.phase) == (ClusterPhase.PENDING, ClusterPhase.UPGRADING)
     assert second.observed_generation == 2
     assert second.helm_release == "qdrant-db"
@@ -147,13 +149,37 @@ async def test_observe_lifts_statefulset_readiness_into_status(kubernetes: FakeK
     assert conditions == {"Ready": ConditionStatus.TRUE, "Progressing": ConditionStatus.FALSE}
 
 
-async def test_delete_cluster_only_uninstalls_existing_release() -> None:
+async def test_delete_cluster_only_uninstalls_existing_release(
+    kubernetes: FakeKubernetes,
+) -> None:
     helm = FakeHelm()
     spec = ClusterSpec.from_dict({"version": "1.16.3"}, {"name": "db", "namespace": NS})
-    await DeleteCluster(helm).execute(spec)
+    kubernetes.volume_claims[NS] = {"qdrant-storage-qdrant-db-0": "10Gi"}
+    await DeleteCluster(helm, kubernetes).execute(spec)
     await helm.apply("qdrant-db", NS, "1.16.3", {})
-    await DeleteCluster(helm).execute(spec)
+    await DeleteCluster(helm, kubernetes).execute(spec)
     assert helm.releases == {}
+    assert kubernetes.volume_claims[NS] == {"qdrant-storage-qdrant-db-0": "10Gi"}
+
+
+async def test_delete_cluster_deletes_volume_claims_when_asked(
+    kubernetes: FakeKubernetes,
+) -> None:
+    helm = FakeHelm()
+    spec = ClusterSpec.from_dict(
+        {"version": "1.16.3", "persistence": {"reclaimPolicy": "Delete"}},
+        {"name": "db", "namespace": NS},
+    )
+    await helm.apply("qdrant-db", NS, "1.16.3", {})
+    kubernetes.volume_claims[NS] = {
+        "qdrant-storage-qdrant-db-0": "10Gi",
+        "qdrant-snapshots-qdrant-db-0": "10Gi",
+    }
+
+    await DeleteCluster(helm, kubernetes).execute(spec)
+
+    assert helm.releases == {}
+    assert kubernetes.volume_claims[NS] == {}
 
 
 async def test_resolve_cluster_reads_api_key_and_lists_every_node(
@@ -211,6 +237,105 @@ async def test_backup_marks_failed_collection_and_keeps_the_rest(
     assert [c["name"] for c in manifest["collections"]] == ["docs"]
 
 
+def interrupted_status(started: datetime) -> BackupStatus:
+    return BackupStatus(BackupPhase.IN_PROGRESS, start_time=started)
+
+
+def seed_snapshots(qdrant: FakeQdrant, started: datetime) -> None:
+    qdrant.add_snapshot(node_url(0), "docs", "old.snapshot", started - timedelta(hours=1))
+    qdrant.add_snapshot(node_url(0), "docs", "leftover-0.snapshot", started + timedelta(minutes=5))
+    qdrant.add_snapshot(
+        node_url(1), "images", "leftover-1.snapshot", started + timedelta(minutes=9)
+    )
+
+
+async def test_backup_rerun_after_crash_deletes_leftovers_keeps_start_time_and_completes(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    started = datetime.now(UTC) - timedelta(minutes=30)
+    seed_snapshots(qdrant, started)
+    storage = FakeStorage()
+    storage.uploads = {("bucket", "backups/nightly/docs/node-0/interrupted.snapshot")}
+    spec = backup_spec()
+
+    status = await ExecuteBackup(qdrant, storage, kubernetes).execute(
+        spec, ResourceRef(BACKUPS, spec.name, NS), interrupted_status(started)
+    )
+
+    assert storage.uploads == set()
+    assert status.phase == BackupPhase.COMPLETED
+    assert status.start_time == started
+    assert status.in_progress_snapshot is None
+    assert kubernetes.status_patches[0][1]["startTime"] == format_time(started)
+    assert [name for (_, _, name) in qdrant.snapshots] == ["old.snapshot"]
+    assert kubernetes.status_patches[-1][1]["inProgressSnapshot"] is None
+
+
+async def test_backup_records_in_progress_snapshot_while_streaming(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    spec = backup_spec(collections=["docs"])
+
+    await ExecuteBackup(qdrant, FakeStorage(), kubernetes).execute(
+        spec, ResourceRef(BACKUPS, spec.name, NS)
+    )
+
+    markers = [
+        p["inProgressSnapshot"]
+        for _, p in kubernetes.status_patches[1:]
+        if "inProgressSnapshot" in p
+    ]
+    assert markers[0] == {"nodeIndex": 0, "collection": "docs", "snapshot": "docs-1.snapshot"}
+    assert markers[-1] is None
+
+
+async def test_backup_rerun_deletes_the_recorded_snapshot_even_if_listed_before_start(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    started = datetime.now(UTC)
+    qdrant.add_snapshot(node_url(1), "docs", "marked.snapshot", started - timedelta(minutes=1))
+    previous = BackupStatus(
+        BackupPhase.IN_PROGRESS,
+        start_time=started,
+        in_progress_snapshot=InProgressSnapshot(1, "docs", "marked.snapshot"),
+    )
+    spec = backup_spec(collections=["docs"])
+
+    await ExecuteBackup(qdrant, FakeStorage(), kubernetes).execute(
+        spec, ResourceRef(BACKUPS, spec.name, NS), previous
+    )
+
+    assert qdrant.snapshots == {}
+
+
+async def test_cleanup_of_incomplete_backup_deletes_only_snapshots_since_start(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    started = datetime.now(UTC) - timedelta(minutes=30)
+    seed_snapshots(qdrant, started)
+    qdrant.add_collection(service_url(), "docs")
+    qdrant.add_collection(service_url(), "images")
+
+    deleted = await CleanupBackupSnapshots(qdrant, kubernetes).execute(
+        backup_spec(), interrupted_status(started)
+    )
+
+    assert deleted == 2
+    assert [name for (_, _, name) in qdrant.snapshots] == ["old.snapshot"]
+
+
+async def test_cleanup_skips_completed_and_unstarted_backups(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    started = datetime.now(UTC) - timedelta(minutes=30)
+    seed_snapshots(qdrant, started)
+    cleanup = CleanupBackupSnapshots(qdrant, kubernetes)
+
+    assert await cleanup.execute(backup_spec(), BackupStatus(BackupPhase.COMPLETED, started)) == 0
+    assert await cleanup.execute(backup_spec(), BackupStatus(BackupPhase.PENDING)) == 0
+    assert len(qdrant.snapshots) == 3
+
+
 async def test_delete_backup_data_removes_only_that_backup_prefix(
     kubernetes: FakeKubernetes,
 ) -> None:
@@ -218,11 +343,16 @@ async def test_delete_backup_data_removes_only_that_backup_prefix(
     storage.objects[("bucket", "backups/nightly/manifest.json")] = b"{}"
     storage.objects[("bucket", "backups/nightly/docs/node-0/a.snapshot")] = b"x"
     storage.objects[("bucket", "backups/nightly-2/manifest.json")] = b"{}"
+    storage.uploads = {
+        ("bucket", "backups/nightly/docs/node-1/b.snapshot"),
+        ("bucket", "backups/nightly-2/docs/node-0/c.snapshot"),
+    }
 
     deleted = await DeleteBackupData(storage, kubernetes).execute(backup_spec())
 
     assert deleted == 2
     assert storage.keys("bucket") == ["backups/nightly-2/manifest.json"]
+    assert storage.uploads == {("bucket", "backups/nightly-2/docs/node-0/c.snapshot")}
 
 
 async def test_expire_backup_deletes_resource_once_past_expiry(kubernetes: FakeKubernetes) -> None:
@@ -374,7 +504,7 @@ async def test_schedule_fires_missed_slot_once_and_records_it(kubernetes: FakeKu
     backups = spawned_backups(kubernetes)
     assert len(backups) == 1
     assert backups[0]["metadata"]["name"] == "sched-20260923-020000"
-    assert backups[0]["metadata"]["ownerReferences"][0]["uid"] == "sched-uid"
+    assert backups[0]["metadata"]["labels"] == {"qdrant.io/schedule": "sched"}
     assert first.last_schedule_time == datetime(2026, 9, 23, 2, 0, tzinfo=UTC)
     assert first.active_backup == "sched-20260923-020000"
     assert first.next_backup_time == datetime(2026, 9, 24, 2, 0, tzinfo=UTC)
@@ -777,6 +907,118 @@ async def test_migration_copies_collections_in_batches_and_creates_targets(
     assert phases[0] == "Running" and len(phases) == 3
 
 
+def growing_source(
+    kubernetes: FakeKubernetes, waves: list[list[JsonDict]], target_points: int = 0
+) -> FakeQdrant:
+    kubernetes.put_resource(cluster_body(name="target"))
+    qdrant = FakeQdrant(
+        routes={service_url(): node_url(0), service_url("target"): node_url(0, "target")}
+    )
+    body = {"vectors": {"size": 2, "distance": "Dot"}, "shard_number": 1, "replication_factor": 1}
+    qdrant.add_collection(node_url(0), "docs", body=body)
+    qdrant.collections[node_url(0, "target")] = {}
+    qdrant.add_points(node_url(0), "docs", sample_points(7))
+    qdrant.late_points[(node_url(0), "docs")] = waves
+    if target_points:
+        qdrant.add_collection(node_url(0, "target"), "docs", body=body)
+        qdrant.add_points(
+            node_url(0, "target"),
+            "docs",
+            [{**p, "id": p["id"] + 1000} for p in sample_points(target_points)],
+        )
+    return qdrant
+
+
+def late_wave(first: int, count: int) -> list[JsonDict]:
+    return [{**p, "id": p["id"] + first - 1} for p in sample_points(count)]
+
+
+async def test_migration_verify_pass_copies_points_written_during_the_copy(
+    kubernetes: FakeKubernetes,
+) -> None:
+    qdrant = growing_source(kubernetes, [late_wave(8, 2)])
+    ref = ResourceRef(MIGRATIONS, "move", NS)
+
+    status = await ExecuteMigration(qdrant, kubernetes).execute(
+        migration_spec(batchSize=3), ref, FRESH
+    )
+
+    docs = status.collections[0]
+    assert status.phase == MigrationPhase.COMPLETED
+    assert (docs.verify_pass, docs.source_count, docs.target_count) == (1, 9, 9)
+    assert (docs.points_total, docs.points_copied, docs.message) == (9, 9, None)
+    assert len(qdrant.stored_points(node_url(0, "target"), "docs")) == 9
+    assert docs.to_dict()["sourceCount"] == 9
+    running = [p for _, p in kubernetes.status_patches if p["phase"] == "Running"]
+    assert running[-1]["collections"][0]["pointsTotal"] == 9
+
+
+async def test_migration_fails_with_both_counts_when_verify_passes_run_out(
+    kubernetes: FakeKubernetes,
+) -> None:
+    qdrant = growing_source(kubernetes, [late_wave(8, 2), late_wave(10, 3)])
+
+    status = await ExecuteMigration(qdrant, kubernetes).execute(
+        migration_spec(), ResourceRef(MIGRATIONS, "move", NS), FRESH
+    )
+
+    docs = status.collections[0]
+    assert status.phase == MigrationPhase.FAILED
+    assert docs.status == MigrationPhase.FAILED
+    assert docs.error == "target has 9 of 12 source points after 1 verify pass"
+    assert (docs.source_count, docs.target_count) == (12, 9)
+    assert status.error == docs.error
+
+
+async def test_migration_without_verify_passes_still_compares_counts(
+    kubernetes: FakeKubernetes,
+) -> None:
+    qdrant = growing_source(kubernetes, [late_wave(8, 2)])
+
+    status = await ExecuteMigration(qdrant, kubernetes).execute(
+        migration_spec(verifyPasses=0), ResourceRef(MIGRATIONS, "move", NS), FRESH
+    )
+
+    assert status.collections[0].error == "target has 7 of 9 source points after 0 verify passes"
+
+
+async def test_migration_notes_a_target_with_more_points_than_the_source(
+    kubernetes: FakeKubernetes,
+) -> None:
+    qdrant = growing_source(kubernetes, [], target_points=3)
+
+    status = await ExecuteMigration(qdrant, kubernetes).execute(
+        migration_spec(), ResourceRef(MIGRATIONS, "move", NS), FRESH
+    )
+
+    docs = status.collections[0]
+    assert status.phase == MigrationPhase.COMPLETED
+    assert (docs.source_count, docs.target_count) == (7, 10)
+    assert docs.message == "target has 10 points, more than the 7 on the source"
+
+
+async def test_migration_restart_during_a_verify_pass_resumes_that_pass_and_completes(
+    kubernetes: FakeKubernetes,
+) -> None:
+    qdrant = growing_source(kubernetes, [late_wave(8, 2)])
+    qdrant.unreachable_after_upserts = 5
+    use_case = ExecuteMigration(qdrant, kubernetes)
+    ref = ResourceRef(MIGRATIONS, "move", NS)
+    spec = migration_spec(batchSize=2, checkpointBatches=1)
+
+    with pytest.raises(ConnectionError):
+        await use_case.execute(spec, ref, FRESH)
+
+    saved = MigrationStatus.from_dict(kubernetes.status_patches[-1][1])
+    assert (saved.collections[0].verify_pass, saved.collections[0].offset) == (1, 3)
+    qdrant.unreachable_after_upserts = None
+    resumed = await use_case.execute(spec, ref, saved)
+
+    docs = resumed.collections[0]
+    assert resumed.phase == MigrationPhase.COMPLETED
+    assert (docs.source_count, docs.target_count) == (9, 9)
+
+
 async def test_migration_drops_source_shard_keys_for_auto_sharded_targets_and_reads_endpoints(
     kubernetes: FakeKubernetes,
 ) -> None:
@@ -882,6 +1124,7 @@ async def test_migration_resumes_from_recorded_offsets_and_skips_finished_collec
         qdrant.add_collection(node_url(0), name)
         qdrant.add_points(node_url(0), name, sample_points(6))
         qdrant.add_collection(node_url(0, "target"), name)
+        qdrant.add_points(node_url(0, "target"), name, sample_points(4))
     previous = MigrationStatus(
         phase=MigrationPhase.RUNNING,
         start_time=NOW,
@@ -902,7 +1145,9 @@ async def test_migration_resumes_from_recorded_offsets_and_skips_finished_collec
         ("logs", 6, None),
     ]
     assert qdrant.upserts == [("logs", None, 2)]
-    assert [p["id"] for p in qdrant.stored_points(node_url(0, "target"), "logs")] == [5, 6]
+    assert [p["id"] for p in qdrant.stored_points(node_url(0, "target"), "logs")] == list(
+        range(1, 7)
+    )
 
 
 async def test_migration_records_offsets_while_copying(kubernetes: FakeKubernetes) -> None:
@@ -925,6 +1170,63 @@ async def test_migration_records_offsets_while_copying(kubernetes: FakeKubernete
         if c["status"] == "Running"
     ]
     assert recorded == [(40, 41)]
+
+
+async def test_migration_checkpoint_interval_comes_from_the_spec(
+    kubernetes: FakeKubernetes,
+) -> None:
+    kubernetes.put_resource(cluster_body(name="target"))
+    qdrant = FakeQdrant(
+        routes={service_url(): node_url(0), service_url("target"): node_url(0, "target")}
+    )
+    qdrant.add_collection(node_url(0), "docs")
+    qdrant.add_points(node_url(0), "docs", sample_points(10))
+    qdrant.collections[node_url(0, "target")] = {}
+
+    await ExecuteMigration(qdrant, kubernetes).execute(
+        migration_spec(batchSize=2, checkpointBatches=2),
+        ResourceRef(MIGRATIONS, "move", NS),
+        FRESH,
+    )
+
+    recorded = [
+        (c["pointsCopied"], c["offset"])
+        for _, patch in kubernetes.status_patches
+        for c in patch["collections"]
+        if c["status"] == "Running"
+    ]
+    assert recorded == [(4, 5), (8, 9)]
+
+
+async def test_migration_lets_connection_errors_escape_and_keeps_the_checkpoint(
+    kubernetes: FakeKubernetes,
+) -> None:
+    kubernetes.put_resource(cluster_body(name="target"))
+    qdrant = FakeQdrant(
+        routes={service_url(): node_url(0), service_url("target"): node_url(0, "target")},
+        unreachable_after_upserts=3,
+    )
+    qdrant.add_collection(node_url(0), "docs")
+    qdrant.add_points(node_url(0), "docs", sample_points(10))
+    qdrant.collections[node_url(0, "target")] = {}
+    ref = ResourceRef(MIGRATIONS, "move", NS)
+    use_case = ExecuteMigration(qdrant, kubernetes)
+
+    with pytest.raises(ConnectionError):
+        await use_case.execute(migration_spec(batchSize=2, checkpointBatches=1), ref, FRESH)
+
+    stored = MigrationStatus.from_dict(kubernetes.status_patches[-1][1])
+    assert stored.collections[0].status == MigrationPhase.RUNNING
+    assert stored.collections[0].offset == 7
+    assert stored.collections[0].points_copied == 6
+
+    qdrant.unreachable_after_upserts = None
+    status = await use_case.execute(migration_spec(batchSize=2), ref, stored)
+
+    assert status.phase == MigrationPhase.COMPLETED
+    assert [p["id"] for p in qdrant.stored_points(node_url(0, "target"), "docs")] == list(
+        range(1, 11)
+    )
 
 
 async def test_migration_preserves_custom_shard_keys_and_routes_by_payload_field(
@@ -998,3 +1300,175 @@ async def test_migration_checks_vector_layout_and_ensures_indexes_on_existing_ta
     assert by_name["wide"].status == MigrationPhase.FAILED
     assert by_name["wide"].error and "vector sizes or distances" in by_name["wide"].error
     assert ("wide", None, 1) not in qdrant.upserts
+
+
+async def reconcile_twice(
+    kubernetes: FakeKubernetes, first_spec: CollectionSpec, second_spec: CollectionSpec
+) -> tuple[FakeQdrant, CollectionStatus, CollectionStatus]:
+    qdrant = FakeQdrant(routes={service_url(): node_url(0)})
+    use_case = ReconcileCollection(qdrant, kubernetes)
+    first = await use_case.execute(first_spec, 1, CollectionStatus(CollectionPhase.PENDING))
+    second = await use_case.execute(second_spec, 2, first)
+    return qdrant, first, second
+
+
+async def test_removed_optimizer_fields_reset_to_qdrant_defaults(
+    kubernetes: FakeKubernetes,
+) -> None:
+    bulk_load = collection_spec(
+        optimizers={"max_optimization_threads": 0, "indexing_threshold": 0, "flush_interval_sec": 9}
+    )
+    steady = collection_spec(optimizers={"flush_interval_sec": 9})
+
+    qdrant, first, second = await reconcile_twice(kubernetes, bulk_load, steady)
+
+    assert first.applied_fields == {
+        "optimizers": ("flush_interval_sec", "indexing_threshold", "max_optimization_threads")
+    }
+    assert qdrant.updates[-1] == (
+        "docs",
+        {"optimizers_config": {"indexing_threshold": 10000, "max_optimization_threads": "auto"}},
+    )
+    live = qdrant.collections[node_url(0)]["docs"]["config"]["optimizer_config"]
+    assert (live["indexing_threshold"], live["max_optimization_threads"]) == (10000, None)
+    assert live["flush_interval_sec"] == 9
+    assert second.applied_fields == {"optimizers": ("flush_interval_sec",)}
+    assert second.conditions[0].message == (
+        "Collection docs matches the spec; reset to Qdrant defaults: "
+        "optimizers_config.indexing_threshold, optimizers_config.max_optimization_threads"
+    )
+
+
+async def test_removed_fields_reset_across_hnsw_params_quantization_and_strict_mode(
+    kubernetes: FakeKubernetes,
+) -> None:
+    tuned = collection_spec(
+        hnsw={"m": 32, "on_disk": True},
+        replicationFactor=2,
+        onDiskPayload=False,
+        quantization={"scalar": {"type": "int8"}},
+        strictMode={"enabled": True},
+    )
+
+    qdrant, _, second = await reconcile_twice(kubernetes, tuned, collection_spec())
+
+    assert qdrant.updates[-1] == (
+        "docs",
+        {
+            "hnsw_config": {"m": 16, "on_disk": False},
+            "params": {"replication_factor": 1, "on_disk_payload": True},
+            "quantization_config": "Disabled",
+            "strict_mode_config": {"enabled": False},
+        },
+    )
+    config = qdrant.collections[node_url(0)]["docs"]["config"]
+    assert config["quantization_config"] is None
+    assert config["hnsw_config"]["m"] == 16
+    assert second.applied_fields == {}
+
+
+async def test_reconcile_resets_nothing_for_fields_it_never_applied(
+    kubernetes: FakeKubernetes,
+) -> None:
+    qdrant = FakeQdrant(routes={service_url(): node_url(0)})
+    qdrant.add_collection(
+        node_url(0),
+        "docs",
+        body={
+            "vectors": {"size": 4, "distance": "Cosine"},
+            "optimizers_config": {"indexing_threshold": 0},
+            "hnsw_config": {"m": 64},
+        },
+    )
+
+    status = await ReconcileCollection(qdrant, kubernetes).execute(
+        collection_spec(), 1, CollectionStatus(CollectionPhase.PENDING)
+    )
+
+    assert qdrant.updates == []
+    live = qdrant.collections[node_url(0)]["docs"]["config"]
+    assert live["optimizer_config"]["indexing_threshold"] == 0 and live["hnsw_config"]["m"] == 64
+    assert status.conditions[0].message == "Collection docs matches the spec"
+
+
+async def test_removed_field_already_at_default_sends_no_patch(
+    kubernetes: FakeKubernetes,
+) -> None:
+    qdrant, _, second = await reconcile_twice(
+        kubernetes,
+        collection_spec(optimizers={"indexing_threshold": 10000}),
+        collection_spec(),
+    )
+
+    assert qdrant.updates == []
+    assert second.applied_fields == {}
+
+
+def test_collection_status_round_trips_applied_fields() -> None:
+    status = CollectionStatus(
+        CollectionPhase.READY,
+        applied_fields={"hnsw": ("m",), "optimizers": ("flush_interval_sec",)},
+    )
+
+    restored = CollectionStatus.from_dict(status.to_dict())
+
+    assert restored.applied_fields == {"hnsw": ("m",), "optimizers": ("flush_interval_sec",)}
+    assert status.to_dict()["appliedFields"]["params"] == []
+
+
+def stuck_restore(
+    qdrant: FakeQdrant, kubernetes: FakeKubernetes, optimizers: JsonDict
+) -> tuple[ExecuteRestore, RestoreSpec]:
+    qdrant.add_collection(
+        node_url(0),
+        "docs",
+        body={"vectors": {"size": 4, "distance": "Cosine"}, "optimizers_config": optimizers},
+    )
+    qdrant.collections[node_url(0)]["docs"]["status"] = "yellow"
+    spec = RestoreSpec.from_dict(
+        {
+            "targetClusterRef": {"name": "db"},
+            "backupRef": {"name": "nightly"},
+            "indexingTimeoutSeconds": 0,
+        },
+        {"name": "rs", "namespace": NS},
+    )
+    return ExecuteRestore(qdrant, FakeStorage(), kubernetes, indexing_poll_seconds=0), spec
+
+
+def test_restore_spec_reads_indexing_timeout() -> None:
+    meta = {"name": "rs", "namespace": NS}
+    body = {"targetClusterRef": {"name": "db"}, "backupRef": {"name": "nightly"}}
+
+    assert RestoreSpec.from_dict(body, meta).indexing_timeout_seconds == 3600
+    assert RestoreSpec.from_dict({**body, "indexingTimeoutSeconds": 90}, meta) == replace(
+        RestoreSpec.from_dict(body, meta), indexing_timeout_seconds=90
+    )
+
+
+async def test_restore_indexing_timeout_reports_status_and_disabled_indexing(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    use_case, spec = stuck_restore(
+        qdrant, kubernetes, {"indexing_threshold": 0, "max_optimization_threads": 0}
+    )
+
+    with pytest.raises(TimeoutError) as error:
+        await use_case.await_indexing(spec, QdrantNode(node_url(0)), "docs")
+
+    message = str(error.value)
+    assert "did not turn green within 0s (status yellow)" in message
+    assert "indexing is disabled in the restored config" in message
+    assert "optimizer_config.indexing_threshold" in message
+    assert "optimizer_config.max_optimization_threads" in message
+
+
+async def test_restore_indexing_timeout_without_disabled_indexing_names_only_status(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    use_case, spec = stuck_restore(qdrant, kubernetes, {"indexing_threshold": 5000})
+
+    with pytest.raises(TimeoutError) as error:
+        await use_case.await_indexing(spec, QdrantNode(node_url(0)), "docs")
+
+    assert str(error.value) == "Collection docs did not turn green within 0s (status yellow)"

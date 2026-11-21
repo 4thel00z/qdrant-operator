@@ -265,6 +265,13 @@ spec:
                   items:
                     type: string
                   description: Aliases the operator manages
+                appliedFields:
+                  type: object
+                  additionalProperties:
+                    type: array
+                    items:
+                      type: string
+                  description: Config fields per block the operator last applied; one dropped from the spec is reset to Qdrant's default
                 shardKeys:
                   type: array
                   items:

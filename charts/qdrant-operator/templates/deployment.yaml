@@ -30,6 +30,12 @@ spec:
               value: {{ .Values.operator.logLevel | quote }}
             - name: LOG_FORMAT
               value: {{ .Values.operator.logFormat | quote }}
+            {{- with .Values.operator.chartRepo }}
+            - name: QDRANT_CHART_REPO
+              value: {{ . | quote }}
+            {{- end }}
+            - name: METRICS_PORT
+              value: {{ ternary .Values.metrics.port 0 .Values.metrics.enabled | quote }}
             - name: HELM_CACHE_HOME
               value: /tmp/helm/cache
             - name: HELM_CONFIG_HOME
@@ -39,6 +45,10 @@ spec:
           ports:
             - name: health
               containerPort: 8080
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

@@ -112,6 +112,17 @@ spec:
                 startTime:
                   type: string
                   format: date-time
+                  description: First attempt's start; kept across operator restarts
+                inProgressSnapshot:
+                  type: object
+                  description: Node snapshot being streamed right now, cleared once deleted
+                  properties:
+                    nodeIndex:
+                      type: integer
+                    collection:
+                      type: string
+                    snapshot:
+                      type: string
                 completionTime:
                   type: string
                   format: date-time

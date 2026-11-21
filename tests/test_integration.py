@@ -87,7 +87,9 @@ def spec() -> ClusterSpec:
 
 async def test_reconcile_installs_release(spec: ClusterSpec) -> None:
     helm = HelmAdapter()
-    status = await ReconcileCluster(helm).execute(spec, 1, ClusterStatus(ClusterPhase.PENDING))
+    status = await ReconcileCluster(helm, KubernetesAdapter(), QdrantAdapter()).execute(
+        spec, 1, ClusterStatus(ClusterPhase.PENDING)
+    )
 
     assert status.phase == ClusterPhase.PENDING
     assert await helm.release_exists(spec.release_name, NAMESPACE)
@@ -235,7 +237,7 @@ async def test_jwt_signed_with_the_cluster_key_is_scoped_by_qdrant(spec: Cluster
 
 async def test_delete_cluster_uninstalls_release(spec: ClusterSpec) -> None:
     helm = HelmAdapter()
-    await DeleteCluster(helm).execute(spec)
+    await DeleteCluster(helm, KubernetesAdapter()).execute(spec)
     assert not await helm.release_exists(spec.release_name, NAMESPACE)
 
 

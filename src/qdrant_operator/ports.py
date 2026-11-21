@@ -14,7 +14,12 @@ from qdrant_operator.domain import S3Credentials
 from qdrant_operator.domain import S3StorageSpec
 from qdrant_operator.domain import SecretRef
 from qdrant_operator.domain import Snapshot
+from qdrant_operator.domain import SnapshotInfo
 from qdrant_operator.domain import StatefulSetStatus
+from qdrant_operator.domain import VolumeClaim
+from qdrant_operator.peers import ClusterTopology
+from qdrant_operator.peers import CollectionShards
+from qdrant_operator.peers import ShardOperation
 
 
 class HelmPort(Protocol):
@@ -25,7 +30,10 @@ class HelmPort(Protocol):
         chart_version: str,
         values: Mapping[str, Any],
     ) -> None:
-        """Install or upgrade a release to the given chart version and values."""
+        """Install or upgrade a release to the given chart version and values.
+
+        Raises RuntimeError with helm's error output when the install or upgrade fails.
+        """
         ...
 
     async def uninstall(self, release_name: str, namespace: str) -> None: ...
@@ -42,9 +50,13 @@ class QdrantPort(Protocol):
         self, node: QdrantNode, collection: str, snapshot_name: str
     ) -> AsyncIterator[bytes]: ...
 
-    async def delete_snapshot(
-        self, node: QdrantNode, collection: str, snapshot_name: str
-    ) -> None: ...
+    async def list_snapshots(self, node: QdrantNode, collection: str) -> list[SnapshotInfo]:
+        """Snapshots the node holds for a collection; empty when the collection is unknown."""
+        ...
+
+    async def delete_snapshot(self, node: QdrantNode, collection: str, snapshot_name: str) -> None:
+        """Delete a snapshot; one that is already gone is not an error."""
+        ...
 
     async def recover_snapshot(
         self,
@@ -97,8 +109,8 @@ class QdrantPort(Protocol):
         """PUT /collections/{collection}/shards with a Qdrant CreateShardingKey body."""
         ...
 
-    async def count_points(self, node: QdrantNode, collection: str) -> int:
-        """Approximate point count (exact=false)."""
+    async def count_points(self, node: QdrantNode, collection: str, exact: bool = False) -> int:
+        """Point count; approximate unless exact is set."""
         ...
 
     async def scroll_points(
@@ -110,6 +122,22 @@ class QdrantPort(Protocol):
     async def upsert_points(
         self, node: QdrantNode, collection: str, points: list[JsonDict], shard_key: Any = None
     ) -> None: ...
+
+    async def cluster_topology(self, node: QdrantNode) -> ClusterTopology:
+        """GET /cluster: the node's own peer id and every peer it knows."""
+        ...
+
+    async def collection_shards(self, node: QdrantNode, collection: str) -> CollectionShards:
+        """Shard replicas, running transfers and replication factor of one collection."""
+        ...
+
+    async def apply_shard_operation(self, node: QdrantNode, operation: ShardOperation) -> None:
+        """POST /collections/{c}/cluster with a move_shard, replicate_shard or drop_replica."""
+        ...
+
+    async def remove_peer(self, node: QdrantNode, peer_id: int, force: bool) -> None:
+        """DELETE /cluster/peer/{id}; without force Qdrant refuses a peer that still has shards."""
+        ...
 
 
 class StoragePort(Protocol):
@@ -135,6 +163,12 @@ class StoragePort(Protocol):
         self, storage: S3StorageSpec, credentials: S3Credentials, prefix: str
     ) -> int:
         """Delete every object under a prefix. Returns how many were deleted."""
+        ...
+
+    async def abort_uploads(
+        self, storage: S3StorageSpec, credentials: S3Credentials, prefix: str
+    ) -> int:
+        """Abort unfinished multipart uploads under a prefix. Returns how many were aborted."""
         ...
 
     async def presigned_get_url(
@@ -173,6 +207,30 @@ class KubernetesPort(Protocol):
     async def get_statefulset_status(
         self, name: str, namespace: str
     ) -> StatefulSetStatus | None: ...
+
+    async def get_statefulset_claims(self, name: str, namespace: str) -> dict[str, str] | None:
+        """Requested storage per volume claim template, None when the StatefulSet is absent."""
+        ...
+
+    async def list_volume_claims(self, namespace: str, label_selector: str) -> list[VolumeClaim]:
+        """PersistentVolumeClaims with the size each one requests."""
+        ...
+
+    async def resize_volume_claim(self, name: str, namespace: str, size: str) -> None: ...
+
+    async def orphan_statefulset(self, name: str, namespace: str) -> None:
+        """Delete the StatefulSet but leave its pods and volumes running."""
+        ...
+
+    async def delete_volume_claim(self, name: str, namespace: str) -> None: ...
+
+    async def crash_log(self, name: str, namespace: str, tail_lines: int) -> str:
+        """Last lines of the pod's current and previous container runs; empty when there are none.
+
+        A crash-looping container is terminated between restarts, so its error is in the current
+        log, while the previous run's log may already be gone.
+        """
+        ...
 
 
 class TokenPort(Protocol):

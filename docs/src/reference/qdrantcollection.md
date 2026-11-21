@@ -52,6 +52,7 @@ change.
 | `pointsCount`, `indexedVectorsCount`, `segmentsCount` | From the collection info |
 | `payloadIndexes` | Fields whose indexes this resource manages |
 | `aliases` | Aliases this resource manages |
+| `appliedFields` | Fields of `optimizers`, `hnsw`, `quantization`, `strictMode` and the collection params the operator last applied, by block. Fields that drop out of the spec are reset |
 | `error` | The mismatch or failure message |
 | `observedGeneration` | Spec generation the status reflects |
 | `conditions[Ready]` | `CollectionReady` or `ImmutableFieldMismatch` |
@@ -66,6 +67,27 @@ mismatch sets `Degraded` and stops. A mutable mismatch issues
 type or parameters differ, and deleted only when this resource created them
 and the spec dropped them. Aliases are handled the same way through
 `POST /collections/aliases`.
+
+A field the operator applied earlier and the spec no longer declares is
+reset to Qdrant's default through the same `PATCH`, so removing a bulk-load
+setting such as `optimizers.indexingThreshold: 0` turns indexing back on. The
+reset is named in the `Ready` condition message. Fields never applied by the
+operator are left alone. Defaults are Qdrant's built-in ones, so a cluster
+that overrides `storage.optimizers` or `storage.hnsw_index` in its own
+config may differ:
+
+| Block | Reset to |
+|---|---|
+| `optimizers` | `deleted_threshold` 0.2, `vacuum_min_vector_number` 1000, `default_segment_number` 0, `indexing_threshold` 10000, `flush_interval_sec` 5, `max_optimization_threads` `auto` |
+| `hnsw` | `m` 16, `ef_construct` 100, `full_scan_threshold` 10000, `max_indexing_threads` 0, `on_disk` false |
+| collection params | `replication_factor` 1, `write_consistency_factor` 1, `on_disk_payload` true |
+| `quantization` | `Disabled` |
+| `strictMode` | `enabled` false |
+
+Qdrant reads a null diff as "unchanged", so `optimizers.maxSegmentSize`,
+`optimizers.memmapThreshold`, `hnsw.payloadM`, `readFanOutFactor`,
+`readFanOutDelayMs`, `payloadMemory`, `metadata` and the other `strictMode`
+limits cannot be unset and keep their last value when removed.
 
 A cluster that is missing or not ready is retried every thirty seconds.
 Any other error sets `Failed` with the message.

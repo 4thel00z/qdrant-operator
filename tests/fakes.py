@@ -17,9 +17,17 @@ from qdrant_operator.domain import S3Credentials
 from qdrant_operator.domain import S3StorageSpec
 from qdrant_operator.domain import SecretRef
 from qdrant_operator.domain import Snapshot
+from qdrant_operator.domain import SnapshotInfo
 from qdrant_operator.domain import StatefulSetStatus
+from qdrant_operator.domain import VolumeClaim
 from qdrant_operator.domain import format_time
 from qdrant_operator.domain import merge_dicts
+from qdrant_operator.peers import ClusterTopology
+from qdrant_operator.peers import CollectionShards
+from qdrant_operator.peers import Peer
+from qdrant_operator.peers import Replica
+from qdrant_operator.peers import ShardOperation
+from qdrant_operator.peers import ShardOperationKind
 
 
 @dataclass
@@ -28,11 +36,14 @@ class FakeHelm:
         default_factory=dict[tuple[str, str], JsonDict]
     )
     apply_calls: int = 0
+    apply_error: str | None = None
 
     async def apply(
         self, release_name: str, namespace: str, chart_version: str, values: Mapping[str, Any]
     ) -> None:
         self.apply_calls += 1
+        if self.apply_error:
+            raise RuntimeError(self.apply_error)
         self.releases[(namespace, release_name)] = {
             "chartVersion": chart_version,
             "values": dict(values),
@@ -63,7 +74,7 @@ DEFAULT_OPTIMIZERS: JsonDict = {
     "default_segment_number": 0,
     "max_segment_size": None,
     "memmap_threshold": None,
-    "indexing_threshold": 20000,
+    "indexing_threshold": 10000,
     "flush_interval_sec": 5,
     "max_optimization_threads": None,
 }
@@ -91,6 +102,12 @@ def config_from_create(body: Mapping[str, Any]) -> JsonDict:
     }
 
 
+def quantization_after(config: Mapping[str, Any], body: Mapping[str, Any]) -> Any:
+    if "quantization_config" not in body:
+        return config.get("quantization_config")
+    return None if body["quantization_config"] == "Disabled" else body["quantization_config"]
+
+
 def apply_update(config: JsonDict, body: Mapping[str, Any]) -> JsonDict:
     """Fold a PATCH /collections/{c} body into a reported config the way Qdrant does."""
     params: JsonDict = dict(config["params"])
@@ -111,9 +128,13 @@ def apply_update(config: JsonDict, body: Mapping[str, Any]) -> JsonDict:
         "params": params,
         "hnsw_config": merge_dicts(config["hnsw_config"], body.get("hnsw_config", {})),
         "optimizer_config": merge_dicts(
-            config["optimizer_config"], body.get("optimizers_config", {})
+            config["optimizer_config"],
+            {
+                key: None if value == "auto" else value
+                for key, value in body.get("optimizers_config", {}).items()
+            },
         ),
-        "quantization_config": body.get("quantization_config", config.get("quantization_config")),
+        "quantization_config": quantization_after(config, body),
         "strict_mode_config": merge_dicts(
             config.get("strict_mode_config") or {}, body.get("strict_mode_config", {})
         )
@@ -130,6 +151,9 @@ class FakeQdrant:
     snapshots: dict[tuple[str, str, str], bytes] = field(
         default_factory=dict[tuple[str, str, str], bytes]
     )
+    snapshot_times: dict[tuple[str, str, str], datetime] = field(
+        default_factory=dict[tuple[str, str, str], datetime]
+    )
     recovered: list[tuple[str, str, str, RestorePriority, str | None]] = field(
         default_factory=list[tuple[str, str, str, RestorePriority, str | None]]
     )
@@ -142,8 +166,20 @@ class FakeQdrant:
     points: dict[tuple[str, str], dict[Any, JsonDict]] = field(
         default_factory=dict[tuple[str, str], dict[Any, JsonDict]]
     )
+    late_points: dict[tuple[str, str], list[list[JsonDict]]] = field(
+        default_factory=dict[tuple[str, str], list[list[JsonDict]]]
+    )
     upserts: list[tuple[str, Any, int]] = field(default_factory=list[tuple[str, Any, int]])
     shard_key_bodies: list[tuple[str, JsonDict]] = field(default_factory=list[tuple[str, JsonDict]])
+    peers: dict[int, str] = field(default_factory=dict[int, str])
+    node_peer_ids: dict[str, int] = field(default_factory=dict[str, int])
+    replicas: dict[str, list[Replica]] = field(default_factory=dict[str, list[Replica]])
+    replication_factors: dict[str, int] = field(default_factory=dict[str, int])
+    slow_transfers: bool = False
+    unreachable_after_upserts: int | None = None
+    pending: list[ShardOperation] = field(default_factory=list[ShardOperation])
+    shard_operations: list[ShardOperation] = field(default_factory=list[ShardOperation])
+    removed_peers: list[tuple[int, bool]] = field(default_factory=list[tuple[int, bool]])
     created: int = 0
 
     def resolve(self, node: QdrantNode) -> str:
@@ -174,7 +210,7 @@ class FakeQdrant:
         self.created += 1
         name = f"{collection}-{self.created}.snapshot"
         payload = snapshot_payload(node.url, collection)
-        self.snapshots[(node.url, collection, name)] = payload
+        self.add_snapshot(node.url, collection, name, datetime.now(UTC), payload)
         return Snapshot(name, collection, len(payload), checksum=f"sha256:{self.created}")
 
     async def stream_snapshot(
@@ -184,8 +220,27 @@ class FakeQdrant:
         for start in range(0, len(payload), 64):
             yield payload[start : start + 64]
 
+    def add_snapshot(
+        self,
+        node_url: str,
+        collection: str,
+        name: str,
+        created_at: datetime,
+        payload: bytes = b"leftover",
+    ) -> None:
+        self.snapshots[(node_url, collection, name)] = payload
+        self.snapshot_times[(node_url, collection, name)] = created_at
+
+    async def list_snapshots(self, node: QdrantNode, collection: str) -> list[SnapshotInfo]:
+        return [
+            SnapshotInfo(name, self.snapshot_times[(url, coll, name)], len(payload))
+            for (url, coll, name), payload in self.snapshots.items()
+            if url == node.url and coll == collection
+        ]
+
     async def delete_snapshot(self, node: QdrantNode, collection: str, snapshot_name: str) -> None:
-        del self.snapshots[(node.url, collection, snapshot_name)]
+        self.snapshots.pop((node.url, collection, snapshot_name), None)
+        self.snapshot_times.pop((node.url, collection, snapshot_name), None)
 
     async def recover_snapshot(
         self,
@@ -214,7 +269,7 @@ class FakeQdrant:
         store = self.points.get((node_url, collection), {})
         return [store[point_id] for point_id in sorted(store)]
 
-    async def count_points(self, node: QdrantNode, collection: str) -> int:
+    async def count_points(self, node: QdrantNode, collection: str, exact: bool = False) -> int:
         return len(self.points.get((self.resolve(node), collection), {}))
 
     async def scroll_points(
@@ -225,11 +280,22 @@ class FakeQdrant:
         start = ids.index(offset) if offset is not None else 0
         page = ids[start : start + limit]
         following = ids[start + limit : start + limit + 1]
-        return [store[i] for i in page], following[0] if following else None
+        result = [store[i] for i in page]
+        if following:
+            return result, following[0]
+        waves = self.late_points.get((self.resolve(node), collection), [])
+        if waves:
+            self.add_points(self.resolve(node), collection, waves.pop(0))
+        return result, None
 
     async def upsert_points(
         self, node: QdrantNode, collection: str, points: list[JsonDict], shard_key: Any = None
     ) -> None:
+        if (
+            self.unreachable_after_upserts is not None
+            and len(self.upserts) >= self.unreachable_after_upserts
+        ):
+            raise ConnectionError(f"Qdrant at {node.url} is unreachable")
         self.upserts.append((collection, shard_key, len(points)))
         self.add_points(
             self.resolve(node),
@@ -295,10 +361,65 @@ class FakeQdrant:
         keys.append(body["shard_key"])
         self.shard_key_bodies.append((collection, body))
 
+    async def cluster_topology(self, node: QdrantNode) -> ClusterTopology:
+        own = self.node_peer_ids.get(self.resolve(node))
+        if own is None:
+            raise ConnectionError(f"Qdrant at {node.url} is unreachable")
+        return ClusterTopology(
+            own, tuple(Peer(pid, uri) for pid, uri in sorted(self.peers.items()))
+        )
+
+    async def collection_shards(self, node: QdrantNode, collection: str) -> CollectionShards:
+        return CollectionShards(
+            collection=collection,
+            replicas=tuple(self.replicas.get(collection, [])),
+            replication_factor=self.replication_factors.get(collection, 1),
+            transfers=len([op for op in self.pending if op.collection == collection]),
+        )
+
+    async def apply_shard_operation(self, node: QdrantNode, operation: ShardOperation) -> None:
+        self.shard_operations.append(operation)
+        if self.slow_transfers and operation.kind is not ShardOperationKind.DROP:
+            self.pending.append(operation)
+            return
+        self.execute(operation)
+
+    def execute(self, operation: ShardOperation) -> None:
+        replicas = self.replicas[operation.collection]
+        source = next(
+            r
+            for r in replicas
+            if r.shard_id == operation.shard_id and r.peer_id == operation.peer_id
+        )
+        if operation.kind is ShardOperationKind.DROP:
+            replicas.remove(source)
+            return
+        if operation.target_peer_id is None:
+            raise ValueError("transfer without a target peer")
+        if operation.kind is ShardOperationKind.MOVE:
+            replicas.remove(source)
+        replicas.append(Replica(operation.shard_id, operation.target_peer_id, "Active"))
+
+    def settle(self) -> None:
+        """Finish every transfer that slow_transfers held back."""
+        for operation in self.pending:
+            self.execute(operation)
+        self.pending.clear()
+
+    async def remove_peer(self, node: QdrantNode, peer_id: int, force: bool) -> None:
+        holding = [r for rs in self.replicas.values() for r in rs if r.peer_id == peer_id]
+        if holding and not force:
+            raise RuntimeError(f"peer {peer_id} still holds {len(holding)} shard replicas")
+        for collection, replicas in self.replicas.items():
+            self.replicas[collection] = [r for r in replicas if r.peer_id != peer_id]
+        self.peers.pop(peer_id, None)
+        self.removed_peers.append((peer_id, force))
+
 
 @dataclass
 class FakeStorage:
     objects: dict[tuple[str, str], bytes] = field(default_factory=dict[tuple[str, str], bytes])
+    uploads: set[tuple[str, str]] = field(default_factory=set[tuple[str, str]])
 
     async def upload_stream(
         self,
@@ -331,6 +452,15 @@ class FakeStorage:
             del self.objects[key]
         return len(doomed)
 
+    async def abort_uploads(
+        self, storage: S3StorageSpec, credentials: S3Credentials, prefix: str
+    ) -> int:
+        doomed = {
+            k for k in self.uploads if k[0] == storage.bucket and k[1].startswith(f"{prefix}/")
+        }
+        self.uploads -= doomed
+        return len(doomed)
+
     async def presigned_get_url(
         self,
         storage: S3StorageSpec,
@@ -358,6 +488,13 @@ class FakeKubernetes:
     status_patches: list[tuple[ResourceRef, JsonDict]] = field(
         default_factory=list[tuple[ResourceRef, JsonDict]]
     )
+    claim_templates: dict[tuple[str, str], dict[str, str]] = field(
+        default_factory=dict[tuple[str, str], dict[str, str]]
+    )
+    volume_claims: dict[str, dict[str, str]] = field(default_factory=dict[str, dict[str, str]])
+    resized: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
+    orphaned: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
+    pod_logs: dict[tuple[str, str], str] = field(default_factory=dict[tuple[str, str], str])
     deleted: list[ResourceRef] = field(default_factory=list[ResourceRef])
     secret_owners: dict[tuple[str, str], JsonDict] = field(
         default_factory=dict[tuple[str, str], JsonDict]
@@ -420,6 +557,28 @@ class FakeKubernetes:
 
     async def get_statefulset_status(self, name: str, namespace: str) -> StatefulSetStatus | None:
         return self.statefulsets.get((namespace, name))
+
+    async def get_statefulset_claims(self, name: str, namespace: str) -> dict[str, str] | None:
+        claims = self.claim_templates.get((namespace, name))
+        return None if claims is None else dict(claims)
+
+    async def list_volume_claims(self, namespace: str, label_selector: str) -> list[VolumeClaim]:
+        return [VolumeClaim(n, size) for n, size in self.volume_claims.get(namespace, {}).items()]
+
+    async def resize_volume_claim(self, name: str, namespace: str, size: str) -> None:
+        self.volume_claims[namespace][name] = size
+        self.resized.append((name, size))
+
+    async def delete_volume_claim(self, name: str, namespace: str) -> None:
+        self.volume_claims.get(namespace, {}).pop(name, None)
+
+    async def crash_log(self, name: str, namespace: str, tail_lines: int) -> str:
+        return self.pod_logs.get((namespace, name), "")
+
+    async def orphan_statefulset(self, name: str, namespace: str) -> None:
+        self.claim_templates.pop((namespace, name), None)
+        self.statefulsets.pop((namespace, name), None)
+        self.orphaned.append((namespace, name))
 
 
 def plural_of(kind: str) -> str:
