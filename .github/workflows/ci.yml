@@ -72,6 +72,8 @@ jobs:
         with:
           enable-cache: true
       - uses: azure/setup-helm@v5
+        with:
+          version: v3.16.4
       - uses: helm/kind-action@v1
         with:
           cluster_name: integration
