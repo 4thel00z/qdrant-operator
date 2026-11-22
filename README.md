@@ -34,6 +34,27 @@
 - **Admission Validation** - CEL rules on every CRD reject impossible specs before the operator sees them
 - **Async-First** - Built on kopf with fully async adapters for performance
 
+## Tested on a real cluster
+
+Every check below ran on managed Kubernetes against 3 Qdrant v1.20.2 nodes
+holding two collections of 1,000,000 Wikipedia chunks each, with dense, BM25
+sparse and payload indexes. Faults were injected by hand; the operator did
+the rest.
+
+<img src="docs/img/field-checks.svg" alt="12 of 12 checks passed: self-healing, scaling with rebalancing, online disk resize, operator restarts without pod restarts, collections as code, verified migration, scheduled backup, restore, disruption budget, access keys, HTTPS, metrics">
+
+**Self-healing.** One node lost its pod and its data volume. The operator waited out the crash loop, restored the missing replicas on the other peers, removed the dead peer, and rebalanced once the pod came back empty.
+
+<img src="docs/img/field-heal.svg" alt="Self-heal timeline: balanced 25m35s after the volume was deleted">
+
+**Scaling with rebalancing.** Replicas move onto a new peer when you scale out. With `drainOnScaleDown`, a departing peer is emptied, removed from consensus and its volumes deleted before the StatefulSet shrinks.
+
+<img src="docs/img/field-scale.svg" alt="Scaling 3 to 4 to 3 peers with 1,000,000 points">
+
+**Migrations that survive outages.** The target pod was deleted a quarter of the way through a copy. The migration retried, resumed from its checkpoint and finished with matching counts.
+
+<img src="docs/img/field-migrate.svg" alt="Migration of 100,000 points with a target outage at 24,000">
+
 ## Installation
 
 ### Prerequisites
