@@ -156,7 +156,7 @@ async def test_delete_cluster_only_uninstalls_existing_release(
     spec = ClusterSpec.from_dict({"version": "1.16.3"}, {"name": "db", "namespace": NS})
     kubernetes.volume_claims[NS] = {"qdrant-storage-qdrant-db-0": "10Gi"}
     await DeleteCluster(helm, kubernetes).execute(spec)
-    await helm.apply("qdrant-db", NS, "1.16.3", {})
+    await helm.apply("qdrant-db", NS, "1.16.3", {}, "qdrant-db", 0)
     await DeleteCluster(helm, kubernetes).execute(spec)
     assert helm.releases == {}
     assert kubernetes.volume_claims[NS] == {"qdrant-storage-qdrant-db-0": "10Gi"}
@@ -170,7 +170,7 @@ async def test_delete_cluster_deletes_volume_claims_when_asked(
         {"version": "1.16.3", "persistence": {"reclaimPolicy": "Delete"}},
         {"name": "db", "namespace": NS},
     )
-    await helm.apply("qdrant-db", NS, "1.16.3", {})
+    await helm.apply("qdrant-db", NS, "1.16.3", {}, "qdrant-db", 0)
     kubernetes.volume_claims[NS] = {
         "qdrant-storage-qdrant-db-0": "10Gi",
         "qdrant-snapshots-qdrant-db-0": "10Gi",

@@ -32,5 +32,7 @@ RUN uv sync --frozen --no-dev
 RUN groupadd -g 1000 qdrant && useradd -m -u 1000 -g qdrant qdrant
 USER qdrant
 
+ENV PATH="/app/.venv/bin:${PATH}"
+
 EXPOSE 8080
 ENTRYPOINT ["/app/.venv/bin/qdrant-operator"]

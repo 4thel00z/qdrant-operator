@@ -3,9 +3,12 @@
 import asyncio
 import json
 import os
+import shutil
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -14,6 +17,7 @@ QDRANT_CHART = "qdrant"
 QDRANT_CHART_REPO = "https://qdrant.github.io/qdrant-helm"
 CHART_REPO_ENV = "QDRANT_CHART_REPO"
 OCI_SCHEME = "oci://"
+POST_RENDERER = "qdrant-operator-postrender"
 
 
 def chart_repo_from_env() -> str:
@@ -28,6 +32,11 @@ def chart_arguments(chart: str, repo: str) -> list[str]:
     return [chart, "--repo", repo]
 
 
+def post_renderer_path() -> str:
+    """The post-render script on PATH, else next to the running interpreter."""
+    return shutil.which(POST_RENDERER) or str(Path(sys.executable).parent / POST_RENDERER)
+
+
 class HelmError(RuntimeError):
     """A helm invocation exited non-zero."""
 
@@ -38,6 +47,7 @@ class HelmAdapter:
     repo: str = field(default_factory=chart_repo_from_env)
     kubeconfig: str | None = None
     timeout_seconds: float = 600.0
+    post_renderer: str = field(default_factory=post_renderer_path)
 
     async def apply(
         self,
@@ -45,6 +55,8 @@ class HelmAdapter:
         namespace: str,
         chart_version: str,
         values: Mapping[str, Any],
+        statefulset: str,
+        partition: int,
     ) -> None:
         await self.recover_pending(release_name, namespace)
         await self.run(
@@ -57,6 +69,12 @@ class HelmAdapter:
             "--namespace",
             namespace,
             "--create-namespace",
+            "--post-renderer",
+            self.post_renderer,
+            "--post-renderer-args",
+            statefulset,
+            "--post-renderer-args",
+            str(partition),
             "--values",
             "-",
             stdin=json.dumps(values).encode(),

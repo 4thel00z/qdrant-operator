@@ -4,11 +4,13 @@ from collections.abc import AsyncIterator
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field
+from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
 from typing import Any
 
 from qdrant_operator.domain import JsonDict
+from qdrant_operator.domain import PodState
 from qdrant_operator.domain import QdrantNode
 from qdrant_operator.domain import ResourceKind
 from qdrant_operator.domain import ResourceRef
@@ -39,7 +41,13 @@ class FakeHelm:
     apply_error: str | None = None
 
     async def apply(
-        self, release_name: str, namespace: str, chart_version: str, values: Mapping[str, Any]
+        self,
+        release_name: str,
+        namespace: str,
+        chart_version: str,
+        values: Mapping[str, Any],
+        statefulset: str,
+        partition: int,
     ) -> None:
         self.apply_calls += 1
         if self.apply_error:
@@ -47,6 +55,8 @@ class FakeHelm:
         self.releases[(namespace, release_name)] = {
             "chartVersion": chart_version,
             "values": dict(values),
+            "statefulset": statefulset,
+            "partition": partition,
         }
 
     async def uninstall(self, release_name: str, namespace: str) -> None:
@@ -494,6 +504,8 @@ class FakeKubernetes:
     volume_claims: dict[str, dict[str, str]] = field(default_factory=dict[str, dict[str, str]])
     resized: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
     orphaned: list[tuple[str, str]] = field(default_factory=list[tuple[str, str]])
+    pods: dict[str, list[PodState]] = field(default_factory=dict[str, list[PodState]])
+    partitions: list[int] = field(default_factory=list[int])
     pod_logs: dict[tuple[str, str], str] = field(default_factory=dict[tuple[str, str], str])
     deleted: list[ResourceRef] = field(default_factory=list[ResourceRef])
     secret_owners: dict[tuple[str, str], JsonDict] = field(
@@ -557,6 +569,15 @@ class FakeKubernetes:
 
     async def get_statefulset_status(self, name: str, namespace: str) -> StatefulSetStatus | None:
         return self.statefulsets.get((namespace, name))
+
+    async def set_statefulset_partition(self, name: str, namespace: str, partition: int) -> None:
+        self.statefulsets[(namespace, name)] = replace(
+            self.statefulsets[(namespace, name)], partition=partition
+        )
+        self.partitions.append(partition)
+
+    async def list_pod_states(self, namespace: str, label_selector: str) -> list[PodState]:
+        return list(self.pods.get(namespace, []))
 
     async def get_statefulset_claims(self, name: str, namespace: str) -> dict[str, str] | None:
         claims = self.claim_templates.get((namespace, name))

@@ -42,6 +42,7 @@ the qdrant chart, named `qdrant-<name>`.
 | `topologySpread.zone.enabled` | `false` | Same sub-fields as `hostname` |
 | `topologySpread.constraints` | | Replaces the generated constraints; `labelSelector` defaults to the cluster's pods; `[]` disables |
 | `minReadySeconds` | `0` | Wait after a pod is Ready before the rolling update continues |
+| `rollout.strategy` | `ShardHealth` | `ShardHealth`: the operator restarts one pod at a time and only while every shard replica is Active; `Readiness`: plain StatefulSet RollingUpdate |
 | `scaling.drainOnScaleDown` | `false` | Move shards off pods before removing them |
 | `scaling.removeDeadPeers` | `false` | Restore replicas and remove peers left by rebuilt pods |
 | `scaling.rebalance` | `false` | Bring each collection to its replication factor and spread replicas evenly over the peers |

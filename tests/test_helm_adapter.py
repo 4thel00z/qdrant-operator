@@ -8,6 +8,7 @@ from qdrant_operator.helm_adapter import QDRANT_CHART_REPO
 from qdrant_operator.helm_adapter import HelmAdapter
 from qdrant_operator.helm_adapter import chart_arguments
 from qdrant_operator.helm_adapter import chart_repo_from_env
+from qdrant_operator.helm_adapter import post_renderer_path
 
 
 @dataclass
@@ -61,7 +62,26 @@ def test_oci_repository_embeds_the_chart_in_the_reference() -> None:
 async def test_apply_passes_the_configured_repository_to_helm() -> None:
     helm = RecordingHelm(repo="https://mirror.example/charts")
 
-    await helm.apply("qdrant-a", "ns", "1.16.3", {"replicaCount": 1})
+    await helm.apply("qdrant-a", "ns", "1.16.3", {"replicaCount": 1}, "qdrant-a", 1)
 
     install = next(command for command in helm.commands if command[0] == "upgrade")
     assert install[install.index("--repo") + 1] == "https://mirror.example/charts"
+
+
+async def test_apply_post_renders_the_statefulset_partition() -> None:
+    helm = RecordingHelm(post_renderer="/venv/bin/qdrant-operator-postrender")
+
+    await helm.apply("qdrant-a", "ns", "1.16.3", {}, "qdrant-a", 3)
+
+    install = next(command for command in helm.commands if command[0] == "upgrade")
+    assert install[install.index("--post-renderer") + 1] == "/venv/bin/qdrant-operator-postrender"
+    args = [install[i + 1] for i, flag in enumerate(install) if flag == "--post-renderer-args"]
+    assert args == ["qdrant-a", "3"]
+
+
+def test_post_renderer_defaults_to_the_script_beside_the_interpreter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PATH", "")
+
+    assert post_renderer_path().endswith("/qdrant-operator-postrender")

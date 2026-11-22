@@ -274,7 +274,9 @@ def rebuilt_pod_qdrant() -> FakeQdrant:
 
 
 def settled(kubernetes: FakeKubernetes, replicas: int = 3) -> None:
-    kubernetes.statefulsets[(NS, RELEASE)] = StatefulSetStatus(replicas, replicas)
+    kubernetes.statefulsets[(NS, RELEASE)] = StatefulSetStatus(
+        replicas, replicas, partition=replicas
+    )
 
 
 async def test_dead_peer_is_restored_from_active_replicas_then_removed(
@@ -419,7 +421,7 @@ def crash_looping_pod_qdrant() -> FakeQdrant:
 async def test_a_pod_crash_looping_on_an_empty_volume_gets_its_old_peer_repaired(
     kubernetes: FakeKubernetes,
 ) -> None:
-    kubernetes.statefulsets[(NS, RELEASE)] = StatefulSetStatus(3, 2)
+    kubernetes.statefulsets[(NS, RELEASE)] = StatefulSetStatus(3, 2, partition=3)
     kubernetes.pod_logs[(NS, f"{RELEASE}-1")] = (
         f"peer URI {peer_uri(1)} already used by peer 101 which still has shards"
     )

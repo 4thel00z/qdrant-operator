@@ -53,6 +53,42 @@ write load each pod takes minutes to become Ready; set `minReadySeconds` to
 pace the roll and keep client retries on for the UNAVAILABLE errors a stopping
 pod produces.
 
+## Rollout strategy
+
+```yaml
+spec:
+  rollout:
+    strategy: ShardHealth   # default; Readiness = plain StatefulSet RollingUpdate
+```
+
+A pod only being Ready does not mean its shard replicas have caught up: after
+a restart they stay `Partial` or `Recovery` while the other replicas take the
+write load. With `ShardHealth` the operator holds the StatefulSet's
+`updateStrategy.rollingUpdate.partition` at `spec.replicas`, so a template
+change restarts nothing by itself, then lowers it one ordinal at a time. It
+releases the next pod (highest ordinal first) only when the previous one is
+updated and Ready and the cluster is healthy: every pod Ready and answering,
+every shard replica of every collection `Active`, no shard transfers, and
+every pod listed as a peer. The `Progressing` condition reads
+`WaitingForShards` (naming the replicas as `collection/shard@peer`) or
+`RestartingPod`, and the phase is `Upgrading` until the last pod is updated.
+
+The state lives in the StatefulSet (partition and each pod's
+`controller-revision-hash`), so an operator restart resumes the rollout. While
+it runs, scale-down draining and volume recreation wait for it to finish. A
+dead peer left behind by an earlier incident keeps the rollout waiting until
+`scaling.removeDeadPeers` removes it, which it may do while the rollout is held.
+Choose `Readiness` to get the previous behaviour; it also resets a partition
+left by `ShardHealth`. The operator needs `get`, `list` and `watch` on pods,
+which the chart's ClusterRole grants.
+
+The partition is part of every Helm apply: the operator runs `helm upgrade` with
+a post-renderer (`qdrant-operator-postrender`, shipped in the operator image)
+that sets the StatefulSet's `updateStrategy` to the held partition, so a
+recreated StatefulSet and a template change never restart a pod before its
+turn. Re-applying the release in the middle of a rollout resets the hold, and
+the operator releases the pods again one by one.
+
 ## Upgrading Qdrant
 
 ```sh

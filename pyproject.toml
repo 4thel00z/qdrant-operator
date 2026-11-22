@@ -31,6 +31,7 @@ dependencies = [
     "loguru>=0.7.3",
     "pyjwt>=2.9",
     "prometheus-client>=0.26.0",
+    "pyyaml>=6.0",
 ]
 
 [dependency-groups]
@@ -50,6 +51,7 @@ Changelog = "https://github.com/4thel00z/qdrant-operator/releases"
 
 [project.scripts]
 qdrant-operator = "qdrant_operator.main:run"
+qdrant-operator-postrender = "qdrant_operator.postrender:main"
 
 [build-system]
 requires = ["uv_build>=0.8,<1.0"]

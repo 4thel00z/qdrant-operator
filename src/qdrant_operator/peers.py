@@ -59,6 +59,14 @@ class CollectionShards:
     def shard_ids(self) -> tuple[int, ...]:
         return tuple(sorted({r.shard_id for r in self.replicas}))
 
+    def inactive(self) -> tuple[str, ...]:
+        """Replicas not Active, as `collection/shard@peer is State`."""
+        return tuple(
+            f"{self.collection}/{r.shard_id}@{r.peer_id} is {r.state}"
+            for r in self.replicas
+            if r.state != ACTIVE
+        )
+
     def on_peers(self, peer_ids: Iterable[int]) -> tuple[Replica, ...]:
         wanted = frozenset(peer_ids)
         return tuple(r for r in self.replicas if r.peer_id in wanted)
