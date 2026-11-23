@@ -478,6 +478,70 @@ async def test_restore_from_backup_ref_recovers_each_node_from_presigned_urls(
     assert phases == ["Downloading", "Restoring"]
 
 
+def indexing_restore(timeout: float) -> RestoreSpec:
+    return RestoreSpec.from_dict(
+        {
+            "targetClusterRef": {"name": "db"},
+            "backupRef": {"name": "nightly"},
+            "indexingTimeoutSeconds": timeout,
+        },
+        {"name": "rs", "namespace": NS},
+    )
+
+
+async def test_restore_gives_up_on_a_collection_that_never_turns_green(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    storage = await completed_backup(kubernetes, qdrant)
+    qdrant.restore_bodies["docs"] = {
+        "vectors": {"size": 4, "distance": "Cosine"},
+        "optimizers_config": {"indexing_threshold": 0},
+    }
+    qdrant.yellow_polls["docs"] = 10**9
+    calls_before = qdrant.info_calls
+
+    status = await ExecuteRestore(qdrant, storage, kubernetes, indexing_poll_seconds=0.005).execute(
+        indexing_restore(0.05), ResourceRef(RESTORES, "rs", NS)
+    )
+
+    outcomes = {r.name: r for r in status.restored_collections}
+    assert qdrant.info_calls - calls_before > 2
+    assert outcomes["docs"].status == RestorePhase.FAILED
+    assert outcomes["docs"].error == (
+        "Collection docs did not turn green within 0.05s (status yellow); "
+        "indexing is disabled in the restored config (optimizer_config.indexing_threshold is 0)"
+    )
+    assert outcomes["images"].status == RestorePhase.COMPLETED
+    assert status.phase == RestorePhase.FAILED
+    assert status.error == outcomes["docs"].error
+    assert status.progress.percentage == 50
+    assert status.completion_time
+    complete = {c.type: c for c in status.conditions}["Complete"]
+    assert (complete.status, complete.reason, complete.message) == (
+        ConditionStatus.FALSE,
+        "RestoreFailed",
+        "Restored 1/2",
+    )
+
+
+async def test_restore_waits_for_indexing_that_finishes_before_the_timeout(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    storage = await completed_backup(kubernetes, qdrant)
+    qdrant.yellow_polls["docs"] = 3
+    qdrant.yellow_polls["images"] = 2
+    calls_before = qdrant.info_calls
+
+    status = await ExecuteRestore(qdrant, storage, kubernetes, indexing_poll_seconds=0).execute(
+        indexing_restore(60), ResourceRef(RESTORES, "rs", NS)
+    )
+
+    assert status.phase == RestorePhase.COMPLETED
+    assert status.error is None
+    assert qdrant.info_calls - calls_before == 7
+    assert all(r.points_count == 42 for r in status.restored_collections)
+
+
 async def test_restore_refuses_unfinished_backup_and_mismatched_node_count(
     kubernetes: FakeKubernetes, qdrant: FakeQdrant
 ) -> None:
