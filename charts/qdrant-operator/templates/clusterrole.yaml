@@ -17,6 +17,11 @@ rules:
   - apiGroups: ["kopf.dev"]
     resources: ["clusterkopfpeerings"]
     verbs: ["*"]
+  {{- if and .Values.ha.enabled .Values.ha.namespaces }}
+  - apiGroups: ["kopf.dev"]
+    resources: ["kopfpeerings"]
+    verbs: ["*"]
+  {{- end }}
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create"]

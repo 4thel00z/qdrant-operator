@@ -45,6 +45,7 @@ from qdrant_operator.domain import RestorePhase
 from qdrant_operator.domain import RestoreSpec
 from qdrant_operator.domain import RestoreStatus
 from qdrant_operator.domain import retry_delay
+from qdrant_operator.ha import apply_peering_lifetime
 from qdrant_operator.kubernetes_adapter import load_kubernetes_config
 from qdrant_operator.logs import configure_logging
 from qdrant_operator.metrics import OperatorMetrics
@@ -84,6 +85,7 @@ async def configure(settings: kopf.OperatorSettings, **_: Any) -> None:
         prefix=GROUP, key="last-applied-spec"
     )
     settings.posting.level = logging.INFO
+    apply_peering_lifetime(settings, os.environ)
     configure_logging(os.environ.get("LOG_LEVEL", "INFO"))
     metrics_port = int(os.environ.get(METRICS_PORT_ENV, DEFAULT_METRICS_PORT))
     if metrics_port:

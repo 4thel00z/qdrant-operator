@@ -99,6 +99,13 @@ helm install qdrant-operator ./charts/qdrant-operator \
   --set resources.limits.memory=2Gi
 ```
 
+Run several replicas with kopf peering (one active, the rest standby; failover within
+`ha.lifetime`, 60 seconds by default):
+
+```bash
+helm install qdrant-operator ./charts/qdrant-operator --set ha.enabled=true --set replicaCount=2
+```
+
 Or use a values file:
 
 ```bash

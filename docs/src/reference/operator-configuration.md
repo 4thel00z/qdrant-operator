@@ -4,7 +4,11 @@
 
 | Value | Default | Description |
 |---|---|---|
-| `replicaCount` | `1` | Keep at one; the Deployment uses `Recreate` |
+| `replicaCount` | `1` | Above one only with `ha.enabled`; the chart refuses to render otherwise |
+| `ha.enabled` | `false` | Kopf peering: one replica is active, the rest wait as standbys. Switches the Deployment to `RollingUpdate`. See [High availability](../installation.md#high-availability) |
+| `ha.peeringName` | release full name | Name of the peering object |
+| `ha.lifetime` | `60` | Seconds before a standby takes over from a pod that died without a clean exit |
+| `ha.namespaces` | `[]` | Empty: cluster-wide with a `ClusterKopfPeering`. Names: the operator watches only these and a `KopfPeering` is created in each |
 | `image.repository` | `ghcr.io/4thel00z/qdrant-operator` | |
 | `image.tag` | chart `appVersion` | |
 | `image.pullPolicy` | `IfNotPresent` | |
@@ -25,6 +29,11 @@
 | `LOG_LEVEL` | `INFO` | |
 | `LOG_FORMAT` | `json` | `json` writes one JSON object per line; `text` is for a terminal |
 | `QDRANT_CHART_REPO` | `https://qdrant.github.io/qdrant-helm` | Where the qdrant chart is pulled from |
+| `PEERING_NAME` | unset | Joins the kopf peering of this name; the operator fails to start if the peering object is missing. Unset keeps today's standalone behaviour |
+| `PEERING_PRIORITY` | random per start | Fixed priority instead of the random one |
+| `PEERING_LIFETIME` | `60` | Peering record lifetime in seconds |
+| `WATCH_NAMESPACES` | unset | Comma-separated namespaces passed as `--namespace`; unset passes `--all-namespaces` |
+| `POD_ID` | generated | Peer identity in the peering object; the chart sets it to the pod name |
 | `METRICS_PORT` | `9090` | Port of the Prometheus endpoint; `0` turns it off |
 | `KUBECONFIG` | in-cluster | Used when no service account token is mounted |
 | `HELM_CACHE_HOME`, `HELM_CONFIG_HOME`, `HELM_DATA_HOME` | `/tmp/helm/*` in the chart | Where the bundled `helm` keeps its state on the read-only root filesystem |
@@ -40,7 +49,9 @@ kopf run -m qdrant_operator.handlers --all-namespaces --liveness=http://0.0.0.0:
 and appends any arguments you pass, which override the defaults. Useful ones:
 `--namespace <ns>` to watch one namespace, `--verbose` for kopf's own debug
 output, `--standalone` to skip peering, `--dev` for a short peering priority
-when running next to an in-cluster operator.
+when running next to an in-cluster operator. With `ha.enabled`, pods use random priorities
+up to 2147483647, so a `--dev` operator (priority 666) pauses itself; pass
+`--priority 4000000000` instead.
 
 ## RBAC
 
@@ -52,6 +63,7 @@ The chart's ClusterRole grants:
 | `qdrant.io` `*/status` | get, patch, update | Status subresources |
 | `customresourcedefinitions` | list, watch | kopf checks the CRDs it serves |
 | `clusterkopfpeerings.kopf.dev` | all | kopf peering between operator instances |
+| `kopfpeerings.kopf.dev` | all | Only with `ha.enabled` and `ha.namespaces` |
 | `events` | create | kopf posts events on handled resources |
 | `secrets` | get, list, watch, create, update, patch, delete | API keys, TLS CA and bucket credentials; access key Secrets are written; the chart renders Secrets |
 | `persistentvolumeclaims` | get, list, watch, patch | Grow the data and snapshot volumes |

@@ -1,4 +1,10 @@
-replicaCount: 1
+replicaCount: 1  # above 1 only with ha.enabled; otherwise every replica would reconcile
+
+ha:
+  enabled: false  # kopf peering: one replica is active, the others wait as standbys; the Deployment rolls instead of recreating
+  peeringName: ""  # empty uses the release full name
+  lifetime: 60  # seconds before a standby takes over from an active pod that died without a clean exit; a clean shutdown hands over at once
+  namespaces: []  # empty: cluster-wide with a ClusterKopfPeering; names: the operator watches only these and a KopfPeering is created in each
 
 image:
   repository: ghcr.io/4thel00z/qdrant-operator
