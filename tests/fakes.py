@@ -181,6 +181,9 @@ class FakeQdrant:
     shard_operations: list[ShardOperation] = field(default_factory=list[ShardOperation])
     removed_peers: list[tuple[int, bool]] = field(default_factory=list[tuple[int, bool]])
     created: int = 0
+    restore_bodies: dict[str, JsonDict] = field(default_factory=dict[str, JsonDict])
+    yellow_polls: dict[str, int] = field(default_factory=dict[str, int])
+    info_calls: int = 0
 
     def resolve(self, node: QdrantNode) -> str:
         """Map a Service URL onto the node that would answer it."""
@@ -251,10 +254,16 @@ class FakeQdrant:
         checksum: str | None,
     ) -> None:
         self.recovered.append((node.url, collection, location, priority, checksum))
-        self.add_collection(node.url, collection, points=42)
+        body = self.restore_bodies.get(collection)
+        self.add_collection(node.url, collection, points=42, body=body)
 
     async def collection_info(self, node: QdrantNode, collection: str) -> JsonDict:
-        return self.entry(node, collection)
+        self.info_calls += 1
+        info = self.entry(node, collection)
+        if self.yellow_polls.get(collection, 0) <= 0:
+            return info
+        self.yellow_polls[collection] -= 1
+        return {**info, "status": "yellow"}
 
     async def ready(self, node: QdrantNode) -> bool:
         return True
