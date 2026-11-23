@@ -74,7 +74,7 @@ cannot change (the size rules use CEL `quantity()`, Kubernetes 1.29 or newer); `
 
 On create, spec update and operator start: `helm upgrade --install
 qdrant-<name> qdrant --repo https://qdrant.github.io/qdrant-helm --version
-<version> --namespace <namespace> --create-namespace --values -` with the
+<version> --namespace <namespace> --values -` with the
 values from [Helm values the operator renders](./helm-values.md) on stdin.
 The phase is `Pending` on a first install and `Upgrading` when the release
 existed. Every thirty seconds the StatefulSet `qdrant-<name>` is read and
