@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.5.0](https://github.com/4thel00z/qdrant-operator/compare/v0.4.0...v0.5.0) (2026-11-23)
+
+
+### Features
+
+* **cluster:** roll pods only after every shard replica is Active ([3f4dcc3](https://github.com/4thel00z/qdrant-operator/commit/3f4dcc325dabb4adbe3d1a453a88dd5a0e07f9e9))
+* **cluster:** roll pods only after every shard replica is Active ([50a6e24](https://github.com/4thel00z/qdrant-operator/commit/50a6e24a65e26a848770e8131be13002b9ec6c75))
+
+
+### Bug Fixes
+
+* **ci:** uv.lock for 0.4.0 and kind integration tests ([eec1ce9](https://github.com/4thel00z/qdrant-operator/commit/eec1ce9fad82ebbaa9a4b6593f4785facc285d99))
+
+
+### Documentation
+
+* **readme:** add field test results with figures ([0b8e6a1](https://github.com/4thel00z/qdrant-operator/commit/0b8e6a1c8e0aec270a264dc073cf5477af0ca6f7))
+* **readme:** add field test results with figures ([9c51110](https://github.com/4thel00z/qdrant-operator/commit/9c5111041c2aaa36581b39af05d68b901900a83d))
+
+
+### Build
+
+* refresh uv.lock for 0.4.0 and bump it on release ([b9b7089](https://github.com/4thel00z/qdrant-operator/commit/b9b70894d3255db69409bb861434d97183d90513))
+
+
+### CI
+
+* **integration:** run the adapter against the helm version the image ships ([db3cf9f](https://github.com/4thel00z/qdrant-operator/commit/db3cf9fb2308279a90791c4643c4efd15337ab70))
+* **release:** publish an existing tag to PyPI on demand ([328579d](https://github.com/4thel00z/qdrant-operator/commit/328579d719b3a5854b1be83d8a4e9c9d2bec8ddf))
+* **release:** publish an existing tag to PyPI on demand ([75584c5](https://github.com/4thel00z/qdrant-operator/commit/75584c5e64bbc1c0103e55a2112233ede4909d1b))
+
 ## [0.4.0](https://github.com/4thel00z/qdrant-operator/compare/v0.3.2...v0.4.0) (2026-11-21)
 
 
