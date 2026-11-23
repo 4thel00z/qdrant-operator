@@ -20,6 +20,8 @@ immutable.
 | `batchSize` | `256` | Points per scroll and upsert, 1 to 10000 |
 | `checkpointBatches` | `20` | Batches between progress checkpoints in status; a crash re-copies at most this many batches |
 | `verifyPasses` | `1` | Extra scroll passes over the source when, after the copy, the target has fewer points than the source (exact counts); `0` disables them but the counts are still compared |
+| `sync` | `false` | After the copy, compare both sides by point ID, re-upsert missing or different points (hash of payload plus vectors) and delete target points the source lacks; replaces the verify passes. See the guide |
+| `syncMaxPasses` | `1` | 1 to 20; a further sync pass runs only while the previous one changed something |
 | `createMissing` | `true` | Create absent target collections from the source configuration |
 | `target.shardNumber`, `replicationFactor`, `writeConsistencyFactor` | target defaults | Applied to collections the migration creates |
 
@@ -33,7 +35,7 @@ the spec cannot change.
 | `phase` | `Pending`, `Running`, `Completed` or `Failed` |
 | `startTime`, `completionTime` | |
 | `source` | `<namespace>/<name>` or the endpoint URL |
-| `collections[]` | `name`, `targetName`, `status`, `pointsTotal`, `pointsCopied`, `sourceCount`, `targetCount`, `verifyPass`, `message`, `error` |
+| `collections[]` | `name`, `targetName`, `status`, `pointsTotal`, `pointsCopied`, `sourceCount`, `targetCount`, `verifyPass`, `pointsUpdated`, `pointsDeleted`, `syncPasses`, `message`, `error` |
 | `progress` | `collectionsTotal`, `collectionsCompleted`, `pointsTotal`, `pointsCopied`, `percentage` |
 | `error` | The first failed collection's error |
 | `conditions[Complete]` | `MigrationCompleted` or `MigrationFailed` |
