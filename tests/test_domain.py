@@ -111,13 +111,15 @@ def test_cluster_spec_maps_every_declared_field_into_helm_values() -> None:
     assert spec.scheme == "https"
 
 
-def tls_cluster(p2p_tls: bool, config: dict[str, Any]) -> ClusterSpec:
+def tls_cluster(
+    p2p_tls: bool, config: dict[str, Any], tls: dict[str, Any] | None = None
+) -> ClusterSpec:
     return ClusterSpec.from_dict(
         {
             "version": "v1.16.3",
             "replicas": 2,
             "cluster": {"enabled": True, "p2p": {"enableTls": p2p_tls}},
-            "tls": {"enabled": True, "secretRef": {"name": "certs"}},
+            "tls": {"enabled": True, "secretRef": {"name": "certs"}, **(tls or {})},
             "config": config,
         },
         META,
@@ -138,6 +140,22 @@ def test_service_tls_alone_needs_no_ca() -> None:
     values = tls_cluster(False, {}).to_helm_values()
 
     assert "ca_cert" not in values["config"]["tls"]
+
+
+def test_ca_key_picks_the_secret_file_for_qdrant_and_the_operator() -> None:
+    spec = tls_cluster(True, {}, {"caKey": "root.pem"})
+
+    assert spec.to_helm_values()["config"]["tls"]["ca_cert"] == "/qdrant/tls/root.pem"
+    ref = spec.tls.ca_secret_ref("ns")
+    assert ref is not None
+    assert ref.key == "root.pem"
+
+
+def test_ca_key_defaults_to_ca_crt() -> None:
+    ref = tls_cluster(True, {}).tls.ca_secret_ref("ns")
+
+    assert ref is not None
+    assert ref.key == "ca.crt"
 
 
 def test_spec_config_overrides_the_tls_ca_path() -> None:

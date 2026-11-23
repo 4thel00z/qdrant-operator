@@ -365,18 +365,20 @@ class ApiKeySpec:
 class TlsSpec:
     enabled: bool = False
     secret_name: str | None = None
+    ca_key: str = "ca.crt"
 
     @staticmethod
     def from_dict(data: Mapping[str, Any]) -> "TlsSpec":
         return TlsSpec(
             enabled=data.get("enabled", False),
             secret_name=data.get("secretRef", {}).get("name"),
+            ca_key=data.get("caKey", TlsSpec.ca_key),
         )
 
     def ca_secret_ref(self, namespace: str) -> SecretRef | None:
         if not self.enabled or not self.secret_name:
             return None
-        return SecretRef(name=self.secret_name, key="ca.crt", namespace=namespace)
+        return SecretRef(name=self.secret_name, key=self.ca_key, namespace=namespace)
 
 
 @dataclass(frozen=True)
@@ -769,7 +771,7 @@ class ClusterSpec:
         files = {"cert": f"{TLS_MOUNT_PATH}/tls.crt", "key": f"{TLS_MOUNT_PATH}/tls.key"}
         if not self.distributed.p2p_tls:
             return {"tls": files}
-        return {"tls": {**files, "ca_cert": f"{TLS_MOUNT_PATH}/ca.crt"}}
+        return {"tls": {**files, "ca_cert": f"{TLS_MOUNT_PATH}/{self.tls.ca_key}"}}
 
     def tls_volumes(self) -> JsonDict:
         if not self.tls.enabled or not self.tls.secret_name:
