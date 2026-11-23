@@ -33,6 +33,7 @@ from qdrant_operator.domain import RetentionPolicy
 from qdrant_operator.domain import SnapshotRecord
 from qdrant_operator.domain import TargetOverrides
 from qdrant_operator.domain import VolumeSnapshotRecord
+from qdrant_operator.domain import Zone
 from qdrant_operator.domain import chart_version
 from qdrant_operator.domain import create_body_from_config
 from qdrant_operator.domain import format_size
@@ -774,13 +775,29 @@ def test_schedule_spawns_volume_snapshot_backups() -> None:
 
 
 def test_volume_restore_plan_names_claims_like_the_statefulset_and_points_at_snapshots() -> None:
-    claims = plan_volume_restore(volume_restore(), volume_source(), VOLUME_RECORDS, 2, False, [])
+    claims = plan_volume_restore(
+        volume_restore(), volume_source(), VOLUME_RECORDS, 2, False, [], {1: "node-b"}
+    )
 
     assert [c["metadata"]["name"] for c in claims] == [
         "qdrant-storage-qdrant-db-0",
         "qdrant-storage-qdrant-db-1",
     ]
     assert claims[0]["spec"]["dataSource"]["name"] == "nightly-node-0"
+    assert "annotations" not in claims[0]["metadata"]
+    assert claims[1]["metadata"]["annotations"] == {"volume.kubernetes.io/selected-node": "node-b"}
+
+
+def test_snapshot_record_keeps_its_zone_through_the_status() -> None:
+    record = replace(
+        VOLUME_RECORDS[0], zone=Zone("topology.cinder.csi.openstack.org/zone", "eu01-2")
+    )
+
+    data = record.to_dict()
+
+    assert (data["zone"], data["zoneLabel"]) == ("eu01-2", "topology.cinder.csi.openstack.org/zone")
+    assert VolumeSnapshotRecord.from_dict(data) == record
+    assert VolumeSnapshotRecord.from_dict(VOLUME_RECORDS[0].to_dict()).zone is None
 
 
 @pytest.mark.parametrize(
@@ -798,7 +815,9 @@ def test_volume_restore_plan_rejects_targets_that_cannot_adopt_the_volumes(
     restore: RestoreSpec, replicas: int, deployed: bool, existing: list[str], message: str
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        plan_volume_restore(restore, volume_source(), VOLUME_RECORDS, replicas, deployed, existing)
+        plan_volume_restore(
+            restore, volume_source(), VOLUME_RECORDS, replicas, deployed, existing, {}
+        )
 
 
 def test_point_digest_covers_payload_and_every_vector_kind_regardless_of_key_order() -> None:

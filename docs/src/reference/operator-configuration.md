@@ -63,6 +63,8 @@ in place of `clusterkopfpeerings`.
 | Resources | Verbs | Why |
 |---|---|---|
 | `customresourcedefinitions` | list, watch | kopf checks the CRDs it serves; cluster-scoped |
+| `persistentvolumes` | get | Zone of each data volume when a `volumeSnapshot` backup is taken; cluster-scoped |
+| `nodes` | list | A Ready node in the snapshot's zone when such a backup is restored; cluster-scoped |
 | `qdrant.io` kinds | get, list, watch, patch | kopf watches the seven custom resources and sets finalizers and annotations; cluster references are read |
 | `qdrantbackups` | create, delete | The schedule creates and prunes backups; a backup deletes itself at `expiresAt` |
 | `qdrant.io` `*/status` | get, patch | Status subresources |

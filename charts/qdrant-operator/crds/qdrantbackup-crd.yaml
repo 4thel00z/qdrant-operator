@@ -165,6 +165,12 @@ spec:
                         type: array
                         items:
                           type: string
+                      zone:
+                        type: string
+                        description: Zone of the snapshotted volume; a restore provisions the claim on a node in it
+                      zoneLabel:
+                        type: string
+                        description: Node label that carries the zone, taken from the volume's node affinity
                 s3Path:
                   type: string
                   description: Full S3 path where backup is stored

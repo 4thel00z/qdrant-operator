@@ -82,9 +82,12 @@ def test_watch_namespaces_moves_rules_into_roles() -> None:
     roles = of_kind(manifests, "Role")
     bindings = of_kind(manifests, "RoleBinding")
 
-    assert grants(cluster_role["rules"]) == {
-        "apiextensions.k8s.io/customresourcedefinitions": {"list", "watch"}
+    cluster_scoped = {
+        "apiextensions.k8s.io/customresourcedefinitions": {"list", "watch"},
+        "/persistentvolumes": {"get"},
+        "/nodes": {"list"},
     }
+    assert grants(cluster_role["rules"]) == cluster_scoped
     assert sorted(r["metadata"]["namespace"] for r in roles) == ["team-a", "team-b"]
     assert sorted(b["metadata"]["namespace"] for b in bindings) == ["team-a", "team-b"]
     for role in roles:
@@ -94,7 +97,7 @@ def test_watch_namespaces_moves_rules_into_roles() -> None:
         assert {k: v for k, v in granted.items() if "kopfpeerings" not in k} == {
             k: v
             for k, v in default_rules.items()
-            if "kopfpeerings" not in k and "apiextensions" not in k
+            if "kopfpeerings" not in k and k not in cluster_scoped
         }
     for binding in bindings:
         assert binding["roleRef"]["kind"] == "Role"

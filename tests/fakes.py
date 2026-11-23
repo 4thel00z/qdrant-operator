@@ -23,6 +23,7 @@ from qdrant_operator.domain import SnapshotInfo
 from qdrant_operator.domain import StatefulSetStatus
 from qdrant_operator.domain import VolumeClaim
 from qdrant_operator.domain import VolumeSnapshotState
+from qdrant_operator.domain import Zone
 from qdrant_operator.domain import format_time
 from qdrant_operator.domain import merge_dicts
 from qdrant_operator.domain import point_id_order
@@ -560,6 +561,8 @@ class FakeKubernetes:
         default_factory=dict[tuple[str, str], JsonDict]
     )
     claim_details: dict[str, VolumeClaim] = field(default_factory=dict[str, VolumeClaim])
+    volume_zones: dict[str, Zone] = field(default_factory=dict[str, Zone])
+    zone_nodes: dict[Zone, str] = field(default_factory=dict[Zone, str])
     clock: datetime = datetime(2026, 9, 23, 2, 30, tzinfo=UTC)
 
     def put_resource(self, body: JsonDict) -> JsonDict:
@@ -648,6 +651,12 @@ class FakeKubernetes:
     async def create_volume_snapshot(self, body: JsonDict) -> None:
         metadata = body["metadata"]
         self.volume_snapshots.setdefault((metadata["namespace"], metadata["name"]), body)
+
+    async def volume_zone(self, volume_name: str) -> Zone | None:
+        return self.volume_zones.get(volume_name)
+
+    async def node_in_zone(self, zone: Zone) -> str | None:
+        return self.zone_nodes.get(zone)
 
     async def get_volume_snapshot(self, name: str, namespace: str) -> VolumeSnapshotState | None:
         if (namespace, name) not in self.volume_snapshots:

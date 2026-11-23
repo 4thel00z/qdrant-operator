@@ -44,6 +44,7 @@ from qdrant_operator.domain import RestoreSpec
 from qdrant_operator.domain import SchedulePhase
 from qdrant_operator.domain import StatefulSetStatus
 from qdrant_operator.domain import VolumeClaim
+from qdrant_operator.domain import Zone
 from qdrant_operator.domain import format_time
 from qdrant_operator.jwt_adapter import JwtAdapter
 from qdrant_operator.usecases import CleanupBackupSnapshots
@@ -1608,7 +1609,7 @@ def seed_data_claims(kubernetes: FakeKubernetes, replicas: int = 2) -> None:
     for index in range(replicas):
         name = f"qdrant-storage-qdrant-db-{index}"
         kubernetes.volume_claims[NS][name] = "20Gi"
-        kubernetes.claim_details[name] = VolumeClaim(name, "20Gi", "cinder-csi")
+        kubernetes.claim_details.setdefault(name, VolumeClaim(name, "20Gi", "cinder-csi"))
 
 
 async def test_volume_snapshot_backup_snapshots_every_data_claim_and_records_them(
@@ -1798,6 +1799,58 @@ async def test_volume_snapshot_restore_precreates_claims_from_the_snapshots(
     assert claim["spec"]["storageClassName"] == "cinder-csi"
     assert claim["spec"]["resources"] == {"requests": {"storage": "20Gi"}}
     assert claim["metadata"]["labels"]["app.kubernetes.io/instance"] == "qdrant-db"
+
+
+CINDER_ZONE = "topology.cinder.csi.openstack.org/zone"
+
+
+def zoned_claims(kubernetes: FakeKubernetes) -> None:
+    for index, zone in enumerate(["eu01-2", "eu01-3"]):
+        name = f"qdrant-storage-qdrant-db-{index}"
+        kubernetes.claim_details[name] = VolumeClaim(
+            name, "20Gi", "cinder-csi", volume_name=f"pv-{index}"
+        )
+        kubernetes.volume_zones[f"pv-{index}"] = Zone(CINDER_ZONE, zone)
+
+
+async def test_volume_snapshot_restore_provisions_each_claim_in_its_snapshot_zone(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    zoned_claims(kubernetes)
+    await completed_volume_backup(kubernetes, qdrant)
+    kubernetes.zone_nodes = {
+        Zone(CINDER_ZONE, "eu01-2"): "node-z2",
+        Zone(CINDER_ZONE, "eu01-3"): "node-z3",
+    }
+
+    status = await ExecuteRestore(qdrant, FakeStorage(), kubernetes).execute(
+        volume_restore(), ResourceRef(RESTORES, "rs", NS)
+    )
+
+    assert status.phase == RestorePhase.COMPLETED
+    assert [
+        kubernetes.created_claims[(NS, f"qdrant-storage-qdrant-db-{i}")]["metadata"]["annotations"]
+        for i in range(2)
+    ] == [
+        {"volume.kubernetes.io/selected-node": "node-z2"},
+        {"volume.kubernetes.io/selected-node": "node-z3"},
+    ]
+
+
+async def test_volume_snapshot_restore_fails_without_a_node_in_the_snapshot_zone(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    zoned_claims(kubernetes)
+    await completed_volume_backup(kubernetes, qdrant)
+    kubernetes.zone_nodes = {Zone(CINDER_ZONE, "eu01-2"): "node-z2"}
+
+    status = await ExecuteRestore(qdrant, FakeStorage(), kubernetes).execute(
+        volume_restore(), ResourceRef(RESTORES, "rs", NS)
+    )
+
+    assert status.phase == RestorePhase.FAILED
+    assert "eu01-3" in (status.error or "")
+    assert not kubernetes.created_claims
 
 
 @pytest.mark.parametrize(

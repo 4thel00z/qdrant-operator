@@ -19,6 +19,7 @@ from qdrant_operator.domain import SnapshotInfo
 from qdrant_operator.domain import StatefulSetStatus
 from qdrant_operator.domain import VolumeClaim
 from qdrant_operator.domain import VolumeSnapshotState
+from qdrant_operator.domain import Zone
 from qdrant_operator.peers import ClusterTopology
 from qdrant_operator.peers import CollectionShards
 from qdrant_operator.peers import ShardOperation
@@ -248,6 +249,14 @@ class KubernetesPort(Protocol):
 
     async def create_volume_snapshot(self, body: JsonDict) -> None:
         """Create a snapshot.storage.k8s.io/v1 VolumeSnapshot; one that already exists is kept."""
+        ...
+
+    async def volume_zone(self, volume_name: str) -> Zone | None:
+        """Zone the PersistentVolume's node affinity pins it to, None when it has none."""
+        ...
+
+    async def node_in_zone(self, zone: Zone) -> str | None:
+        """A Ready, schedulable node carrying the zone label, None when there is none."""
         ...
 
     async def get_volume_snapshot(self, name: str, namespace: str) -> VolumeSnapshotState | None:

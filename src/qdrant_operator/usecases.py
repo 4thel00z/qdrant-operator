@@ -1092,7 +1092,7 @@ class ExecuteVolumeSnapshotBackup:
                 namespace, f"app.kubernetes.io/instance={release_name(spec.cluster_ref.name)}"
             )
         }
-        records = [self.record(spec, index, claims) for index in range(len(connection.nodes))]
+        records = [await self.record(spec, index, claims) for index in range(len(connection.nodes))]
         try:
             for index in range(len(records)):
                 await self.kubernetes.create_volume_snapshot(spec.volume_snapshot_body(index))
@@ -1119,9 +1119,8 @@ class ExecuteVolumeSnapshotBackup:
             ),
         )
 
-    @staticmethod
-    def record(
-        spec: BackupSpec, index: int, claims: Mapping[str, VolumeClaim]
+    async def record(
+        self, spec: BackupSpec, index: int, claims: Mapping[str, VolumeClaim]
     ) -> VolumeSnapshotRecord:
         name = data_claim_name(spec.cluster_ref.name, index)
         claim = claims.get(name)
@@ -1134,6 +1133,9 @@ class ExecuteVolumeSnapshotBackup:
             size=claim.size,
             storage_class=claim.storage_class,
             access_modes=claim.access_modes,
+            zone=await self.kubernetes.volume_zone(claim.volume_name)
+            if claim.volume_name
+            else None,
         )
 
     async def await_ready(self, spec: BackupSpec, names: Sequence[str]) -> None:
@@ -1225,6 +1227,25 @@ class RestoreVolumeSnapshots:
             else None
         )
         selector = f"app.kubernetes.io/instance={release_name(target.name)}"
+        nodes = {
+            r.node_index: await self.kubernetes.node_in_zone(r.zone)
+            for r in source.status.volume_snapshots
+            if r.zone
+        }
+        unplaceable = sorted(
+            {
+                r.zone.name
+                for r in source.status.volume_snapshots
+                if r.zone and not nodes[r.node_index]
+            }
+        )
+        if unplaceable:
+            return self.status(
+                source,
+                start_time,
+                f"No Ready node in zone {', '.join(unplaceable)}, where the snapshots live",
+                failed=True,
+            )
         try:
             claims = plan_volume_restore(
                 spec,
@@ -1240,6 +1261,7 @@ class RestoreVolumeSnapshots:
                     c.name
                     for c in await self.kubernetes.list_volume_claims(target.namespace, selector)
                 ],
+                {index: node for index, node in nodes.items() if node},
             )
         except ValueError as error:
             return self.status(source, start_time, str(error), failed=True)
