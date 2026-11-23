@@ -59,6 +59,7 @@ from qdrant_operator.usecases import ObserveCluster
 from qdrant_operator.usecases import ProcessSchedule
 from qdrant_operator.usecases import ReconcileCluster
 from qdrant_operator.usecases import ReconcileCollection
+from qdrant_operator.usecases import ReleaseApplyError
 from qdrant_operator.usecases import ResolveCluster
 from qdrant_operator.usecases import SourceNotReadyError
 from tests.fakes import FakeHelm
@@ -147,6 +148,54 @@ async def test_observe_lifts_statefulset_readiness_into_status(kubernetes: FakeK
     assert running.phase == ClusterPhase.RUNNING
     conditions = {c.type: c.status for c in running.conditions}
     assert conditions == {"Ready": ConditionStatus.TRUE, "Progressing": ConditionStatus.FALSE}
+
+
+async def test_observe_keeps_helm_apply_failure_until_apply_succeeds(
+    kubernetes: FakeKubernetes,
+) -> None:
+    helm = FakeHelm()
+    spec = ClusterSpec.from_dict(
+        {"version": "1.16.3", "replicas": 2}, {"name": "db", "namespace": NS}
+    )
+    reconcile = ReconcileCluster(helm, kubernetes, FakeQdrant())
+    observe = ObserveCluster(kubernetes)
+    applied = await reconcile.execute(spec, 1, ClusterStatus(ClusterPhase.PENDING))
+    kubernetes.statefulsets[(NS, "qdrant-db")] = StatefulSetStatus(replicas=2, ready_replicas=2)
+    helm.apply_error = "rejected by helm"
+
+    with pytest.raises(ReleaseApplyError) as raised:
+        await reconcile.execute(replace(spec, replicas=3), 2, applied)
+    observed = await observe.execute(replace(spec, replicas=2), raised.value.status)
+    progressing = {c.type: c for c in observed.conditions}["Progressing"]
+
+    assert (progressing.status, progressing.reason) == (ConditionStatus.FALSE, "HelmApplyFailed")
+
+    helm.apply_error = None
+    recovered = await reconcile.execute(replace(spec, replicas=3), 2, observed)
+
+    assert {c.type: c.reason for c in recovered.conditions}["Progressing"] == "HelmReleaseApplied"
+    kubernetes.statefulsets[(NS, "qdrant-db")] = StatefulSetStatus(replicas=3, ready_replicas=3)
+    healed = await observe.execute(replace(spec, replicas=3), recovered)
+    assert {c.type: c.reason for c in healed.conditions}["Progressing"] == "RolloutComplete"
+
+
+async def test_reconcile_clears_apply_failure_when_spec_returns_to_applied(
+    kubernetes: FakeKubernetes,
+) -> None:
+    helm = FakeHelm()
+    spec = ClusterSpec.from_dict(
+        {"version": "1.16.3", "replicas": 2}, {"name": "db", "namespace": NS}
+    )
+    reconcile = ReconcileCluster(helm, kubernetes, FakeQdrant())
+    applied = await reconcile.execute(spec, 1, ClusterStatus(ClusterPhase.PENDING))
+    helm.apply_error = "rejected by helm"
+    with pytest.raises(ReleaseApplyError) as raised:
+        await reconcile.execute(replace(spec, replicas=3), 2, applied)
+
+    reverted = await reconcile.execute(spec, 3, raised.value.status)
+
+    assert {c.type: c.reason for c in reverted.conditions}["Progressing"] == "HelmReleaseApplied"
+    assert helm.apply_calls == 2
 
 
 async def test_delete_cluster_only_uninstalls_existing_release(

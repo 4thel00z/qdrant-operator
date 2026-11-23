@@ -6,6 +6,7 @@ import secrets
 import string
 from collections.abc import Awaitable
 from collections.abc import Callable
+from collections.abc import Iterable
 from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -375,6 +376,27 @@ def random_key() -> str:
     return "".join(secrets.choice(alphabet) for _ in range(32))
 
 
+def apply_failed(conditions: Iterable[Condition]) -> bool:
+    return any(
+        c.type == "Progressing"
+        and c.status is ConditionStatus.FALSE
+        and c.reason == "HelmApplyFailed"
+        for c in conditions
+    )
+
+
+def clear_apply_failure(conditions: Iterable[Condition]) -> list[Condition]:
+    conditions = list(conditions)
+    if not apply_failed(conditions):
+        return conditions
+    return set_condition(
+        conditions,
+        progress_condition(
+            "Progressing", False, "HelmReleaseApplied", "Helm release matches the desired spec"
+        ),
+    )
+
+
 @dataclass
 class ReconcileCluster:
     helm: HelmPort
@@ -395,7 +417,11 @@ class ReconcileCluster:
         digest = values_digest(chart_version(spec.version), values)
         exists = await self.helm.release_exists(spec.release_name, spec.namespace)
         if exists and not recreated and current.applied_hash == digest:
-            return replace(current, observed_generation=generation)
+            return replace(
+                current,
+                conditions=tuple(clear_apply_failure(current.conditions)),
+                observed_generation=generation,
+            )
         try:
             await self.helm.apply(
                 release_name=spec.release_name,
@@ -619,7 +645,7 @@ class ObserveCluster:
                 message=self.ready_message(spec, statefulset, ready_replicas),
             ),
         )
-        if ready:
+        if ready and not apply_failed(current.conditions):
             conditions = set_condition(
                 conditions,
                 Condition(
