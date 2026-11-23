@@ -1,0 +1,21 @@
+{{- if .Values.ha.enabled }}
+{{- if .Values.watchNamespaces }}
+{{- range .Values.watchNamespaces }}
+---
+apiVersion: kopf.dev/v1
+kind: KopfPeering
+metadata:
+  name: {{ include "qdrant-operator.peeringName" $ }}
+  namespace: {{ . }}
+  labels:
+    {{- include "qdrant-operator.labels" $ | nindent 4 }}
+{{- end }}
+{{- else }}
+apiVersion: kopf.dev/v1
+kind: ClusterKopfPeering
+metadata:
+  name: {{ include "qdrant-operator.peeringName" . }}
+  labels:
+    {{- include "qdrant-operator.labels" . | nindent 4 }}
+{{- end }}
+{{- end }}

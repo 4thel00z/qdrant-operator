@@ -100,6 +100,13 @@ helm install qdrant-operator ./charts/qdrant-operator \
   --set resources.limits.memory=2Gi
 ```
 
+Run several replicas with kopf peering (one active, the rest standby; failover within
+`ha.lifetime`, 60 seconds by default):
+
+```bash
+helm install qdrant-operator ./charts/qdrant-operator --set ha.enabled=true --set replicaCount=2
+```
+
 To watch only some namespaces, set `watchNamespaces`; the chart then creates a Role and RoleBinding
 in each of them instead of cluster-wide rules (empty by default, which watches every namespace):
 

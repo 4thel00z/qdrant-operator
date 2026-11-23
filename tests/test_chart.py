@@ -68,7 +68,7 @@ def test_default_is_one_cluster_role_without_wildcards() -> None:
 def env(manifests: list[Manifest]) -> dict[str, str]:
     (deployment,) = of_kind(manifests, "Deployment")
     container = deployment["spec"]["template"]["spec"]["containers"][0]
-    return {e["name"]: e["value"] for e in container["env"]}
+    return {e["name"]: e.get("value", "") for e in container["env"]}
 
 
 def test_default_deployment_has_no_watch_namespaces() -> None:
@@ -103,3 +103,63 @@ def test_watch_namespaces_moves_rules_into_roles() -> None:
 
 def test_watch_namespaces_become_the_watch_namespaces_variable() -> None:
     assert env(render("watchNamespaces={team-a,team-b}"))["WATCH_NAMESPACES"] == "team-a,team-b"
+
+
+def kopf_crds(manifests: list[Manifest]) -> list[str]:
+    names = [m["metadata"]["name"] for m in of_kind(manifests, "CustomResourceDefinition")]
+    return [name for name in names if name.endswith("kopf.dev")]
+
+
+def test_default_is_one_replica_standalone() -> None:
+    manifests = render()
+    (deployment,) = of_kind(manifests, "Deployment")
+
+    assert deployment["spec"]["replicas"] == 1
+    assert deployment["spec"]["strategy"] == {"type": "Recreate"}
+    assert not of_kind(manifests, "ClusterKopfPeering")
+    assert not of_kind(manifests, "KopfPeering")
+    assert not kopf_crds(manifests)
+    assert "PEERING_NAME" not in env(manifests)
+
+
+def test_several_replicas_without_peering_are_refused() -> None:
+    with pytest.raises(subprocess.CalledProcessError):
+        render("replicaCount=2")
+
+
+def test_cluster_wide_peering() -> None:
+    manifests = render("ha.enabled=true", "replicaCount=2", "ha.lifetime=30")
+    (deployment,) = of_kind(manifests, "Deployment")
+    container = deployment["spec"]["template"]["spec"]["containers"][0]
+    pod_id = next(e for e in container["env"] if e["name"] == "POD_ID")
+    variables = env(manifests)
+
+    assert deployment["spec"]["replicas"] == 2
+    assert deployment["spec"]["strategy"]["type"] == "RollingUpdate"
+    assert deployment["spec"]["strategy"]["rollingUpdate"] == {"maxSurge": 1, "maxUnavailable": 0}
+    assert kopf_crds(manifests) == ["clusterkopfpeerings.kopf.dev"]
+    peerings = of_kind(manifests, "ClusterKopfPeering")
+    assert [p["metadata"]["name"] for p in peerings] == [variables["PEERING_NAME"]]
+    assert variables["PEERING_LIFETIME"] == "30"
+    assert pod_id["valueFrom"]["fieldRef"]["fieldPath"] == "metadata.name"
+    assert "WATCH_NAMESPACES" not in variables
+    assert not of_kind(manifests, "KopfPeering")
+
+
+def test_peering_follows_watch_namespaces() -> None:
+    manifests = render(
+        "ha.enabled=true", "replicaCount=2", "watchNamespaces={a,b}", "ha.peeringName=ops"
+    )
+    variables = env(manifests)
+
+    assert variables["WATCH_NAMESPACES"] == "a,b"
+    assert variables["PEERING_NAME"] == "ops"
+    peerings = of_kind(manifests, "KopfPeering")
+    assert [(p["metadata"]["namespace"], p["metadata"]["name"]) for p in peerings] == [
+        ("a", "ops"),
+        ("b", "ops"),
+    ]
+    assert kopf_crds(manifests) == ["kopfpeerings.kopf.dev"]
+    assert not of_kind(manifests, "ClusterKopfPeering")
+    for role in of_kind(manifests, "Role"):
+        assert "kopf.dev/kopfpeerings" in grants(role["rules"])

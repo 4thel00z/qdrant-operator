@@ -6,9 +6,19 @@ metadata:
   labels:
     {{- include "qdrant-operator.labels" . | nindent 4 }}
 spec:
+  {{- if and (gt (int .Values.replicaCount) 1) (not .Values.ha.enabled) }}
+  {{- fail "replicaCount above 1 needs ha.enabled=true; without peering every replica would reconcile" }}
+  {{- end }}
   replicas: {{ .Values.replicaCount }}
   strategy:
+    {{- if .Values.ha.enabled }}
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    {{- else }}
     type: Recreate
+    {{- end }}
   selector:
     matchLabels:
       {{- include "qdrant-operator.selectorLabels" . | nindent 6 }}
@@ -37,6 +47,16 @@ spec:
             {{- with .Values.operator.chartRepo }}
             - name: QDRANT_CHART_REPO
               value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.ha.enabled }}
+            - name: POD_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: PEERING_NAME
+              value: {{ include "qdrant-operator.peeringName" . | quote }}
+            - name: PEERING_LIFETIME
+              value: {{ .Values.ha.lifetime | quote }}
             {{- end }}
             - name: METRICS_PORT
               value: {{ ternary .Values.metrics.port 0 .Values.metrics.enabled | quote }}

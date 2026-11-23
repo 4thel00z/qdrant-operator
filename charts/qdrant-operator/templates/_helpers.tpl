@@ -41,6 +41,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{- define "qdrant-operator.peeringName" -}}
+{{- default (include "qdrant-operator.fullname" .) .Values.ha.peeringName }}
+{{- end }}
+
 {{- define "qdrant-operator.crdRules" -}}
 - apiGroups: ["apiextensions.k8s.io"]
   resources: ["customresourcedefinitions"]
