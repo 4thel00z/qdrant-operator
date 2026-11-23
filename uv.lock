@@ -915,6 +915,7 @@ dependencies = [
     { name = "loguru" },
     { name = "prometheus-client" },
     { name = "pyjwt" },
+    { name = "pyyaml" },
 ]
 
 [package.dev-dependencies]
@@ -936,6 +937,7 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "prometheus-client", specifier = ">=0.26.0" },
     { name = "pyjwt", specifier = ">=2.9" },
+    { name = "pyyaml", specifier = ">=6.0" },
 ]
 
 [package.metadata.requires-dev]

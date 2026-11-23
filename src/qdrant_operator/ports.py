@@ -6,6 +6,7 @@ from typing import Any
 from typing import Protocol
 
 from qdrant_operator.domain import JsonDict
+from qdrant_operator.domain import PodState
 from qdrant_operator.domain import QdrantNode
 from qdrant_operator.domain import ResourceKind
 from qdrant_operator.domain import ResourceRef
@@ -29,8 +30,12 @@ class HelmPort(Protocol):
         namespace: str,
         chart_version: str,
         values: Mapping[str, Any],
+        statefulset: str,
+        partition: int,
     ) -> None:
         """Install or upgrade a release to the given chart version and values.
+
+        The rendered StatefulSet `statefulset` carries updateStrategy partition `partition`.
 
         Raises RuntimeError with helm's error output when the install or upgrade fails.
         """
@@ -207,6 +212,14 @@ class KubernetesPort(Protocol):
     async def get_statefulset_status(
         self, name: str, namespace: str
     ) -> StatefulSetStatus | None: ...
+
+    async def set_statefulset_partition(self, name: str, namespace: str, partition: int) -> None:
+        """Patch updateStrategy.rollingUpdate.partition of the StatefulSet."""
+        ...
+
+    async def list_pod_states(self, namespace: str, label_selector: str) -> list[PodState]:
+        """Pods with their controller-revision-hash label and Ready condition."""
+        ...
 
     async def get_statefulset_claims(self, name: str, namespace: str) -> dict[str, str] | None:
         """Requested storage per volume claim template, None when the StatefulSet is absent."""

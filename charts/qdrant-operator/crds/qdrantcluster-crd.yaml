@@ -326,6 +326,15 @@ spec:
                       type: boolean
                       default: false
                       description: Keep every collection at its replication factor and its replicas spread evenly over the pods, e.g. after a scale-up, a restore or a peer repair; one shard operation per collection at a time
+                rollout:
+                  type: object
+                  description: How pods are restarted when the pod template changes
+                  properties:
+                    strategy:
+                      type: string
+                      enum: ["ShardHealth", "Readiness"]
+                      default: "ShardHealth"
+                      description: ShardHealth has the operator lower the StatefulSet partition one pod at a time, each only once every pod is Ready, every shard replica is Active, no transfer runs and every pod is a peer. Readiness is the plain StatefulSet RollingUpdate with partition 0
                 config:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true

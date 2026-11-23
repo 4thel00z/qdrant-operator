@@ -23,6 +23,7 @@ from qdrant_operator.usecases import RebalanceShards
 from qdrant_operator.usecases import ReconcileCluster
 from qdrant_operator.usecases import ReconcileCollection
 from qdrant_operator.usecases import RecoverDeadPeers
+from qdrant_operator.usecases import StepRollout
 
 
 @dataclass
@@ -35,6 +36,9 @@ class Container:
 
     def reconcile_cluster(self) -> ReconcileCluster:
         return ReconcileCluster(helm=self.helm, kubernetes=self.kubernetes, qdrant=self.qdrant)
+
+    def step_rollout(self) -> StepRollout:
+        return StepRollout(qdrant=self.qdrant, kubernetes=self.kubernetes)
 
     def observe_cluster(self) -> ObserveCluster:
         return ObserveCluster(kubernetes=self.kubernetes)

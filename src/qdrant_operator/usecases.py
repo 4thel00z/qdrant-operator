@@ -7,6 +7,7 @@ import string
 from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Mapping
+from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import replace
 from datetime import UTC
@@ -32,6 +33,7 @@ from qdrant_operator.domain import BackupScheduleStatus
 from qdrant_operator.domain import BackupSpec
 from qdrant_operator.domain import BackupStatus
 from qdrant_operator.domain import ClusterConnection
+from qdrant_operator.domain import ClusterHealth
 from qdrant_operator.domain import ClusterPhase
 from qdrant_operator.domain import ClusterRef
 from qdrant_operator.domain import ClusterSpec
@@ -52,6 +54,7 @@ from qdrant_operator.domain import JsonDict
 from qdrant_operator.domain import MigrationPhase
 from qdrant_operator.domain import MigrationSpec
 from qdrant_operator.domain import MigrationStatus
+from qdrant_operator.domain import PodRevision
 from qdrant_operator.domain import QdrantNode
 from qdrant_operator.domain import ReclaimPolicy
 from qdrant_operator.domain import ResourceRef
@@ -60,6 +63,9 @@ from qdrant_operator.domain import RestorePhase
 from qdrant_operator.domain import RestoreProgress
 from qdrant_operator.domain import RestoreSpec
 from qdrant_operator.domain import RestoreStatus
+from qdrant_operator.domain import RolloutSnapshot
+from qdrant_operator.domain import RolloutStrategy
+from qdrant_operator.domain import RolloutWait
 from qdrant_operator.domain import S3Credentials
 from qdrant_operator.domain import S3StorageSpec
 from qdrant_operator.domain import SchedulePhase
@@ -70,15 +76,20 @@ from qdrant_operator.domain import chart_version
 from qdrant_operator.domain import create_body_from_config
 from qdrant_operator.domain import format_size
 from qdrant_operator.domain import group_by_shard_key
+from qdrant_operator.domain import hold_partition
 from qdrant_operator.domain import indexing_timeout_message
 from qdrant_operator.domain import is_subset
 from qdrant_operator.domain import join_key
 from qdrant_operator.domain import key_fingerprint
+from qdrant_operator.domain import next_partition
 from qdrant_operator.domain import owner_reference
 from qdrant_operator.domain import parse_quantity
 from qdrant_operator.domain import parse_time
 from qdrant_operator.domain import payload_indexes_from_schema
 from qdrant_operator.domain import plan_volumes
+from qdrant_operator.domain import pod_revisions
+from qdrant_operator.domain import released_pods_settled
+from qdrant_operator.domain import rollout_wait
 from qdrant_operator.domain import set_condition
 from qdrant_operator.domain import to_point_struct
 from qdrant_operator.domain import values_digest
@@ -171,6 +182,14 @@ class ScaleDownPendingError(RuntimeError):
         self.status = status
 
 
+class RolloutInProgressError(RuntimeError):
+    """A pod restart is in progress; the reconcile retries once it is done."""
+
+    def __init__(self, message: str, status: ClusterStatus | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 class ReleaseApplyError(RuntimeError):
     """helm install/upgrade failed; the status carries the error so `kubectl describe` shows it."""
 
@@ -199,6 +218,41 @@ async def survey_collections(qdrant: QdrantPort, node: QdrantNode) -> list[Colle
     ]
 
 
+async def node_problems(
+    qdrant: QdrantPort, spec: ClusterSpec, ordinal: int, node: QdrantNode
+) -> list[str]:
+    try:
+        topology = await qdrant.cluster_topology(node)
+        survey = await survey_collections(qdrant, node)
+    except ConnectionError:
+        return [f"node {ordinal} does not answer"]
+    pod_peers = sorted(
+        o for peer in topology.peers if (o := peer.ordinal(spec.release_name)) is not None
+    )
+    peer_problems = (
+        []
+        if len(topology.peers) == spec.replicas and pod_peers == list(range(spec.replicas))
+        else [f"node {ordinal} lists {len(topology.peers)} peers for {spec.replicas} pods"]
+    )
+    transfers = [
+        f"{shards.collection} has {shards.transfers} shard transfers"
+        for shards in survey
+        if shards.transfers
+    ]
+    return [*peer_problems, *transfers, *(p for shards in survey for p in shards.inactive())]
+
+
+async def assess_health(
+    qdrant: QdrantPort, spec: ClusterSpec, nodes: Sequence[QdrantNode], pods: Sequence[PodRevision]
+) -> ClusterHealth:
+    """Every pod Ready and answering, every shard replica Active, no transfers, all peers joined."""
+    unready = tuple(f"pod {pod.ordinal} is not Ready" for pod in pods if not pod.ready)
+    if unready or not spec.distributed.enabled:
+        return ClusterHealth(unready)
+    reports = [await node_problems(qdrant, spec, o, node) for o, node in enumerate(nodes)]
+    return ClusterHealth(tuple(dict.fromkeys(problem for report in reports for problem in report)))
+
+
 def describe_plan(plan: ShardPlan) -> str:
     parts = [f"{len(plan.operations)} shard operations issued"]
     if plan.in_flight:
@@ -214,8 +268,12 @@ class ExpandVolumes:
 
     kubernetes: KubernetesPort
 
-    async def execute(self, spec: ClusterSpec) -> bool:
-        """Returns True when the StatefulSet was deleted, so the helm apply must recreate it."""
+    async def execute(self, spec: ClusterSpec, rolling: bool = False) -> bool:
+        """Returns True when the StatefulSet was deleted, so the helm apply must recreate it.
+
+        Raises RolloutInProgressError instead of recreating while a held rollout is running,
+        since the new StatefulSet would lose its partition.
+        """
         live = await self.kubernetes.get_statefulset_claims(spec.release_name, spec.namespace)
         if live is None:
             return False
@@ -224,6 +282,8 @@ class ExpandVolumes:
         await self.grow_claims(spec, desired)
         if not plan.recreate:
             return False
+        if rolling:
+            raise RolloutInProgressError("volume claims change while pods are restarting")
         await self.kubernetes.orphan_statefulset(spec.release_name, spec.namespace)
         return True
 
@@ -327,7 +387,10 @@ class ReconcileCluster:
         await GenerateApiKeys(self.kubernetes).execute(spec)
         live = await self.kubernetes.get_statefulset_status(spec.release_name, spec.namespace)
         current = await self.prepare_scale_down(spec, live, current)
-        recreated = await ExpandVolumes(self.kubernetes).execute(spec)
+        held = spec.rollout.strategy is RolloutStrategy.SHARD_HEALTH
+        recreated = await ExpandVolumes(self.kubernetes).execute(
+            spec, bool(held and live and live.rolling)
+        )
         values = spec.to_helm_values()
         digest = values_digest(chart_version(spec.version), values)
         exists = await self.helm.release_exists(spec.release_name, spec.namespace)
@@ -339,6 +402,8 @@ class ReconcileCluster:
                 namespace=spec.namespace,
                 chart_version=chart_version(spec.version),
                 values=values,
+                statefulset=spec.release_name,
+                partition=hold_partition(spec.rollout.strategy, spec.replicas),
             )
         except RuntimeError as error:
             message = str(error)[-HELM_ERROR_CHARS:]
@@ -387,6 +452,21 @@ class ReconcileCluster:
         """Drain the peers a scale-down removes, or flag the shards it would strand."""
         if not live or live.replicas <= spec.replicas:
             return current
+        if (
+            spec.scaling.drain_on_scale_down
+            and spec.rollout.strategy is RolloutStrategy.SHARD_HEALTH
+            and live.rolling
+        ):
+            message = "scale-down waits for the pod restarts to finish"
+            waiting = progress_condition("ScalingDown", True, "WaitingForRollout", message)
+            raise RolloutInProgressError(
+                message,
+                replace(
+                    current,
+                    phase=ClusterPhase.UPGRADING,
+                    conditions=tuple(set_condition(current.conditions, waiting)),
+                ),
+            )
         connection = await ResolveCluster(self.kubernetes).connect(spec)
         node = connection.nodes[0]
         if spec.scaling.drain_on_scale_down:
@@ -464,6 +544,58 @@ class ReconcileCluster:
 
 
 @dataclass
+class StepRollout:
+    """Move the StatefulSet partition one pod at a time, each only once the cluster is healthy.
+
+    Level-triggered: the only state is the partition and the pods' revision labels, so a
+    restarted operator resumes where it stopped. The Readiness strategy just lifts the partition.
+    """
+
+    qdrant: QdrantPort
+    kubernetes: KubernetesPort
+
+    async def execute(self, spec: ClusterSpec, current: ClusterStatus) -> ClusterStatus:
+        live = await self.kubernetes.get_statefulset_status(spec.release_name, spec.namespace)
+        if not live:
+            return current
+        strategy = spec.rollout.strategy
+        if strategy is RolloutStrategy.READINESS:
+            await self.apply(spec, live.partition, next_partition(strategy, self.bare(live, spec)))
+            return current
+        pods = pod_revisions(
+            spec.release_name,
+            spec.replicas,
+            await self.kubernetes.list_pod_states(spec.namespace, spec.pod_label_selector),
+        )
+        snapshot = replace(self.bare(live, spec), pods=pods)
+        if snapshot.behind():
+            connection = await ResolveCluster(self.kubernetes).connect(spec)
+            health = await assess_health(self.qdrant, spec, connection.nodes, pods)
+            snapshot = replace(snapshot, health=health)
+        target = next_partition(strategy, snapshot)
+        await self.apply(spec, live.partition, target)
+        if not snapshot.behind():
+            return current
+        wait = rollout_wait(snapshot)
+        progress = wait or RolloutWait("RestartingPod", f"releasing pod {target}")
+        condition = progress_condition("Progressing", True, progress.reason, progress.message)
+        return replace(
+            current,
+            phase=ClusterPhase.UPGRADING,
+            conditions=tuple(set_condition(current.conditions, condition)),
+        )
+
+    @staticmethod
+    def bare(live: StatefulSetStatus, spec: ClusterSpec) -> RolloutSnapshot:
+        return RolloutSnapshot(live.partition, spec.replicas, live.update_revision, ())
+
+    async def apply(self, spec: ClusterSpec, partition: int, target: int | None) -> None:
+        if target is None or target == partition:
+            return
+        await self.kubernetes.set_statefulset_partition(spec.release_name, spec.namespace, target)
+
+
+@dataclass
 class ObserveCluster:
     """Lift StatefulSet readiness into the QdrantCluster status."""
 
@@ -534,7 +666,10 @@ class RecoverDeadPeers:
     peer id, or is beyond the replica count. With pods not answering: a peer that one of them
     names in Qdrant's join error ("peer URI ... already used by peer N"), which is what a pod
     rebuilt on an empty volume logs while it crash-loops. A pod that is merely slow is never
-    judged. Nothing is done while the StatefulSet is resizing or rolling.
+    judged. Nothing is done while the StatefulSet is resizing. Under Readiness nothing is done
+    while it rolls either; under ShardHealth only while a pod the StatefulSet controller may
+    restart (ordinal at or above the partition) is behind or not Ready, so a held rollout does
+    not stall on a leftover dead peer.
     """
 
     qdrant: QdrantPort
@@ -544,7 +679,9 @@ class RecoverDeadPeers:
         statefulset = await self.kubernetes.get_statefulset_status(
             spec.release_name, spec.namespace
         )
-        if not statefulset or statefulset.replicas != spec.replicas or statefulset.rolling:
+        if not statefulset or statefulset.replicas != spec.replicas:
+            return current
+        if await self.restarting(spec, statefulset):
             return current
         connection = await ResolveCluster(self.kubernetes).connect(spec)
         reports = [await self.topology(node) for node in connection.nodes]
@@ -580,6 +717,16 @@ class RecoverDeadPeers:
         return self.with_condition(
             current, False, "DeadPeersRemoved", f"removed {len(dead)} dead peers"
         )
+
+    async def restarting(self, spec: ClusterSpec, statefulset: StatefulSetStatus) -> bool:
+        if spec.rollout.strategy is RolloutStrategy.READINESS:
+            return statefulset.rolling
+        pods = pod_revisions(
+            spec.release_name,
+            spec.replicas,
+            await self.kubernetes.list_pod_states(spec.namespace, spec.pod_label_selector),
+        )
+        return not released_pods_settled(statefulset.partition, statefulset.update_revision, pods)
 
     async def topology(self, node: QdrantNode) -> ClusterTopology | None:
         try:

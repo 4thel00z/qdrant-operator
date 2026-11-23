@@ -15,6 +15,7 @@ from kubernetes_asyncio.client.exceptions import ApiException
 from loguru import logger
 
 from qdrant_operator.domain import JsonDict
+from qdrant_operator.domain import PodState
 from qdrant_operator.domain import ResourceKind
 from qdrant_operator.domain import ResourceRef
 from qdrant_operator.domain import SecretRef
@@ -23,6 +24,7 @@ from qdrant_operator.domain import VolumeClaim
 
 config: Any = kubernetes_config
 MERGE_PATCH = "application/merge-patch+json"
+REVISION_LABEL = "controller-revision-hash"
 ORPHAN_WAIT_SECONDS = 60.0
 ORPHAN_POLL_SECONDS = 1.0
 
@@ -187,6 +189,45 @@ class KubernetesAdapter:
             updated_replicas=status.updated_replicas or 0,
             current_revision=status.current_revision,
             update_revision=status.update_revision,
+            partition=self.partition(statefulset),
+        )
+
+    @staticmethod
+    def partition(statefulset: Any) -> int:
+        strategy = statefulset.spec.update_strategy
+        rolling = strategy.rolling_update if strategy else None
+        return (rolling.partition if rolling else 0) or 0
+
+    async def set_statefulset_partition(self, name: str, namespace: str, partition: int) -> None:
+        async with self.api() as api:
+            apps: Any = client.AppsV1Api(api)
+            await apps.patch_namespaced_stateful_set(
+                name=name,
+                namespace=namespace,
+                body={"spec": {"updateStrategy": {"rollingUpdate": {"partition": partition}}}},
+                _content_type=MERGE_PATCH,
+            )
+        logger.info(
+            "statefulset partition set", name=name, namespace=namespace, partition=partition
+        )
+
+    async def list_pod_states(self, namespace: str, label_selector: str) -> list[PodState]:
+        async with self.api() as api:
+            pods: Any = await client.CoreV1Api(api).list_namespaced_pod(
+                namespace=namespace, label_selector=label_selector
+            )
+        items: list[Any] = pods.items
+        return [self.pod_state(pod) for pod in items]
+
+    @staticmethod
+    def pod_state(pod: Any) -> PodState:
+        labels: dict[str, str] = pod.metadata.labels or {}
+        conditions: list[Any] = pod.status.conditions or []
+        ready = any(c.type == "Ready" and c.status == "True" for c in conditions)
+        return PodState(
+            name=pod.metadata.name,
+            revision=labels.get(REVISION_LABEL),
+            ready=ready and not pod.metadata.deletion_timestamp,
         )
 
     async def get_statefulset_claims(self, name: str, namespace: str) -> dict[str, str] | None:

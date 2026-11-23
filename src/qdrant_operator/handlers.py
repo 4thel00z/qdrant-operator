@@ -51,6 +51,7 @@ from qdrant_operator.metrics import OperatorMetrics
 from qdrant_operator.usecases import ClusterNotFoundError
 from qdrant_operator.usecases import ClusterNotReadyError
 from qdrant_operator.usecases import ReleaseApplyError
+from qdrant_operator.usecases import RolloutInProgressError
 from qdrant_operator.usecases import ScaleDownPendingError
 from qdrant_operator.usecases import SourceNotReadyError
 
@@ -115,6 +116,10 @@ async def reconcile_cluster(
     except ScaleDownPendingError as error:
         patch.status.update(error.status.to_dict())
         raise kopf.TemporaryError(str(error), delay=SCALE_DOWN_POLL_SECONDS) from error
+    except RolloutInProgressError as error:
+        if error.status:
+            patch.status.update(error.status.to_dict())
+        raise kopf.TemporaryError(str(error), delay=SCALE_DOWN_POLL_SECONDS) from error
     except ReleaseApplyError as error:
         METRICS.reconcile_failed(CLUSTERS.kind)
         patch.status.update(error.status.to_dict())
@@ -133,7 +138,9 @@ async def observe_cluster(
 ) -> None:
     cluster = ClusterSpec.from_dict(spec, meta)
     current = ClusterStatus.from_dict(status)
-    result = await Container().observe_cluster().execute(cluster, current)
+    container = Container()
+    stepped = await container.step_rollout().execute(cluster, current)
+    result = await container.observe_cluster().execute(cluster, stepped)
     METRICS.set_cluster_phase(cluster.namespace, cluster.name, result.phase)
     if result == current:
         return

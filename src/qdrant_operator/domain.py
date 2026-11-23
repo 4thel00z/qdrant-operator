@@ -7,6 +7,7 @@ import re
 from collections.abc import Callable
 from collections.abc import Iterable
 from collections.abc import Mapping
+from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
 from dataclasses import replace
@@ -572,6 +573,24 @@ class ScalingSpec:
         )
 
 
+class RolloutStrategy(StrEnum):
+    READINESS = "Readiness"
+    SHARD_HEALTH = "ShardHealth"
+
+
+@dataclass(frozen=True)
+class RolloutSpec:
+    """How pods are restarted on a template change: StatefulSet readiness or shard health."""
+
+    strategy: RolloutStrategy = RolloutStrategy.SHARD_HEALTH
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "RolloutSpec":
+        return RolloutSpec(
+            strategy=RolloutStrategy(data.get("strategy", RolloutStrategy.SHARD_HEALTH))
+        )
+
+
 @dataclass(frozen=True)
 class ClusterSpec:
     name: str
@@ -593,6 +612,7 @@ class ClusterSpec:
     disruption_budget: DisruptionBudgetSpec = field(default_factory=DisruptionBudgetSpec)
     topology_spread: TopologySpreadSpec = field(default_factory=TopologySpreadSpec)
     scaling: ScalingSpec = field(default_factory=ScalingSpec)
+    rollout: RolloutSpec = field(default_factory=RolloutSpec)
     min_ready_seconds: int = 0
     config: JsonDict = field(default_factory=dict[str, Any])
 
@@ -621,6 +641,7 @@ class ClusterSpec:
             disruption_budget=DisruptionBudgetSpec.from_dict(spec.get("podDisruptionBudget", {})),
             topology_spread=TopologySpreadSpec.from_dict(spec.get("topologySpread", {})),
             scaling=ScalingSpec.from_dict(spec.get("scaling", {})),
+            rollout=RolloutSpec.from_dict(spec.get("rollout", {})),
             min_ready_seconds=spec.get("minReadySeconds", 0),
             config=dict[str, Any](spec.get("config", {})),
         )
@@ -675,6 +696,10 @@ class ClusterSpec:
             "app.kubernetes.io/name": CHART_NAME,
             "app.kubernetes.io/instance": self.release_name,
         }
+
+    @property
+    def pod_label_selector(self) -> str:
+        return ",".join(f"{key}={value}" for key, value in self.pod_selector.items())
 
     @property
     def scheme(self) -> str:
@@ -868,11 +893,140 @@ class StatefulSetStatus:
     updated_replicas: int = 0
     current_revision: str | None = None
     update_revision: str | None = None
+    partition: int = 0
 
     @property
     def rolling(self) -> bool:
-        """True while pods still run an older revision than the StatefulSet's target."""
+        """True while pods still run an older revision than the StatefulSet's target.
+
+        A held partition keeps the current revision behind, so a held rollout counts too.
+        """
         return bool(self.update_revision) and self.current_revision != self.update_revision
+
+
+@dataclass(frozen=True)
+class PodState:
+    name: str
+    revision: str | None
+    ready: bool
+
+
+@dataclass(frozen=True)
+class PodRevision:
+    ordinal: int
+    revision: str | None
+    ready: bool
+
+
+def pod_revisions(release: str, replicas: int, pods: Iterable[PodState]) -> tuple[PodRevision, ...]:
+    """One entry per ordinal below the replica count; a pod that does not exist is not Ready."""
+    pattern = re.compile(rf"^{re.escape(release)}-([0-9]+)$")
+    found = {int(match.group(1)): pod for pod in pods if (match := pattern.match(pod.name))}
+    return tuple(
+        PodRevision(ordinal, pod.revision, pod.ready)
+        if (pod := found.get(ordinal))
+        else PodRevision(ordinal, None, False)
+        for ordinal in range(replicas)
+    )
+
+
+@dataclass(frozen=True)
+class ClusterHealth:
+    """Why the cluster is not safe to restart another pod; empty problems means healthy."""
+
+    problems: tuple[str, ...] = ()
+
+    @property
+    def healthy(self) -> bool:
+        return not self.problems
+
+
+@dataclass(frozen=True)
+class RolloutSnapshot:
+    partition: int
+    replicas: int
+    update_revision: str | None
+    pods: tuple[PodRevision, ...]
+    health: ClusterHealth = field(default_factory=ClusterHealth)
+
+    @property
+    def held_at(self) -> int:
+        return min(self.partition, self.replicas)
+
+    def behind(self) -> tuple[int, ...]:
+        """Ordinals not at the update revision, highest first."""
+        if not self.update_revision:
+            return ()
+        return tuple(
+            sorted(
+                (p.ordinal for p in self.pods if p.revision != self.update_revision),
+                reverse=True,
+            )
+        )
+
+
+ROLLOUT_MESSAGE_ITEMS = 10
+
+
+def describe_problems(problems: Sequence[str]) -> str:
+    shown = "; ".join(problems[:ROLLOUT_MESSAGE_ITEMS])
+    hidden = len(problems) - ROLLOUT_MESSAGE_ITEMS
+    if hidden <= 0:
+        return shown
+    return f"{shown}; and {hidden} more"
+
+
+@dataclass(frozen=True)
+class RolloutWait:
+    reason: str
+    message: str
+
+
+def hold_partition(strategy: RolloutStrategy, replicas: int) -> int:
+    """Partition to keep while no pod is being released."""
+    if strategy is RolloutStrategy.READINESS:
+        return 0
+    return replicas
+
+
+def rollout_wait(snapshot: RolloutSnapshot) -> RolloutWait | None:
+    """What a rollout with pods left to update is waiting for, None when it may release one."""
+    if not snapshot.behind():
+        return None
+    held = snapshot.held_at
+    restarting = [o for o in snapshot.behind() if o >= held]
+    if restarting:
+        return RolloutWait("RestartingPod", f"pod {restarting[0]} is restarting")
+    released = next((p for p in snapshot.pods if p.ordinal == held), None)
+    if released and not released.ready:
+        return RolloutWait("RestartingPod", f"pod {released.ordinal} is not Ready yet")
+    if not snapshot.health.healthy:
+        return RolloutWait("WaitingForShards", describe_problems(snapshot.health.problems))
+    return None
+
+
+def released_pods_settled(
+    partition: int, update_revision: str | None, pods: Iterable[PodRevision]
+) -> bool:
+    """True when every pod the StatefulSet controller may restart is updated and Ready."""
+    return all(
+        pod.ready and (not update_revision or pod.revision == update_revision)
+        for pod in pods
+        if pod.ordinal >= partition
+    )
+
+
+def next_partition(strategy: RolloutStrategy, snapshot: RolloutSnapshot) -> int | None:
+    """Partition to set now, or None to leave it. Lowers by at most one pod per call."""
+    hold = hold_partition(strategy, snapshot.replicas)
+    if strategy is RolloutStrategy.READINESS:
+        return hold if snapshot.partition != hold else None
+    behind = snapshot.behind()
+    if not behind:
+        return hold if snapshot.partition != hold else None
+    if rollout_wait(snapshot):
+        return hold if snapshot.partition > hold else None
+    return behind[0]
 
 
 @dataclass(frozen=True)
