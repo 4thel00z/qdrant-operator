@@ -40,6 +40,10 @@ spec:
               value: {{ .Values.operator.logLevel | quote }}
             - name: LOG_FORMAT
               value: {{ .Values.operator.logFormat | quote }}
+            {{- with .Values.watchNamespaces }}
+            - name: WATCH_NAMESPACES
+              value: {{ join "," . | quote }}
+            {{- end }}
             {{- with .Values.operator.chartRepo }}
             - name: QDRANT_CHART_REPO
               value: {{ . | quote }}
@@ -53,10 +57,6 @@ spec:
               value: {{ include "qdrant-operator.peeringName" . | quote }}
             - name: PEERING_LIFETIME
               value: {{ .Values.ha.lifetime | quote }}
-            {{- with .Values.ha.namespaces }}
-            - name: WATCH_NAMESPACES
-              value: {{ join "," . | quote }}
-            {{- end }}
             {{- end }}
             - name: METRICS_PORT
               value: {{ ternary .Values.metrics.port 0 .Values.metrics.enabled | quote }}

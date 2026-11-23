@@ -90,6 +90,8 @@ and CA the way it does for backups. Set exactly one of `clusterRef` and
 6. `Completed`, or `Failed` when any collection failed.
    `status.collections` carries each one's counts and error.
 
+With `sync: true`, step 5 is replaced by the [sync pass](#sync-pass).
+
 Connection errors and timeouts are retried with exponential backoff (30s
 doubling to ten minutes) and keep the recorded offset; they do not fail the
 migration. A `Failed` migration can be re-run, resuming from the offsets in
@@ -109,12 +111,55 @@ with the same spec brings a target up to date.
 The copy is not a snapshot. Points written to the source while a collection
 is being scrolled may or may not be in the target, which the verify passes
 catch up on while the count comparison still shows a gap; a source that keeps
-growing faster than a pass copies ends `Failed` with both counts. Points
-deleted on the source are never deleted on the target. Stop writers before
+growing faster than a pass copies ends `Failed` with both counts. Updates and
+deletes on the source are not picked up unless `sync` is on, and even then
+only until the pass has read that ID. Stop writers before
 the final run, or run once for the bulk and once more after cutover to pick
 up the rest.
 `pointsTotal` is Qdrant's approximate count, so `percentage` can end short
 of or above the real figure while running.
+
+## Sync pass
+
+Qdrant has no change feed, so updates and deletes made on the source while
+the copy runs would otherwise be lost. `sync: true` adds an opt-in pass after
+the copy that compares both sides by point ID:
+
+```yaml
+spec:
+  sync: true
+  syncMaxPasses: 3
+```
+
+The source and the target are scrolled in ID order with payload and vectors,
+one source page of `batchSize` points at a time together with the target
+points in the same ID range. A point is upserted again when it is missing on
+the target or when its hash differs: the SHA-256 of the canonical JSON (sorted
+keys) of the payload plus the vectors, which covers unnamed, named, sparse and
+multivectors. Identical points are not written. Target points whose ID no
+longer exists on the source are deleted. Collection renames from
+`collectionMapping` and custom shard keys are respected, exactly as in the
+copy.
+
+The pass runs once; with `syncMaxPasses` above one (up to 20) it runs again
+only while the previous pass changed something, so a quiet source ends after
+a pass that changes nothing. The pass number and the ID it has reached are
+checkpointed every `checkpointBatches` windows, so a restarted operator
+resumes the pass instead of starting over; it does not copy again. With
+`sync` the verify passes do not run; the exact counts are compared once after
+the last sync pass, and a target with fewer points than the source is
+`Failed`.
+
+`status.collections[]` reports `pointsUpdated` (points written again,
+missing ones included), `pointsDeleted` and `syncPasses`, next to
+`sourceCount` and `targetCount`.
+
+Be clear about what this is. It is not live change capture: a write that
+lands on the source after the pass has read that ID is only seen by a later
+pass, so the target catches up fully only once writes to the source stop.
+Stop writers, run the migration, and use `syncMaxPasses` to confirm a pass
+finds nothing left. It also re-reads both sides, so its cost is about that
+of the copy again for every pass, in time and in load on both clusters.
 
 ## Choosing between migration and restore
 
@@ -132,6 +177,6 @@ of or above the real figure while running.
 |---|---|
 | `phase` | `Pending`, `Running`, `Completed` or `Failed` |
 | `source` | `<namespace>/<name>` of the source cluster, or the endpoint URL |
-| `collections[]` | Per collection: `name`, `targetName`, `status`, `pointsTotal`, `pointsCopied`, `error` |
+| `collections[]` | Per collection: `name`, `targetName`, `status`, `pointsTotal`, `pointsCopied`, `pointsUpdated`, `pointsDeleted`, `syncPasses`, `error` |
 | `progress` | `collectionsTotal`, `collectionsCompleted`, `pointsTotal`, `pointsCopied`, `percentage` |
 | `conditions[Complete]` | `MigrationCompleted` or `MigrationFailed`, message `Copied n/m` |

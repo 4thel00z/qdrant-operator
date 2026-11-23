@@ -29,7 +29,8 @@ the qdrant chart, named `qdrant-<name>`.
 | `apiKey.jwtRbac` | `false` | Qdrant's `service.jwt_rbac`; needed by `QdrantAccessKey`. Requires `secretRef` or `autoGenerate` |
 | `readOnlyApiKey` | | Same fields as `apiKey`; never used by the operator |
 | `tls.enabled` | `false` | Requires `tls.secretRef.name` |
-| `tls.secretRef.name` | | `kubernetes.io/tls` Secret; `ca.crt` in it verifies the operator's own calls |
+| `tls.secretRef.name` | | `kubernetes.io/tls` Secret |
+| `tls.caKey` | `ca.crt` | Key in that Secret holding the CA; verifies the operator's own calls and, with `cluster.p2p.enableTls`, Qdrant's peers |
 | `metrics.enabled` | `false` | Together with `serviceMonitor.enabled` renders a ServiceMonitor |
 | `metrics.serviceMonitor.enabled` | `false` | |
 | `metrics.serviceMonitor.interval` | `30s` | Scrape interval |
@@ -73,7 +74,7 @@ cannot change (the size rules use CEL `quantity()`, Kubernetes 1.29 or newer); `
 
 On create, spec update and operator start: `helm upgrade --install
 qdrant-<name> qdrant --repo https://qdrant.github.io/qdrant-helm --version
-<version> --namespace <namespace> --create-namespace --values -` with the
+<version> --namespace <namespace> --values -` with the
 values from [Helm values the operator renders](./helm-values.md) on stdin.
 The phase is `Pending` on a first install and `Upgrading` when the release
 existed. Every thirty seconds the StatefulSet `qdrant-<name>` is read and

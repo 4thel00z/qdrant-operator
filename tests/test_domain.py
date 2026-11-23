@@ -2,6 +2,7 @@ from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
+from typing import Any
 
 import pytest
 
@@ -39,6 +40,8 @@ from qdrant_operator.domain import join_key
 from qdrant_operator.domain import merge_dicts
 from qdrant_operator.domain import parse_duration
 from qdrant_operator.domain import payload_indexes_from_schema
+from qdrant_operator.domain import plan_sync_window
+from qdrant_operator.domain import point_digest
 from qdrant_operator.domain import set_condition
 from qdrant_operator.domain import vector_layout
 
@@ -108,6 +111,60 @@ def test_cluster_spec_maps_every_declared_field_into_helm_values() -> None:
     assert values["config"]["storage"]["performance"]["max_search_threads"] == 4
     assert values["additionalVolumes"][0]["secret"]["secretName"] == "certs"
     assert spec.scheme == "https"
+
+
+def tls_cluster(
+    p2p_tls: bool, config: dict[str, Any], tls: dict[str, Any] | None = None
+) -> ClusterSpec:
+    return ClusterSpec.from_dict(
+        {
+            "version": "v1.16.3",
+            "replicas": 2,
+            "cluster": {"enabled": True, "p2p": {"enableTls": p2p_tls}},
+            "tls": {"enabled": True, "secretRef": {"name": "certs"}, **(tls or {})},
+            "config": config,
+        },
+        META,
+    )
+
+
+def test_p2p_tls_points_qdrant_at_the_secret_ca() -> None:
+    values = tls_cluster(True, {}).to_helm_values()
+
+    assert values["config"]["tls"] == {
+        "cert": "/qdrant/tls/tls.crt",
+        "key": "/qdrant/tls/tls.key",
+        "ca_cert": "/qdrant/tls/ca.crt",
+    }
+
+
+def test_service_tls_alone_needs_no_ca() -> None:
+    values = tls_cluster(False, {}).to_helm_values()
+
+    assert "ca_cert" not in values["config"]["tls"]
+
+
+def test_ca_key_picks_the_secret_file_for_qdrant_and_the_operator() -> None:
+    spec = tls_cluster(True, {}, {"caKey": "root.pem"})
+
+    assert spec.to_helm_values()["config"]["tls"]["ca_cert"] == "/qdrant/tls/root.pem"
+    ref = spec.tls.ca_secret_ref("ns")
+    assert ref is not None
+    assert ref.key == "root.pem"
+
+
+def test_ca_key_defaults_to_ca_crt() -> None:
+    ref = tls_cluster(True, {}).tls.ca_secret_ref("ns")
+
+    assert ref is not None
+    assert ref.key == "ca.crt"
+
+
+def test_spec_config_overrides_the_tls_ca_path() -> None:
+    values = tls_cluster(True, {"tls": {"ca_cert": "/custom/ca.pem"}}).to_helm_values()
+
+    assert values["config"]["tls"]["ca_cert"] == "/custom/ca.pem"
+    assert values["config"]["tls"]["cert"] == "/qdrant/tls/tls.crt"
 
 
 def test_cluster_spec_defaults_and_addresses() -> None:
@@ -661,3 +718,48 @@ def test_auto_optimization_threads_match_the_null_qdrant_reports() -> None:
     assert spec.update_body({"optimizer_config": {"max_optimization_threads": 2}}) == {
         "optimizers_config": {"max_optimization_threads": "auto", "indexing_threshold": 10000}
     }
+
+
+def test_point_digest_covers_payload_and_every_vector_kind_regardless_of_key_order() -> None:
+    dense: list[float] = [0.1, 0.2]
+    sparse: dict[str, list[float] | list[int]] = {"indices": [1, 4], "values": [0.5, 0.25]}
+    multi: list[list[float]] = [[0.1, 0.2], [0.3, 0.4]]
+    named: dict[str, Any] = {
+        "id": 1,
+        "payload": {"a": 1, "b": [1, 2]},
+        "vector": {"dense": dense, "sparse": sparse, "multi": multi},
+    }
+    reordered: dict[str, Any] = {
+        "vector": {"multi": multi, "sparse": sparse, "dense": dense},
+        "payload": {"b": [1, 2], "a": 1},
+        "id": 1,
+        "shard_key": "eu",
+    }
+    shorter: dict[str, Any] = {
+        **named,
+        "vector": {"dense": dense, "sparse": sparse, "multi": [[0.1, 0.2]]},
+    }
+
+    assert point_digest(named) == point_digest(reordered)
+    assert point_digest({**named, "payload": {"a": 2, "b": [1, 2]}}) != point_digest(named)
+    assert point_digest(shorter) != point_digest(named)
+    assert point_digest({"id": 2, "payload": None}) == point_digest({"id": 2, "payload": {}})
+
+
+def test_plan_sync_window_upserts_missing_and_different_and_deletes_extras_in_id_order() -> None:
+    source: list[dict[str, Any]] = [
+        {"id": 1, "payload": {"n": 1}, "vector": [1.0]},
+        {"id": 2, "payload": {"n": 2}, "vector": [2.0]},
+        {"id": 3, "payload": {"n": 3}, "vector": [3.0]},
+    ]
+    target: list[dict[str, Any]] = [
+        {"id": 1, "payload": {"n": 1}, "vector": [1.0]},
+        {"id": 2, "payload": {"n": 99}, "vector": [2.0]},
+        {"id": "b0000000-0000-0000-0000-000000000000", "payload": {}},
+        {"id": 9, "payload": {}},
+    ]
+
+    changed, stale = plan_sync_window(source, target)
+
+    assert [p["id"] for p in changed] == [2, 3]
+    assert stale == [9, "b0000000-0000-0000-0000-000000000000"]

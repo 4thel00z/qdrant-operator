@@ -6,6 +6,7 @@ import secrets
 import string
 from collections.abc import Awaitable
 from collections.abc import Callable
+from collections.abc import Iterable
 from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -86,8 +87,10 @@ from qdrant_operator.domain import owner_reference
 from qdrant_operator.domain import parse_quantity
 from qdrant_operator.domain import parse_time
 from qdrant_operator.domain import payload_indexes_from_schema
+from qdrant_operator.domain import plan_sync_window
 from qdrant_operator.domain import plan_volumes
 from qdrant_operator.domain import pod_revisions
+from qdrant_operator.domain import point_id_order
 from qdrant_operator.domain import released_pods_settled
 from qdrant_operator.domain import rollout_wait
 from qdrant_operator.domain import set_condition
@@ -375,6 +378,27 @@ def random_key() -> str:
     return "".join(secrets.choice(alphabet) for _ in range(32))
 
 
+def apply_failed(conditions: Iterable[Condition]) -> bool:
+    return any(
+        c.type == "Progressing"
+        and c.status is ConditionStatus.FALSE
+        and c.reason == "HelmApplyFailed"
+        for c in conditions
+    )
+
+
+def clear_apply_failure(conditions: Iterable[Condition]) -> list[Condition]:
+    conditions = list(conditions)
+    if not apply_failed(conditions):
+        return conditions
+    return set_condition(
+        conditions,
+        progress_condition(
+            "Progressing", False, "HelmReleaseApplied", "Helm release matches the desired spec"
+        ),
+    )
+
+
 @dataclass
 class ReconcileCluster:
     helm: HelmPort
@@ -395,7 +419,11 @@ class ReconcileCluster:
         digest = values_digest(chart_version(spec.version), values)
         exists = await self.helm.release_exists(spec.release_name, spec.namespace)
         if exists and not recreated and current.applied_hash == digest:
-            return replace(current, observed_generation=generation)
+            return replace(
+                current,
+                conditions=tuple(clear_apply_failure(current.conditions)),
+                observed_generation=generation,
+            )
         try:
             await self.helm.apply(
                 release_name=spec.release_name,
@@ -619,7 +647,7 @@ class ObserveCluster:
                 message=self.ready_message(spec, statefulset, ready_replicas),
             ),
         )
-        if ready:
+        if ready and not apply_failed(current.conditions):
             conditions = set_condition(
                 conditions,
                 Condition(
@@ -1571,6 +1599,16 @@ class IssueAccessKey:
         )
 
 
+def resumed_sync(previous: CollectionMigration) -> dict[str, Any]:
+    return {
+        "points_updated": previous.points_updated,
+        "points_deleted": previous.points_deleted,
+        "sync_pass": previous.sync_pass,
+        "sync_offset": previous.sync_offset,
+        "sync_pass_changes": previous.sync_pass_changes,
+    }
+
+
 @dataclass
 class ExecuteMigration:
     """Copy collections point by point from any Qdrant into a managed cluster.
@@ -1588,6 +1626,14 @@ class ExecuteMigration:
     Completed only when the target holds at least as many points as the source, otherwise Failed
     with both counts. Connection errors and timeouts propagate so the handler
     retries with backoff instead of recording the collection as failed.
+
+    With spec.sync the verify passes are replaced by sync passes. After the copy, source and
+    target are scrolled in point-ID order window by window (one source page and the target
+    points in the same ID range); points missing or different on the target, by a hash of the
+    canonical JSON of payload and vectors, are upserted again and target points the source no
+    longer has are deleted. The pass number and the ID the pass resumes from are checkpointed in
+    status like the copy offset. Another pass runs only while the previous one changed something,
+    up to spec.sync_max_passes. Afterwards the exact counts decide Completed or Failed.
     """
 
     qdrant: QdrantPort
@@ -1650,6 +1696,7 @@ class ExecuteMigration:
         previous = current.resume_point(name)
         if previous and previous.status == MigrationPhase.COMPLETED:
             return previous
+        running = bool(previous and previous.status == MigrationPhase.RUNNING)
         return CollectionMigration(
             name=name,
             target_name=spec.target_name(name),
@@ -1657,9 +1704,8 @@ class ExecuteMigration:
             points_total=await self.qdrant.count_points(source, name),
             points_copied=previous.points_copied if previous else 0,
             offset=previous.offset if previous else None,
-            verify_pass=previous.verify_pass
-            if previous and previous.status == MigrationPhase.RUNNING
-            else 0,
+            verify_pass=previous.verify_pass if previous and running else 0,
+            **(resumed_sync(previous) if previous and running else {}),
         )
 
     async def report_progress(
@@ -1706,7 +1752,8 @@ class ExecuteMigration:
     ) -> CollectionMigration:
         try:
             shard_keys = await self.ensure_target_collection(spec, source, target, collection)
-            return await self.copy_and_verify(spec, source, target, collection, shard_keys, report)
+            finish = self.copy_and_sync if spec.sync else self.copy_and_verify
+            return await finish(spec, source, target, collection, shard_keys, report)
         except (ConnectionError, TimeoutError):
             raise
         except Exception as error:
@@ -1768,6 +1815,132 @@ class ExecuteMigration:
                 offset=None,
             )
             await report(current)
+
+    async def copy_and_sync(
+        self,
+        spec: MigrationSpec,
+        source: QdrantNode,
+        target: QdrantNode,
+        collection: CollectionMigration,
+        shard_keys: set[Any] | None,
+        report: Callable[[CollectionMigration], Awaitable[None]],
+    ) -> CollectionMigration:
+        """Copy once, sync until a pass changes nothing or the cap, then compare exact counts."""
+        current = collection
+        if not current.sync_pass:
+            copied = await self.copy_points(spec, source, target, current, shard_keys, report)
+            current = replace(
+                current,
+                points_copied=copied,
+                offset=None,
+                sync_pass=1,
+                sync_offset=None,
+                sync_pass_changes=0,
+            )
+            await report(current)
+        while True:
+            current = await self.sync_pass(spec, source, target, current, shard_keys, report)
+            if not current.sync_pass_changes or current.sync_pass >= spec.sync_max_passes:
+                break
+            current = replace(
+                current, sync_pass=current.sync_pass + 1, sync_offset=None, sync_pass_changes=0
+            )
+            await report(current)
+        source_count = await self.qdrant.count_points(source, current.name, exact=True)
+        target_count = await self.qdrant.count_points(target, current.target_name, exact=True)
+        counted = replace(
+            current,
+            points_total=source_count,
+            points_copied=source_count,
+            source_count=source_count,
+            target_count=target_count,
+            offset=None,
+            sync_offset=None,
+        )
+        if target_count < source_count:
+            passes = f"{current.sync_pass} sync pass{'' if current.sync_pass == 1 else 'es'}"
+            return replace(
+                counted,
+                status=MigrationPhase.FAILED,
+                error=f"target has {target_count} of {source_count} source points after {passes}",
+            )
+        notes = [
+            note
+            for note in (
+                f"target has {target_count} points, more than the {source_count} on the source"
+                if target_count > source_count
+                else "",
+                f"sync pass {current.sync_pass} still changed {current.sync_pass_changes} points"
+                if current.sync_pass_changes and spec.sync_max_passes > 1
+                else "",
+            )
+            if note
+        ]
+        return replace(
+            counted,
+            status=MigrationPhase.COMPLETED,
+            error=None,
+            message="; ".join(notes) or None,
+        )
+
+    async def sync_pass(
+        self,
+        spec: MigrationSpec,
+        source: QdrantNode,
+        target: QdrantNode,
+        collection: CollectionMigration,
+        shard_keys: set[Any] | None,
+        report: Callable[[CollectionMigration], Awaitable[None]],
+    ) -> CollectionMigration:
+        current = collection
+        offset: Any = collection.sync_offset
+        windows = 0
+        while True:
+            points, following = await self.qdrant.scroll_points(
+                source, current.name, offset, spec.batch_size
+            )
+            existing = await self.target_range(
+                target, current.target_name, offset, following, spec.batch_size
+            )
+            changed, stale = plan_sync_window(points, existing)
+            routed = self.route_page(spec, changed, shard_keys) if changed else {}
+            for shard_key, group in routed.items():
+                await self.ensure_shard_key(spec, target, current, shard_keys, shard_key)
+                await self.qdrant.upsert_points(target, current.target_name, group, shard_key)
+            for start in range(0, len(stale), spec.batch_size):
+                await self.qdrant.delete_points(
+                    target, current.target_name, stale[start : start + spec.batch_size]
+                )
+            current = replace(
+                current,
+                points_updated=current.points_updated + len(changed),
+                points_deleted=current.points_deleted + len(stale),
+                sync_pass_changes=current.sync_pass_changes + len(changed) + len(stale),
+                sync_offset=following,
+            )
+            windows += 1
+            if following is None or not points:
+                return replace(current, sync_offset=None)
+            offset = following
+            if windows % spec.checkpoint_batches == 0:
+                await report(current)
+            if spec.batch_delay_ms:
+                await asyncio.sleep(spec.batch_delay_ms / 1000)
+
+    async def target_range(
+        self, target: QdrantNode, name: str, start: Any, stop: Any, limit: int
+    ) -> list[JsonDict]:
+        """Target points with start <= id < stop in ID order; stop None reads to the end."""
+        found: list[JsonDict] = []
+        cursor: Any = start
+        while True:
+            points, cursor = await self.qdrant.scroll_points(target, name, cursor, limit)
+            for point in points:
+                if stop is not None and point_id_order(point["id"]) >= point_id_order(stop):
+                    return found
+                found.append(point)
+            if cursor is None or not points:
+                return found
 
     async def ensure_target_collection(
         self,

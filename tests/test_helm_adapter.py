@@ -85,3 +85,12 @@ def test_post_renderer_defaults_to_the_script_beside_the_interpreter(
     monkeypatch.setenv("PATH", "")
 
     assert post_renderer_path().endswith("/qdrant-operator-postrender")
+
+
+async def test_apply_never_asks_helm_to_create_the_namespace() -> None:
+    helm = RecordingHelm()
+
+    await helm.apply("qdrant-a", "ns", "1.16.3", {"replicaCount": 1}, "qdrant-a", 1)
+
+    install = next(command for command in helm.commands if command[0] == "upgrade")
+    assert "--create-namespace" not in install

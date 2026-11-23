@@ -1,6 +1,6 @@
 {{- if .Values.ha.enabled }}
-{{- if .Values.ha.namespaces }}
-{{- range .Values.ha.namespaces }}
+{{- if .Values.watchNamespaces }}
+{{- range .Values.watchNamespaces }}
 ---
 apiVersion: kopf.dev/v1
 kind: KopfPeering

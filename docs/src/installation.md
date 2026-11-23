@@ -65,9 +65,10 @@ The chart creates, in the release namespace, a Deployment with one replica (see 
 ServiceAccount, and a ClusterRole plus binding. The ClusterRole covers the
 `qdrant.io` kinds and their status subresources, the objects the qdrant chart
 renders (StatefulSets, Services, ConfigMaps, Secrets, ServiceAccounts,
-PodDisruptionBudgets, Ingresses, ServiceMonitors), Events, and kopf's own
-peering resource. By default the Deployment uses the `Recreate` strategy, because
-two operator replicas would race on the same Helm releases.
+PodDisruptionBudgets, ServiceMonitors), Events, and kopf's own peering
+resource, each with the verbs Helm and the operator call and no wildcards.
+By default the Deployment uses the `Recreate` strategy, because two operator
+replicas would race on the same Helm releases.
 
 ## High availability
 
@@ -99,15 +100,32 @@ shorter lifetime means faster failover and more keep-alive patches. Kopf has no
 per-object locks, so a handler already running in the paused pod finishes while
 the new active pod starts, so a brief overlap is possible.
 
-With `ha.namespaces` set, the operator watches only those namespaces
-(`--namespace` for each), the chart ships the namespaced `KopfPeering` CRD and
-creates the peering object in each listed namespace. Left empty, a
+With `watchNamespaces` set, the chart ships the namespaced `KopfPeering` CRD
+and creates the peering object in each listed namespace. Left empty, a
 `ClusterKopfPeering` is used. Check which pod is active with
 `kubectl get clusterkopfpeering` (or `kubectl get kopfpeering -n <ns>`) and
 read `status`: the live pod with the highest priority is the active one.
 
 The peering CRDs are cluster-scoped, so install only one release per cluster
 with `ha.enabled`.
+
+## Watching only some namespaces
+
+By default the operator watches every namespace. To limit it, list the
+namespaces in `watchNamespaces`:
+
+```sh
+helm install qdrant-operator oci://ghcr.io/4thel00z/charts/qdrant-operator \
+  --namespace qdrant-system --create-namespace \
+  --set 'watchNamespaces={team-a,team-b}'
+```
+
+The chart sets `WATCH_NAMESPACES` to the comma-separated list, and the operator runs `kopf` with one `--namespace` per entry. The rules above
+move into a Role and RoleBinding in each listed namespace, and kopf's peering
+resource becomes the namespaced `kopfpeerings`. The ClusterRole shrinks to
+`list` and `watch` on CustomResourceDefinitions, the one thing kopf needs
+cluster-wide. The listed namespaces must exist before the install; the
+operator no longer creates namespaces.
 
 ## Verifying
 

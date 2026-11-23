@@ -24,6 +24,7 @@ from qdrant_operator.domain import StatefulSetStatus
 from qdrant_operator.domain import VolumeClaim
 from qdrant_operator.domain import format_time
 from qdrant_operator.domain import merge_dicts
+from qdrant_operator.domain import point_id_order
 from qdrant_operator.peers import ClusterTopology
 from qdrant_operator.peers import CollectionShards
 from qdrant_operator.peers import Peer
@@ -179,7 +180,11 @@ class FakeQdrant:
     late_points: dict[tuple[str, str], list[list[JsonDict]]] = field(
         default_factory=dict[tuple[str, str], list[list[JsonDict]]]
     )
+    late_deletes: dict[tuple[str, str], list[list[Any]]] = field(
+        default_factory=dict[tuple[str, str], list[list[Any]]]
+    )
     upserts: list[tuple[str, Any, int]] = field(default_factory=list[tuple[str, Any, int]])
+    deletions: list[tuple[str, list[Any]]] = field(default_factory=list[tuple[str, list[Any]]])
     shard_key_bodies: list[tuple[str, JsonDict]] = field(default_factory=list[tuple[str, JsonDict]])
     peers: dict[int, str] = field(default_factory=dict[int, str])
     node_peer_ids: dict[str, int] = field(default_factory=dict[str, int])
@@ -191,6 +196,9 @@ class FakeQdrant:
     shard_operations: list[ShardOperation] = field(default_factory=list[ShardOperation])
     removed_peers: list[tuple[int, bool]] = field(default_factory=list[tuple[int, bool]])
     created: int = 0
+    restore_bodies: dict[str, JsonDict] = field(default_factory=dict[str, JsonDict])
+    yellow_polls: dict[str, int] = field(default_factory=dict[str, int])
+    info_calls: int = 0
 
     def resolve(self, node: QdrantNode) -> str:
         """Map a Service URL onto the node that would answer it."""
@@ -261,10 +269,16 @@ class FakeQdrant:
         checksum: str | None,
     ) -> None:
         self.recovered.append((node.url, collection, location, priority, checksum))
-        self.add_collection(node.url, collection, points=42)
+        body = self.restore_bodies.get(collection)
+        self.add_collection(node.url, collection, points=42, body=body)
 
     async def collection_info(self, node: QdrantNode, collection: str) -> JsonDict:
-        return self.entry(node, collection)
+        self.info_calls += 1
+        info = self.entry(node, collection)
+        if self.yellow_polls.get(collection, 0) <= 0:
+            return info
+        self.yellow_polls[collection] -= 1
+        return {**info, "status": "yellow"}
 
     async def ready(self, node: QdrantNode) -> bool:
         return True
@@ -286,17 +300,42 @@ class FakeQdrant:
         self, node: QdrantNode, collection: str, offset: Any, limit: int
     ) -> tuple[list[JsonDict], Any]:
         store = self.points.get((self.resolve(node), collection), {})
-        ids = sorted(store)
-        start = ids.index(offset) if offset is not None else 0
+        ids = sorted(store, key=point_id_order)
+        start = (
+            next(
+                (
+                    i
+                    for i, point_id in enumerate(ids)
+                    if point_id_order(point_id) >= point_id_order(offset)
+                ),
+                len(ids),
+            )
+            if offset is not None
+            else 0
+        )
         page = ids[start : start + limit]
         following = ids[start + limit : start + limit + 1]
         result = [store[i] for i in page]
         if following:
             return result, following[0]
-        waves = self.late_points.get((self.resolve(node), collection), [])
+        key = (self.resolve(node), collection)
+        waves = self.late_points.get(key, [])
         if waves:
-            self.add_points(self.resolve(node), collection, waves.pop(0))
+            self.add_points(key[0], collection, waves.pop(0))
+        removals = self.late_deletes.get(key, [])
+        if removals:
+            self.remove_points(key[0], collection, removals.pop(0))
         return result, None
+
+    def remove_points(self, node_url: str, collection: str, ids: list[Any]) -> None:
+        store = self.points.get((node_url, collection), {})
+        for point_id in ids:
+            store.pop(point_id, None)
+        self.collections[node_url][collection]["points_count"] = len(store)
+
+    async def delete_points(self, node: QdrantNode, collection: str, ids: list[Any]) -> None:
+        self.deletions.append((collection, list(ids)))
+        self.remove_points(self.resolve(node), collection, ids)
 
     async def upsert_points(
         self, node: QdrantNode, collection: str, points: list[JsonDict], shard_key: Any = None

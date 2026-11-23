@@ -8,12 +8,12 @@
 | `ha.enabled` | `false` | Kopf peering: one replica is active, the rest wait as standbys. Switches the Deployment to `RollingUpdate`. See [High availability](../installation.md#high-availability) |
 | `ha.peeringName` | release full name | Name of the peering object |
 | `ha.lifetime` | `60` | Seconds before a standby takes over from a pod that died without a clean exit |
-| `ha.namespaces` | `[]` | Empty: cluster-wide with a `ClusterKopfPeering`. Names: the operator watches only these and a `KopfPeering` is created in each |
 | `image.repository` | `ghcr.io/4thel00z/qdrant-operator` | |
 | `image.tag` | chart `appVersion` | |
 | `image.pullPolicy` | `IfNotPresent` | |
 | `serviceAccount.create` | `true` | |
 | `serviceAccount.name` | release full name | |
+| `watchNamespaces` | `[]` | Namespaces to watch. Empty watches all of them under one ClusterRole; otherwise each entry gets a Role and RoleBinding and kopf runs with `--namespace` per entry, see [Installation](../installation.md#watching-only-some-namespaces) |
 | `resources` | `100m`/`128Mi` requests, `500m`/`1Gi` limits | Streaming itself is small (8 MiB upload parts, two at a time, 1 MiB reads); the memory goes to the interpreter and kopf state. A migration loop alone held about 320 Mi and a backup about 280 Mi, so concurrent ones need the headroom |
 | `operator.logLevel` | `INFO` | loguru level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `operator.logFormat` | `json` | `json` or `text` |
@@ -32,7 +32,7 @@
 | `PEERING_NAME` | unset | Joins the kopf peering of this name; the operator fails to start if the peering object is missing. Unset keeps today's standalone behaviour |
 | `PEERING_PRIORITY` | random per start | Fixed priority instead of the random one |
 | `PEERING_LIFETIME` | `60` | Peering record lifetime in seconds |
-| `WATCH_NAMESPACES` | unset | Comma-separated namespaces passed as `--namespace`; unset passes `--all-namespaces` |
+| `WATCH_NAMESPACES` | unset | Comma-separated namespaces to watch; unset watches all. The chart sets it from `watchNamespaces` |
 | `POD_ID` | generated | Peer identity in the peering object; the chart sets it to the pod name |
 | `METRICS_PORT` | `9090` | Port of the Prometheus endpoint; `0` turns it off |
 | `KUBECONFIG` | in-cluster | Used when no service account token is mounted |
@@ -46,8 +46,8 @@ The `qdrant-operator` entry point runs
 kopf run -m qdrant_operator.handlers --all-namespaces --liveness=http://0.0.0.0:8080/healthz
 ```
 
-and appends any arguments you pass, which override the defaults. Useful ones:
-`--namespace <ns>` to watch one namespace, `--verbose` for kopf's own debug
+and appends any arguments you pass. With `WATCH_NAMESPACES` set, `--namespace`
+per entry replaces `--all-namespaces`. Useful ones: `--namespace <ns>` to watch one namespace, `--verbose` for kopf's own debug
 output, `--standalone` to skip peering, `--dev` for a short peering priority
 when running next to an in-cluster operator. With `ha.enabled`, pods use random priorities
 up to 2147483647, so a `--dev` operator (priority 666) pauses itself; pass
@@ -55,22 +55,30 @@ up to 2147483647, so a `--dev` operator (priority 666) pauses itself; pass
 
 ## RBAC
 
-The chart's ClusterRole grants:
+Without `watchNamespaces` the chart creates one ClusterRole with every rule
+below. With it, only the CustomResourceDefinition rule stays in the
+ClusterRole and the rest is a Role in each listed namespace, with `kopfpeerings`
+in place of `clusterkopfpeerings`.
 
 | Resources | Verbs | Why |
 |---|---|---|
-| `qdrant.io` kinds | all | Watch and update the seven custom resources; the schedule creates and deletes backups |
-| `qdrant.io` `*/status` | get, patch, update | Status subresources |
-| `customresourcedefinitions` | list, watch | kopf checks the CRDs it serves |
-| `clusterkopfpeerings.kopf.dev` | all | kopf peering between operator instances |
-| `kopfpeerings.kopf.dev` | all | Only with `ha.enabled` and `ha.namespaces` |
+| `customresourcedefinitions` | list, watch | kopf checks the CRDs it serves; cluster-scoped |
+| `qdrant.io` kinds | get, list, watch, patch | kopf watches the seven custom resources and sets finalizers and annotations; cluster references are read |
+| `qdrantbackups` | create, delete | The schedule creates and prunes backups; a backup deletes itself at `expiresAt` |
+| `qdrant.io` `*/status` | get, patch | Status subresources |
+| `clusterkopfpeerings.kopf.dev` (or `kopfpeerings`) | get, list, watch, patch | kopf peering between operator instances |
 | `events` | create | kopf posts events on handled resources |
-| `secrets` | get, list, watch, create, update, patch, delete | API keys, TLS CA and bucket credentials; access key Secrets are written; the chart renders Secrets |
-| `persistentvolumeclaims` | get, list, watch, patch | Grow the data and snapshot volumes |
-| `services`, `namespaces`, `configmaps`, `serviceaccounts`, `statefulsets`, `poddisruptionbudgets`, `ingresses`, `servicemonitors` | all | Everything the qdrant chart may render |
+| `secrets` | get, list, create, update, patch, delete | API keys, TLS CA and bucket credentials are read, access key Secrets are written, Helm keeps its `helm.sh/release.v1` release records and the chart renders Secrets |
+| `persistentvolumeclaims` | list, patch, delete | Grow and clean up the data and snapshot volumes |
+| `pods` | list | Readiness and shard health before each partition step of a rollout |
+| `pods/log` | get | Crash logs for the status |
+| `services`, `configmaps`, `serviceaccounts`, `poddisruptionbudgets`, `servicemonitors` | get, create, patch, delete | What the qdrant chart renders; Helm reads, creates, patches and removes them |
+| `statefulsets` | get, create, patch, delete | The qdrant chart's StatefulSet, and the orphan-delete that precedes a volume resize |
+| `statefulsets/status` | get | Readiness check |
 
 Helm runs inside the operator pod with the pod's service account, so the
-operator needs every permission the chart's objects need.
+operator needs every permission the chart's objects need. The operator does
+not create namespaces; a cluster's namespace is the one its resource lives in.
 
 ## Timers and retries
 

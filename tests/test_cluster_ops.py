@@ -475,6 +475,41 @@ async def test_rebalance_spreads_shards_onto_a_new_peer_after_scale_up(
     assert conditions(balanced)["Rebalancing"] == (ConditionStatus.FALSE, "Balanced")
 
 
+async def test_rebalance_evens_out_replicas_left_uneven_by_a_restore(
+    kubernetes: FakeKubernetes,
+) -> None:
+    settled(kubernetes)
+    qdrant = peered_qdrant(3)
+    qdrant.replication_factors["docs"] = 2
+    qdrant.replicas["docs"] = [
+        Replica(0, 100, "Active"),
+        Replica(0, 102, "Active"),
+        Replica(1, 101, "Active"),
+        Replica(1, 102, "Active"),
+        Replica(2, 101, "Active"),
+        Replica(2, 102, "Active"),
+    ]
+    use_case = RebalanceShards(qdrant, kubernetes)
+    spec = cluster(3, scaling={"rebalance": True})
+
+    def per_peer() -> dict[int, int]:
+        return {p: sum(r.peer_id == p for r in qdrant.replicas["docs"]) for p in (100, 101, 102)}
+
+    assert per_peer() == {100: 1, 101: 2, 102: 3}
+    moving = await use_case.execute(spec, PENDING)
+    balanced = await use_case.execute(spec, moving)
+    again = await use_case.execute(spec, balanced)
+
+    assert [(o.kind, o.shard_id, o.peer_id, o.target_peer_id) for o in qdrant.shard_operations] == [
+        (ShardOperationKind.MOVE, 1, 102, 100)
+    ]
+    assert per_peer() == {100: 2, 101: 2, 102: 2}
+    assert conditions(moving)["Rebalancing"] == (ConditionStatus.TRUE, "Rebalancing")
+    assert conditions(balanced)["Rebalancing"] == (ConditionStatus.FALSE, "Balanced")
+    assert conditions(again)["Rebalancing"] == (ConditionStatus.FALSE, "Balanced")
+    assert len(qdrant.shard_operations) == 1
+
+
 async def test_rebalance_waits_while_the_statefulset_is_not_settled(
     kubernetes: FakeKubernetes,
 ) -> None:

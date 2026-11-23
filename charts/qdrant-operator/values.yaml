@@ -4,7 +4,6 @@ ha:
   enabled: false  # kopf peering: one replica is active, the others wait as standbys; the Deployment rolls instead of recreating
   peeringName: ""  # empty uses the release full name
   lifetime: 60  # seconds before a standby takes over from an active pod that died without a clean exit; a clean shutdown hands over at once
-  namespaces: []  # empty: cluster-wide with a ClusterKopfPeering; names: the operator watches only these and a KopfPeering is created in each
 
 image:
   repository: ghcr.io/4thel00z/qdrant-operator
@@ -14,6 +13,8 @@ image:
 serviceAccount:
   create: true
   name: ""
+
+watchNamespaces: []  # empty: watch every namespace under a ClusterRole; otherwise watch only these, with a Role and RoleBinding in each
 
 resources:
   limits:

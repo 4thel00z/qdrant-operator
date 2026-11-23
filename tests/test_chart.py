@@ -1,56 +1,125 @@
 import shutil
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+from typing import cast
 
 import pytest
 import yaml
 
 CHART = Path(__file__).resolve().parent.parent / "charts" / "qdrant-operator"
+Manifest = Mapping[str, Any]
+Rule = Mapping[str, Any]
 
 pytestmark = pytest.mark.skipif(not shutil.which("helm"), reason="helm is not installed")
 
 
-def render(*sets: str) -> list[dict[str, Any]]:
+def render(*sets: str) -> list[Manifest]:
     arguments = [argument for value in sets for argument in ("--set", value)]
-    out = subprocess.run(
-        ["helm", "template", "op", str(CHART), "--namespace", "ops", *arguments],
+    output = subprocess.run(
+        ["helm", "template", "qdrant-operator", str(CHART), "--namespace", "qdrant-system"]
+        + arguments,
         check=True,
         capture_output=True,
         text=True,
     ).stdout
-    return [doc for doc in yaml.safe_load_all(out) if doc]
+    return [cast(Manifest, doc) for doc in yaml.safe_load_all(output) if doc]
 
 
-def of_kind(docs: Sequence[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
-    return [doc for doc in docs if doc["kind"] == kind]
+def of_kind(manifests: list[Manifest], kind: str) -> list[Manifest]:
+    return [m for m in manifests if m["kind"] == kind]
 
 
-def kopf_crds(docs: Sequence[dict[str, Any]]) -> list[str]:
-    names = [doc["metadata"]["name"] for doc in of_kind(docs, "CustomResourceDefinition")]
+def grants(rules: list[Rule]) -> dict[str, set[str]]:
+    granted: dict[str, set[str]] = {}
+    for rule in rules:
+        for resource in rule["resources"]:
+            key = f"{rule['apiGroups'][0]}/{resource}"
+            granted[key] = granted.get(key, set()) | set(rule["verbs"])
+    return granted
+
+
+def test_default_is_one_cluster_role_without_wildcards() -> None:
+    manifests = render()
+    (role,) = of_kind(manifests, "ClusterRole")
+    granted = grants(role["rules"])
+
+    assert not of_kind(manifests, "Role")
+    assert not of_kind(manifests, "RoleBinding")
+    assert all("*" not in verbs for verbs in granted.values())
+    assert granted["apiextensions.k8s.io/customresourcedefinitions"] == {"list", "watch"}
+    assert "kopf.dev/clusterkopfpeerings" in granted
+    assert "kopf.dev/kopfpeerings" not in granted
+    assert "/namespaces" not in granted
+    assert "networking.k8s.io/ingresses" not in granted
+    assert granted["/secrets"] == {"get", "list", "create", "update", "patch", "delete"}
+    assert granted["qdrant.io/qdrantbackups"] == {
+        "get",
+        "list",
+        "watch",
+        "patch",
+        "create",
+        "delete",
+    }
+    assert granted["qdrant.io/qdrantclusters"] == {"get", "list", "watch", "patch"}
+
+
+def env(manifests: list[Manifest]) -> dict[str, str]:
+    (deployment,) = of_kind(manifests, "Deployment")
+    container = deployment["spec"]["template"]["spec"]["containers"][0]
+    return {e["name"]: e.get("value", "") for e in container["env"]}
+
+
+def test_default_deployment_has_no_watch_namespaces() -> None:
+    assert "WATCH_NAMESPACES" not in env(render())
+
+
+def test_watch_namespaces_moves_rules_into_roles() -> None:
+    manifests = render("watchNamespaces={team-a,team-b}")
+    (cluster_role,) = of_kind(manifests, "ClusterRole")
+    default_rules = grants(cast(list[Rule], of_kind(render(), "ClusterRole")[0]["rules"]))
+    roles = of_kind(manifests, "Role")
+    bindings = of_kind(manifests, "RoleBinding")
+
+    assert grants(cluster_role["rules"]) == {
+        "apiextensions.k8s.io/customresourcedefinitions": {"list", "watch"}
+    }
+    assert sorted(r["metadata"]["namespace"] for r in roles) == ["team-a", "team-b"]
+    assert sorted(b["metadata"]["namespace"] for b in bindings) == ["team-a", "team-b"]
+    for role in roles:
+        granted = grants(role["rules"])
+        assert "kopf.dev/kopfpeerings" in granted
+        assert "kopf.dev/clusterkopfpeerings" not in granted
+        assert {k: v for k, v in granted.items() if "kopfpeerings" not in k} == {
+            k: v
+            for k, v in default_rules.items()
+            if "kopfpeerings" not in k and "apiextensions" not in k
+        }
+    for binding in bindings:
+        assert binding["roleRef"]["kind"] == "Role"
+        assert binding["subjects"][0]["namespace"] == "qdrant-system"
+
+
+def test_watch_namespaces_become_the_watch_namespaces_variable() -> None:
+    assert env(render("watchNamespaces={team-a,team-b}"))["WATCH_NAMESPACES"] == "team-a,team-b"
+
+
+def kopf_crds(manifests: list[Manifest]) -> list[str]:
+    names = [m["metadata"]["name"] for m in of_kind(manifests, "CustomResourceDefinition")]
     return [name for name in names if name.endswith("kopf.dev")]
 
 
-def env(deployment: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    container = deployment["spec"]["template"]["spec"]["containers"][0]
-    return {item["name"]: item for item in container["env"]}
-
-
 def test_default_is_one_replica_standalone() -> None:
-    docs = render()
-    deployment = of_kind(docs, "Deployment")[0]
+    manifests = render()
+    (deployment,) = of_kind(manifests, "Deployment")
 
     assert deployment["spec"]["replicas"] == 1
     assert deployment["spec"]["strategy"] == {"type": "Recreate"}
-    assert not of_kind(docs, "ClusterKopfPeering")
-    assert not of_kind(docs, "KopfPeering")
-    assert not any(
-        doc["kind"] == "CustomResourceDefinition" and "kopf" in doc["metadata"]["name"]
-        for doc in docs
-    )
-    assert "PEERING_NAME" not in env(deployment)
-    assert "WATCH_NAMESPACES" not in env(deployment)
+    assert not of_kind(manifests, "ClusterKopfPeering")
+    assert not of_kind(manifests, "KopfPeering")
+    assert not kopf_crds(manifests)
+    assert "PEERING_NAME" not in env(manifests)
 
 
 def test_several_replicas_without_peering_are_refused() -> None:
@@ -59,46 +128,38 @@ def test_several_replicas_without_peering_are_refused() -> None:
 
 
 def test_cluster_wide_peering() -> None:
-    docs = render("ha.enabled=true", "replicaCount=2", "ha.lifetime=30")
-    deployment = of_kind(docs, "Deployment")[0]
-    variables = env(deployment)
+    manifests = render("ha.enabled=true", "replicaCount=2", "ha.lifetime=30")
+    (deployment,) = of_kind(manifests, "Deployment")
+    container = deployment["spec"]["template"]["spec"]["containers"][0]
+    pod_id = next(e for e in container["env"] if e["name"] == "POD_ID")
+    variables = env(manifests)
 
     assert deployment["spec"]["replicas"] == 2
     assert deployment["spec"]["strategy"]["type"] == "RollingUpdate"
     assert deployment["spec"]["strategy"]["rollingUpdate"] == {"maxSurge": 1, "maxUnavailable": 0}
-    assert [
-        crd["metadata"]["name"]
-        for crd in of_kind(docs, "CustomResourceDefinition")
-        if "kopf" in crd["metadata"]["name"]
-    ] == ["clusterkopfpeerings.kopf.dev"]
-    peering = of_kind(docs, "ClusterKopfPeering")
-    assert [p["metadata"]["name"] for p in peering] == [variables["PEERING_NAME"]["value"]]
-    assert variables["PEERING_LIFETIME"]["value"] == "30"
-    assert variables["POD_ID"]["valueFrom"]["fieldRef"]["fieldPath"] == "metadata.name"
+    assert kopf_crds(manifests) == ["clusterkopfpeerings.kopf.dev"]
+    peerings = of_kind(manifests, "ClusterKopfPeering")
+    assert [p["metadata"]["name"] for p in peerings] == [variables["PEERING_NAME"]]
+    assert variables["PEERING_LIFETIME"] == "30"
+    assert pod_id["valueFrom"]["fieldRef"]["fieldPath"] == "metadata.name"
     assert "WATCH_NAMESPACES" not in variables
-    assert not of_kind(docs, "KopfPeering")
+    assert not of_kind(manifests, "KopfPeering")
 
 
-def test_namespaced_peering() -> None:
-    docs = render("ha.enabled=true", "replicaCount=2", "ha.namespaces={a,b}", "ha.peeringName=ops")
-    deployment = of_kind(docs, "Deployment")[0]
-    role = of_kind(docs, "ClusterRole")[0]
+def test_peering_follows_watch_namespaces() -> None:
+    manifests = render(
+        "ha.enabled=true", "replicaCount=2", "watchNamespaces={a,b}", "ha.peeringName=ops"
+    )
+    variables = env(manifests)
 
-    assert env(deployment)["WATCH_NAMESPACES"]["value"] == "a,b"
-    assert env(deployment)["PEERING_NAME"]["value"] == "ops"
-    assert [
-        (p["metadata"]["namespace"], p["metadata"]["name"]) for p in of_kind(docs, "KopfPeering")
-    ] == [
+    assert variables["WATCH_NAMESPACES"] == "a,b"
+    assert variables["PEERING_NAME"] == "ops"
+    peerings = of_kind(manifests, "KopfPeering")
+    assert [(p["metadata"]["namespace"], p["metadata"]["name"]) for p in peerings] == [
         ("a", "ops"),
         ("b", "ops"),
     ]
-    assert [
-        crd["metadata"]["name"]
-        for crd in of_kind(docs, "CustomResourceDefinition")
-        if "kopf" in crd["metadata"]["name"]
-    ] == ["kopfpeerings.kopf.dev"]
-    assert not of_kind(docs, "ClusterKopfPeering")
-    resources = [
-        r for rule in role["rules"] if "kopf.dev" in rule["apiGroups"] for r in rule["resources"]
-    ]
-    assert "kopfpeerings" in resources
+    assert kopf_crds(manifests) == ["kopfpeerings.kopf.dev"]
+    assert not of_kind(manifests, "ClusterKopfPeering")
+    for role in of_kind(manifests, "Role"):
+        assert "kopf.dev/kopfpeerings" in grants(role["rules"])
