@@ -41,8 +41,11 @@ spec:
               type: object
               required:
                 - clusterRef
-                - storage
               x-kubernetes-validations:
+                - rule: "self.method == 'volumeSnapshot' || has(self.storage)"
+                  message: "storage.s3 is required when method is s3"
+                - rule: "self.method != 'volumeSnapshot' || has(self.volumeSnapshotClassName)"
+                  message: "volumeSnapshotClassName is required when method is volumeSnapshot"
                 - rule: "self == oldSelf"
                   message: "spec is immutable; create a new QdrantBackup instead"
               properties:
@@ -55,6 +58,17 @@ spec:
                       type: string
                     namespace:
                       type: string
+                method:
+                  type: string
+                  enum: ["s3", "volumeSnapshot"]
+                  default: "s3"
+                  description: >-
+                    s3 streams node snapshots into a bucket. volumeSnapshot takes a CSI
+                    VolumeSnapshot of every data PVC (crash-consistent, restorable only into a
+                    new cluster of the same name and size in the same namespace).
+                volumeSnapshotClassName:
+                  type: string
+                  description: VolumeSnapshotClass to use; required when method is volumeSnapshot
                 storage:
                   type: object
                   required:
@@ -130,6 +144,27 @@ spec:
                   type: string
                   format: date-time
                   description: When retentionDays elapse and the operator deletes this backup
+                volumeSnapshots:
+                  type: array
+                  description: One VolumeSnapshot per data PVC; set when method is volumeSnapshot
+                  items:
+                    type: object
+                    properties:
+                      nodeIndex:
+                        type: integer
+                      claimName:
+                        type: string
+                      snapshotName:
+                        type: string
+                      size:
+                        type: string
+                        description: Size requested by the snapshotted claim
+                      storageClassName:
+                        type: string
+                      accessModes:
+                        type: array
+                        items:
+                          type: string
                 s3Path:
                   type: string
                   description: Full S3 path where backup is stored

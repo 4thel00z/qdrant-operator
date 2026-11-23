@@ -45,7 +45,11 @@ spec:
               required:
                 - schedule
                 - clusterRef
-                - storage
+              x-kubernetes-validations:
+                - rule: "self.method == 'volumeSnapshot' || has(self.storage)"
+                  message: "storage.s3 is required when method is s3"
+                - rule: "self.method != 'volumeSnapshot' || has(self.volumeSnapshotClassName)"
+                  message: "volumeSnapshotClassName is required when method is volumeSnapshot"
               properties:
                 schedule:
                   type: string
@@ -60,6 +64,17 @@ spec:
                       type: string
                     namespace:
                       type: string
+                method:
+                  type: string
+                  enum: ["s3", "volumeSnapshot"]
+                  default: "s3"
+                  description: >-
+                    s3 streams node snapshots into a bucket. volumeSnapshot takes a CSI
+                    VolumeSnapshot of every data PVC (crash-consistent, restorable only into a
+                    new cluster of the same name and size in the same namespace).
+                volumeSnapshotClassName:
+                  type: string
+                  description: VolumeSnapshotClass to use; required when method is volumeSnapshot
                 storage:
                   type: object
                   required:
