@@ -66,7 +66,10 @@ for every ordinal.
 `cluster.p2p.enableTls` turns on TLS for the inter-node Raft and shard
 transfer traffic and reuses the same certificate. Qdrant then requires every
 node to present a certificate the others trust, so the mounted `tls.crt`
-must cover the headless pod names.
+must list every headless pod name explicitly
+(`qdrant-<name>-<i>.qdrant-<name>-headless`); Qdrant's TLS stack rejects
+single-label wildcards. The Secret must also hold `ca.crt`: the operator sets
+`config.tls.ca_cert` to `/qdrant/tls/ca.crt` so each node can verify its peers.
 
 ## Where secrets are read from
 

@@ -22,7 +22,7 @@ version.
 | `nodeSelector`, `tolerations`, `affinity` | Same names |
 | `cluster.enabled` | `config.cluster.enabled` |
 | `cluster.p2p.port`, `cluster.p2p.enableTls` | `config.cluster.p2p.port`, `config.cluster.p2p.enable_tls` |
-| `tls.enabled` | `config.service.enable_tls`, and `config.tls.cert` / `config.tls.key` set to `/qdrant/tls/tls.crt` and `/qdrant/tls/tls.key` |
+| `tls.enabled` | `config.service.enable_tls`, and `config.tls.cert` / `config.tls.key` set to `/qdrant/tls/tls.crt` and `/qdrant/tls/tls.key`; with `cluster.p2p.enableTls` also `config.tls.ca_cert` set to `/qdrant/tls/ca.crt` |
 | `tls.secretRef.name` | `additionalVolumes: [{name: tls, secret: {secretName}}]` and `additionalVolumeMounts: [{name: tls, mountPath: /qdrant/tls, readOnly: true}]` |
 | `config` | Deep-merged over the `config` entries above; the spec wins on conflicts |
 
