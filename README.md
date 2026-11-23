@@ -32,6 +32,9 @@
 - **Declarative Collections** - `QdrantCollection` keeps vectors, payload indexes and aliases in Git and re-creates what was deleted by hand
 - **Least-Privilege Tokens** - `QdrantAccessKey` signs Qdrant JWT tokens per collection and writes them into a Secret, renewing before expiry
 - **Live Migrations** - `QdrantMigration` copies collections between clusters (or from Qdrant Cloud) without an S3 round trip
+- **Sync Passes** - `sync: true` re-reads the source after the copy and applies what changed, until a pass finds nothing, so writers can keep going during a migration
+- **High Availability** - Several operator replicas with kopf peering: one active, the rest standby
+- **Bring Your Own TLS** - Serve HTTPS from any Secret; `caKey` names the CA entry when it is not `ca.crt`
 - **Admission Validation** - CEL rules on every CRD reject impossible specs before the operator sees them
 - **Async-First** - Built on kopf with fully async adapters for performance
 
@@ -55,6 +58,14 @@ the rest.
 **Migrations that survive outages.** The target pod was deleted a quarter of the way through a copy. The migration retried, resumed from its checkpoint and finished with matching counts.
 
 <img src="docs/img/field-migrate.svg" alt="Migration of 100,000 points with a target outage at 24,000">
+
+The checks below ran on the same cluster against two-node test clusters.
+
+**Migrations under live writes.** A sync migration copied 31,530 points while a client kept updating the source for 90 seconds. The first sync pass after the copy picked up 6,192 changed points, the second found none, and source and target ended with identical contents (same SHA-256 digest over every id, payload and vector). The whole run took 6 minutes 42 seconds.
+
+**Volume snapshot backup and restore.** A `volumeSnapshot` backup of a two-node cluster took 4 seconds and recorded the availability zone of each volume. The restore created the claims in the zones of their snapshots, the recreated cluster was ready 44 seconds later, and its 5,000 points matched the source digest.
+
+**Upgrades without restarts.** Upgrading the operator from 0.5.0 to 0.6.0 and on to 0.6.1 restarted no Qdrant pod, and a cluster left with a failed Helm apply recovered by itself 9 seconds after the new operator started.
 
 ## Installation
 
