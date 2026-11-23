@@ -45,6 +45,7 @@ from qdrant_operator.domain import RestorePhase
 from qdrant_operator.domain import RestoreSpec
 from qdrant_operator.domain import RestoreStatus
 from qdrant_operator.domain import retry_delay
+from qdrant_operator.domain import spec_is_last_applied
 from qdrant_operator.ha import apply_peering_lifetime
 from qdrant_operator.kubernetes_adapter import load_kubernetes_config
 from qdrant_operator.logs import configure_logging
@@ -55,6 +56,7 @@ from qdrant_operator.usecases import ReleaseApplyError
 from qdrant_operator.usecases import RolloutInProgressError
 from qdrant_operator.usecases import ScaleDownPendingError
 from qdrant_operator.usecases import SourceNotReadyError
+from qdrant_operator.usecases import apply_failed
 
 FINALIZER = f"{GROUP}/finalizer"
 CLUSTER_OBSERVE_INTERVAL = 30.0
@@ -109,6 +111,12 @@ async def reconcile_cluster(
     logger: kopf.Logger,
     **_: Any,
 ) -> None:
+    await apply_cluster(spec, meta, status, patch, logger)
+
+
+async def apply_cluster(
+    spec: kopf.Spec, meta: kopf.Meta, status: kopf.Status, patch: kopf.Patch, logger: kopf.Logger
+) -> None:
     cluster = ClusterSpec.from_dict(spec, meta)
     current = ClusterStatus.from_dict(status)
     try:
@@ -147,6 +155,31 @@ async def observe_cluster(
     if result == current:
         return
     patch.status.update(result.to_dict())
+
+
+def apply_stuck(spec: kopf.Spec, meta: kopf.Meta, status: kopf.Status, **_: Any) -> bool:
+    return apply_failed(ClusterStatus.from_dict(status).conditions) and spec_is_last_applied(
+        spec, meta.annotations
+    )
+
+
+@kopf.timer(
+    GROUP,
+    VERSION,
+    CLUSTERS.plural,
+    interval=HELM_RETRY_SECONDS,
+    initial_delay=HELM_RETRY_SECONDS,
+    when=apply_stuck,
+)
+async def retry_failed_apply(
+    spec: kopf.Spec,
+    meta: kopf.Meta,
+    status: kopf.Status,
+    patch: kopf.Patch,
+    logger: kopf.Logger,
+    **_: Any,
+) -> None:
+    await apply_cluster(spec, meta, status, patch, logger)
 
 
 def removes_dead_peers(spec: kopf.Spec, **_: Any) -> bool:

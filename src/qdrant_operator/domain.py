@@ -3033,3 +3033,14 @@ class MigrationStatus:
             "error": self.error,
             "conditions": [c.to_dict() for c in self.conditions],
         }
+
+
+LAST_APPLIED_ANNOTATION = f"{GROUP}/last-applied-spec"
+
+
+def spec_is_last_applied(spec: Mapping[str, Any], annotations: Mapping[str, str]) -> bool:
+    """True when kopf's diff base equals the spec, so kopf sees no change to handle."""
+    recorded = annotations.get(LAST_APPLIED_ANNOTATION)
+    if not recorded:
+        return False
+    return json.loads(recorded).get("spec") == dict(spec)

@@ -46,6 +46,7 @@ from qdrant_operator.domain import plan_sync_window
 from qdrant_operator.domain import plan_volume_restore
 from qdrant_operator.domain import point_digest
 from qdrant_operator.domain import set_condition
+from qdrant_operator.domain import spec_is_last_applied
 from qdrant_operator.domain import vector_layout
 
 NOW = datetime(2026, 9, 23, 2, 30, tzinfo=UTC)
@@ -844,3 +845,17 @@ def test_plan_sync_window_upserts_missing_and_different_and_deletes_extras_in_id
 
     assert [p["id"] for p in changed] == [2, 3]
     assert stale == [9, "b0000000-0000-0000-0000-000000000000"]
+
+
+@pytest.mark.parametrize(
+    ("annotations", "expected"),
+    [
+        ({"qdrant.io/last-applied-spec": '{"spec": {"replicas": 1, "version": "v1.20.2"}}'}, True),
+        ({"qdrant.io/last-applied-spec": '{"spec": {"replicas": 2, "version": "v1.20.2"}}'}, False),
+        ({}, False),
+    ],
+)
+def test_spec_is_last_applied_compares_with_kopf_diff_base(
+    annotations: dict[str, str], expected: bool
+) -> None:
+    assert spec_is_last_applied({"version": "v1.20.2", "replicas": 1}, annotations) is expected
