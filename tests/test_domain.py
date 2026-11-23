@@ -40,6 +40,8 @@ from qdrant_operator.domain import join_key
 from qdrant_operator.domain import merge_dicts
 from qdrant_operator.domain import parse_duration
 from qdrant_operator.domain import payload_indexes_from_schema
+from qdrant_operator.domain import plan_sync_window
+from qdrant_operator.domain import point_digest
 from qdrant_operator.domain import set_condition
 from qdrant_operator.domain import vector_layout
 
@@ -716,3 +718,48 @@ def test_auto_optimization_threads_match_the_null_qdrant_reports() -> None:
     assert spec.update_body({"optimizer_config": {"max_optimization_threads": 2}}) == {
         "optimizers_config": {"max_optimization_threads": "auto", "indexing_threshold": 10000}
     }
+
+
+def test_point_digest_covers_payload_and_every_vector_kind_regardless_of_key_order() -> None:
+    dense: list[float] = [0.1, 0.2]
+    sparse: dict[str, list[float] | list[int]] = {"indices": [1, 4], "values": [0.5, 0.25]}
+    multi: list[list[float]] = [[0.1, 0.2], [0.3, 0.4]]
+    named: dict[str, Any] = {
+        "id": 1,
+        "payload": {"a": 1, "b": [1, 2]},
+        "vector": {"dense": dense, "sparse": sparse, "multi": multi},
+    }
+    reordered: dict[str, Any] = {
+        "vector": {"multi": multi, "sparse": sparse, "dense": dense},
+        "payload": {"b": [1, 2], "a": 1},
+        "id": 1,
+        "shard_key": "eu",
+    }
+    shorter: dict[str, Any] = {
+        **named,
+        "vector": {"dense": dense, "sparse": sparse, "multi": [[0.1, 0.2]]},
+    }
+
+    assert point_digest(named) == point_digest(reordered)
+    assert point_digest({**named, "payload": {"a": 2, "b": [1, 2]}}) != point_digest(named)
+    assert point_digest(shorter) != point_digest(named)
+    assert point_digest({"id": 2, "payload": None}) == point_digest({"id": 2, "payload": {}})
+
+
+def test_plan_sync_window_upserts_missing_and_different_and_deletes_extras_in_id_order() -> None:
+    source: list[dict[str, Any]] = [
+        {"id": 1, "payload": {"n": 1}, "vector": [1.0]},
+        {"id": 2, "payload": {"n": 2}, "vector": [2.0]},
+        {"id": 3, "payload": {"n": 3}, "vector": [3.0]},
+    ]
+    target: list[dict[str, Any]] = [
+        {"id": 1, "payload": {"n": 1}, "vector": [1.0]},
+        {"id": 2, "payload": {"n": 99}, "vector": [2.0]},
+        {"id": "b0000000-0000-0000-0000-000000000000", "payload": {}},
+        {"id": 9, "payload": {}},
+    ]
+
+    changed, stale = plan_sync_window(source, target)
+
+    assert [p["id"] for p in changed] == [2, 3]
+    assert stale == [9, "b0000000-0000-0000-0000-000000000000"]

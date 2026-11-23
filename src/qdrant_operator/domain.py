@@ -2568,6 +2568,8 @@ class MigrationSpec:
     batch_delay_ms: int = 0
     checkpoint_batches: int = 20
     verify_passes: int = 1
+    sync: bool = False
+    sync_max_passes: int = 1
     create_missing: bool = True
     ensure_payload_indexes: bool = True
     target: TargetOverrides = field(default_factory=TargetOverrides)
@@ -2575,6 +2577,9 @@ class MigrationSpec:
     @staticmethod
     def from_dict(spec: Mapping[str, Any], meta: Mapping[str, Any]) -> "MigrationSpec":
         namespace = meta["namespace"]
+        sync_max_passes = spec.get("syncMaxPasses", MigrationSpec.sync_max_passes)
+        if sync_max_passes < 1:
+            raise ValueError("syncMaxPasses must be at least 1")
         return MigrationSpec(
             name=meta["name"],
             namespace=namespace,
@@ -2586,6 +2591,8 @@ class MigrationSpec:
             batch_delay_ms=spec.get("batchDelayMs", 0),
             checkpoint_batches=spec.get("checkpointBatches", MigrationSpec.checkpoint_batches),
             verify_passes=spec.get("verifyPasses", MigrationSpec.verify_passes),
+            sync=spec.get("sync", MigrationSpec.sync),
+            sync_max_passes=sync_max_passes,
             create_missing=spec.get("createMissing", True),
             ensure_payload_indexes=spec.get("ensurePayloadIndexes", True),
             target=TargetOverrides.from_dict(spec.get("target", {})),
@@ -2646,6 +2653,40 @@ def group_by_shard_key(
     return groups
 
 
+def point_id_order(point_id: Any) -> tuple[int, int, str]:
+    """Qdrant's scroll order: integer IDs ascending, then UUIDs."""
+    if isinstance(point_id, int):
+        return (0, point_id, "")
+    return (1, 0, str(point_id))
+
+
+def point_digest(point: Mapping[str, Any]) -> str:
+    """SHA-256 of the canonical JSON of a point's payload and vectors (named, sparse, multi)."""
+    canonical = json.dumps(
+        {"payload": point.get("payload") or {}, "vector": point.get("vector") or None},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def plan_sync_window(
+    source: Iterable[Mapping[str, Any]], target: Iterable[Mapping[str, Any]]
+) -> tuple[list[JsonDict], list[Any]]:
+    """Source points to upsert (missing or different on the target) and target IDs to delete."""
+    on_target = {point["id"]: point for point in target}
+    on_source = [dict(point) for point in source]
+    source_ids = {point["id"] for point in on_source}
+    changed = [
+        point
+        for point in on_source
+        if point["id"] not in on_target
+        or point_digest(on_target[point["id"]]) != point_digest(point)
+    ]
+    stale = sorted((i for i in on_target if i not in source_ids), key=point_id_order)
+    return changed, stale
+
+
 def vector_layout(config: Mapping[str, Any]) -> JsonDict:
     """Size and distance of every vector in a live config, the part two collections must share."""
     vectors: Mapping[str, Any] = config.get("params", {}).get("vectors") or {}
@@ -2670,6 +2711,11 @@ class CollectionMigration:
     source_count: int | None = None
     target_count: int | None = None
     message: str | None = None
+    points_updated: int = 0
+    points_deleted: int = 0
+    sync_pass: int = 0
+    sync_offset: Any = None
+    sync_pass_changes: int = 0
 
     @staticmethod
     def from_dict(data: Mapping[str, Any]) -> "CollectionMigration":
@@ -2685,6 +2731,11 @@ class CollectionMigration:
             source_count=data.get("sourceCount"),
             target_count=data.get("targetCount"),
             message=data.get("message"),
+            points_updated=data.get("pointsUpdated", 0),
+            points_deleted=data.get("pointsDeleted", 0),
+            sync_pass=data.get("syncPasses", 0),
+            sync_offset=data.get("syncOffset"),
+            sync_pass_changes=data.get("syncPassChanges", 0),
         )
 
     def to_dict(self) -> JsonDict:
@@ -2700,6 +2751,11 @@ class CollectionMigration:
             "sourceCount": self.source_count,
             "targetCount": self.target_count,
             "message": self.message,
+            "pointsUpdated": self.points_updated,
+            "pointsDeleted": self.points_deleted,
+            "syncPasses": self.sync_pass,
+            "syncOffset": self.sync_offset,
+            "syncPassChanges": self.sync_pass_changes,
         }
 
 

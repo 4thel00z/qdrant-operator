@@ -128,6 +128,10 @@ class QdrantPort(Protocol):
         self, node: QdrantNode, collection: str, points: list[JsonDict], shard_key: Any = None
     ) -> None: ...
 
+    async def delete_points(self, node: QdrantNode, collection: str, ids: list[Any]) -> None:
+        """Delete points by ID; IDs that are already gone are not an error."""
+        ...
+
     async def cluster_topology(self, node: QdrantNode) -> ClusterTopology:
         """GET /cluster: the node's own peer id and every peer it knows."""
         ...

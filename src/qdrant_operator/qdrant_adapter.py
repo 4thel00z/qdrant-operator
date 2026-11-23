@@ -250,6 +250,16 @@ class QdrantAdapter:
                 client.put(f"/collections/{collection}/points", params={"wait": "true"}, json=body)
             )
 
+    async def delete_points(self, node: QdrantNode, collection: str, ids: list[Any]) -> None:
+        async with self.client(node, self.snapshot_timeout_seconds) as client:
+            await self.result(
+                client.post(
+                    f"/collections/{collection}/points/delete",
+                    params={"wait": "true"},
+                    json={"points": ids},
+                )
+            )
+
     @staticmethod
     async def result(request: Any) -> JsonDict:
         response: httpx.Response = await request

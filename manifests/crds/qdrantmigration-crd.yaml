@@ -136,6 +136,16 @@ spec:
                   minimum: 0
                   default: 1
                   description: Extra scroll passes over the source when the target has fewer points than the source after the copy (writes made during the copy are picked up); 0 disables them but the counts are still compared
+                sync:
+                  type: boolean
+                  default: false
+                  description: After the copy, walk source and target by point ID, re-upsert points that are missing or differ in payload or vectors and delete target points the source no longer has; replaces the verify passes. Catches up fully only once writes to the source stop
+                syncMaxPasses:
+                  type: integer
+                  minimum: 1
+                  maximum: 20
+                  default: 1
+                  description: Upper bound on sync passes; a further pass runs only while the previous one changed something
                 createMissing:
                   type: boolean
                   default: true
@@ -205,6 +215,21 @@ spec:
                       verifyPass:
                         type: integer
                         description: Extra verify passes started so far
+                      pointsUpdated:
+                        type: integer
+                        description: Points the sync pass re-upserted because they were missing or different on the target
+                      pointsDeleted:
+                        type: integer
+                        description: Points the sync pass deleted from the target because the source no longer has them
+                      syncPasses:
+                        type: integer
+                        description: Sync passes started so far
+                      syncOffset:
+                        x-kubernetes-preserve-unknown-fields: true
+                        description: Point ID the running sync pass resumes from after an interruption
+                      syncPassChanges:
+                        type: integer
+                        description: Points the running sync pass has changed so far
                       sourceCount:
                         type: integer
                         description: Exact source point count at the last verification
