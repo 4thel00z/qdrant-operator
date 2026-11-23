@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/4thel00z/qdrant-operator/compare/v0.6.0...v0.6.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* **cluster:** re-apply when a failed spec is reverted to the last applied one ([#39](https://github.com/4thel00z/qdrant-operator/issues/39)) ([d4dfb15](https://github.com/4thel00z/qdrant-operator/commit/d4dfb154027fad44a85a4a0d2cd1faacad725322))
+* **restore:** provision restored volumes in their snapshot's zone ([#40](https://github.com/4thel00z/qdrant-operator/issues/40)) ([d301d1d](https://github.com/4thel00z/qdrant-operator/commit/d301d1d232fc261f2d2d56e9f83b8f35554b87d1))
+
 ## [0.6.0](https://github.com/4thel00z/qdrant-operator/compare/v0.5.0...v0.6.0) (2026-11-23)
 
 
