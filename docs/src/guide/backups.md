@@ -28,6 +28,20 @@ Prerequisites: the snapshot CRDs and snapshot controller installed, a CSI
 driver that supports snapshots, and a `VolumeSnapshotClass` for it. Managed
 Kubernetes usually ships all three.
 
+The Cinder CSI driver (OpenStack, STACKIT) refuses to snapshot a volume that
+is attached to a running pod unless the class sets `force-create`:
+
+```yaml
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: cinder-snap-force
+driver: cinder.csi.openstack.org
+deletionPolicy: Delete
+parameters:
+  force-create: "true"
+```
+
 ```yaml
 apiVersion: qdrant.io/v1alpha1
 kind: QdrantBackup
@@ -48,7 +62,8 @@ The operator creates `snapshot.storage.k8s.io/v1` `VolumeSnapshot`s named
 `<backup>-node-<i>` for the claims `qdrant-storage-qdrant-<cluster>-<i>`, in
 the cluster's namespace, labelled `qdrant.io/backup=<backup>`. It waits until
 every one is `readyToUse`, then records `status.volumeSnapshots[]` (node
-index, claim, snapshot, size, storage class and access modes) and completes.
+index, claim, snapshot, size, storage class, access modes and the volume's
+zone) and completes.
 A failed or timed-out snapshot (one hour) deletes the others and fails the
 backup. Deleting the `QdrantBackup`, by hand, by `retentionDays` or by a
 schedule's retention, deletes its `VolumeSnapshot`s. The snapshot
