@@ -55,6 +55,8 @@ The chart's ClusterRole grants:
 | `events` | create | kopf posts events on handled resources |
 | `secrets` | get, list, watch, create, update, patch, delete | API keys, TLS CA and bucket credentials; access key Secrets are written; the chart renders Secrets |
 | `persistentvolumeclaims` | get, list, watch, patch | Grow the data and snapshot volumes |
+| `persistentvolumeclaims` | create | Pre-create data volumes from VolumeSnapshots on restore |
+| `volumesnapshots.snapshot.storage.k8s.io` | create, get, list, delete | `volumeSnapshot` backups |
 | `services`, `namespaces`, `configmaps`, `serviceaccounts`, `statefulsets`, `poddisruptionbudgets`, `ingresses`, `servicemonitors` | all | Everything the qdrant chart may render |
 
 Helm runs inside the operator pod with the pod's service account, so the

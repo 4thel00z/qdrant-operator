@@ -8,7 +8,7 @@ a cron schedule with retention.
 | Field | Default | Description |
 |---|---|---|
 | `schedule` | required | Five-field cron expression, UTC |
-| `clusterRef`, `storage`, `collections` | as on `QdrantBackup` | Copied into each backup |
+| `clusterRef`, `method`, `volumeSnapshotClassName`, `storage`, `collections` | as on `QdrantBackup` | Copied into each backup |
 | `suspend` | `false` | Stop creating backups; retention continues |
 | `concurrencyPolicy` | `Forbid` | `Allow`, `Forbid` or `Replace` |
 | `startingDeadlineSeconds` | unset | Skip a missed slot older than this |
