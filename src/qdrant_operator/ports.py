@@ -18,6 +18,7 @@ from qdrant_operator.domain import Snapshot
 from qdrant_operator.domain import SnapshotInfo
 from qdrant_operator.domain import StatefulSetStatus
 from qdrant_operator.domain import VolumeClaim
+from qdrant_operator.domain import VolumeSnapshotState
 from qdrant_operator.peers import ClusterTopology
 from qdrant_operator.peers import CollectionShards
 from qdrant_operator.peers import ShardOperation
@@ -236,6 +237,26 @@ class KubernetesPort(Protocol):
         ...
 
     async def delete_volume_claim(self, name: str, namespace: str) -> None: ...
+
+    async def create_volume_claim(self, body: JsonDict) -> None:
+        """Create a PersistentVolumeClaim; one that already exists is left as it is."""
+        ...
+
+    async def create_volume_snapshot(self, body: JsonDict) -> None:
+        """Create a snapshot.storage.k8s.io/v1 VolumeSnapshot; one that already exists is kept."""
+        ...
+
+    async def get_volume_snapshot(self, name: str, namespace: str) -> VolumeSnapshotState | None:
+        """Readiness and error of a VolumeSnapshot, None when it is absent."""
+        ...
+
+    async def list_volume_snapshots(self, namespace: str, label_selector: str) -> list[str]:
+        """Names of the VolumeSnapshots matching the selector."""
+        ...
+
+    async def delete_volume_snapshot(self, name: str, namespace: str) -> None:
+        """Delete a VolumeSnapshot; one that is already gone is not an error."""
+        ...
 
     async def crash_log(self, name: str, namespace: str, tail_lines: int) -> str:
         """Last lines of the pod's current and previous container runs; empty when there are none.

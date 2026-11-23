@@ -9,6 +9,7 @@ from qdrant_operator.domain import AccessKeyPhase
 from qdrant_operator.domain import AccessKeySpec
 from qdrant_operator.domain import AccessKeyStatus
 from qdrant_operator.domain import BackupManifest
+from qdrant_operator.domain import BackupMethod
 from qdrant_operator.domain import BackupPhase
 from qdrant_operator.domain import BackupRecord
 from qdrant_operator.domain import BackupScheduleSpec
@@ -30,6 +31,7 @@ from qdrant_operator.domain import RestoreSpec
 from qdrant_operator.domain import RetentionPolicy
 from qdrant_operator.domain import SnapshotRecord
 from qdrant_operator.domain import TargetOverrides
+from qdrant_operator.domain import VolumeSnapshotRecord
 from qdrant_operator.domain import chart_version
 from qdrant_operator.domain import create_body_from_config
 from qdrant_operator.domain import format_size
@@ -39,6 +41,7 @@ from qdrant_operator.domain import join_key
 from qdrant_operator.domain import merge_dicts
 from qdrant_operator.domain import parse_duration
 from qdrant_operator.domain import payload_indexes_from_schema
+from qdrant_operator.domain import plan_volume_restore
 from qdrant_operator.domain import set_condition
 from qdrant_operator.domain import vector_layout
 
@@ -144,7 +147,7 @@ def test_backup_spec_secret_refs_live_in_the_resource_namespace() -> None:
         },
         META,
     )
-    creds = spec.storage.credentials_secret_ref
+    creds = spec.s3_storage().credentials_secret_ref
 
     assert spec.cluster_ref == ClusterRef("db", "tenant-a")
     assert creds.access_key_ref().namespace == "tenant-a"
@@ -152,7 +155,7 @@ def test_backup_spec_secret_refs_live_in_the_resource_namespace() -> None:
     assert creds.secret_key_ref().key == "SECRET"
     assert spec.root_key == "backups/demo"
     assert spec.snapshot_key("coll", 1, "s.snapshot") == "backups/demo/coll/node-1/s.snapshot"
-    assert spec.storage.uri(spec.name) == "s3://b/backups/demo"
+    assert spec.s3_storage().uri(spec.name) == "s3://b/backups/demo"
 
 
 def test_restore_spec_requires_a_source_and_validates_selection() -> None:
@@ -661,3 +664,81 @@ def test_auto_optimization_threads_match_the_null_qdrant_reports() -> None:
     assert spec.update_body({"optimizer_config": {"max_optimization_threads": 2}}) == {
         "optimizers_config": {"max_optimization_threads": "auto", "indexing_threshold": 10000}
     }
+
+
+VOLUME_BACKUP_SPEC = {
+    "clusterRef": {"name": "db"},
+    "method": "volumeSnapshot",
+    "volumeSnapshotClassName": "csi-snapshots",
+}
+VOLUME_RECORDS = tuple(
+    VolumeSnapshotRecord(i, f"qdrant-storage-qdrant-db-{i}", f"nightly-node-{i}", "20Gi")
+    for i in range(2)
+)
+
+
+def volume_restore(target: str = "db", namespace: str = "ns", **extra: object) -> RestoreSpec:
+    return RestoreSpec.from_dict(
+        {"targetClusterRef": {"name": target, "namespace": namespace}, "backupRef": {"name": "b"}}
+        | extra,
+        {"name": "rs", "namespace": "ns"},
+    )
+
+
+def volume_source() -> BackupSpec:
+    return BackupSpec.from_dict(VOLUME_BACKUP_SPEC, {"name": "nightly", "namespace": "ns"})
+
+
+def test_volume_snapshot_backup_needs_no_s3_and_builds_labelled_snapshots() -> None:
+    source = volume_source()
+
+    assert source.method == BackupMethod.VOLUME_SNAPSHOT and source.storage is None
+    body = source.volume_snapshot_body(1)
+    assert body["apiVersion"] == "snapshot.storage.k8s.io/v1"
+    assert body["metadata"] == {
+        "name": "nightly-node-1",
+        "namespace": "ns",
+        "labels": {"qdrant.io/backup": "nightly"},
+    }
+    with pytest.raises(ValueError, match="no S3 storage"):
+        source.s3_storage()
+
+
+def test_schedule_spawns_volume_snapshot_backups() -> None:
+    spec = BackupScheduleSpec.from_dict(
+        {"schedule": "0 2 * * *"} | VOLUME_BACKUP_SPEC, {"name": "s", "namespace": "ns"}
+    )
+
+    body = spec.to_backup_resource("s-1", {})["spec"]
+
+    assert body["method"] == "volumeSnapshot"
+    assert body["volumeSnapshotClassName"] == "csi-snapshots"
+    assert "storage" not in body
+
+
+def test_volume_restore_plan_names_claims_like_the_statefulset_and_points_at_snapshots() -> None:
+    claims = plan_volume_restore(volume_restore(), volume_source(), VOLUME_RECORDS, 2, False, [])
+
+    assert [c["metadata"]["name"] for c in claims] == [
+        "qdrant-storage-qdrant-db-0",
+        "qdrant-storage-qdrant-db-1",
+    ]
+    assert claims[0]["spec"]["dataSource"]["name"] == "nightly-node-0"
+
+
+@pytest.mark.parametrize(
+    ("restore", "replicas", "deployed", "existing", "message"),
+    [
+        (volume_restore("other"), None, False, [], "must be named db"),
+        (volume_restore(namespace="elsewhere"), None, False, [], "live in namespace ns"),
+        (volume_restore(), 3, False, [], "sizes must match"),
+        (volume_restore(), 2, True, [], "already deployed"),
+        (volume_restore(), 2, False, ["qdrant-storage-qdrant-db-1"], "already exist"),
+        (volume_restore(collectionMapping={"a": "b"}), 2, False, [], "whole volumes"),
+    ],
+)
+def test_volume_restore_plan_rejects_targets_that_cannot_adopt_the_volumes(
+    restore: RestoreSpec, replicas: int, deployed: bool, existing: list[str], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        plan_volume_restore(restore, volume_source(), VOLUME_RECORDS, replicas, deployed, existing)

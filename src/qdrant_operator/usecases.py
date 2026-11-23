@@ -26,6 +26,7 @@ from qdrant_operator.domain import AccessKeyPhase
 from qdrant_operator.domain import AccessKeySpec
 from qdrant_operator.domain import AccessKeyStatus
 from qdrant_operator.domain import BackupManifest
+from qdrant_operator.domain import BackupMethod
 from qdrant_operator.domain import BackupPhase
 from qdrant_operator.domain import BackupRecord
 from qdrant_operator.domain import BackupScheduleSpec
@@ -72,8 +73,11 @@ from qdrant_operator.domain import SchedulePhase
 from qdrant_operator.domain import SecretRef
 from qdrant_operator.domain import SnapshotRecord
 from qdrant_operator.domain import StatefulSetStatus
+from qdrant_operator.domain import VolumeClaim
+from qdrant_operator.domain import VolumeSnapshotRecord
 from qdrant_operator.domain import chart_version
 from qdrant_operator.domain import create_body_from_config
+from qdrant_operator.domain import data_claim_name
 from qdrant_operator.domain import format_size
 from qdrant_operator.domain import group_by_shard_key
 from qdrant_operator.domain import hold_partition
@@ -86,8 +90,10 @@ from qdrant_operator.domain import owner_reference
 from qdrant_operator.domain import parse_quantity
 from qdrant_operator.domain import parse_time
 from qdrant_operator.domain import payload_indexes_from_schema
+from qdrant_operator.domain import plan_volume_restore
 from qdrant_operator.domain import plan_volumes
 from qdrant_operator.domain import pod_revisions
+from qdrant_operator.domain import release_name
 from qdrant_operator.domain import released_pods_settled
 from qdrant_operator.domain import rollout_wait
 from qdrant_operator.domain import set_condition
@@ -841,9 +847,12 @@ class ExecuteBackup:
     async def execute(
         self, spec: BackupSpec, ref: ResourceRef, previous: BackupStatus | None = None
     ) -> BackupStatus:
+        if spec.method == BackupMethod.VOLUME_SNAPSHOT:
+            return await ExecuteVolumeSnapshotBackup(self.kubernetes).execute(spec, ref, previous)
+        storage = spec.s3_storage()
         start_time = (previous.start_time if previous else None) or now_utc()
         connection = await ResolveCluster(self.kubernetes).execute(spec.cluster_ref)
-        credentials = await read_credentials(self.kubernetes, spec.storage.credentials_secret_ref)
+        credentials = await read_credentials(self.kubernetes, storage.credentials_secret_ref)
         await self.kubernetes.patch_status(
             ref, BackupStatus(phase=BackupPhase.IN_PROGRESS, start_time=start_time).to_dict()
         )
@@ -857,7 +866,7 @@ class ExecuteBackup:
             start_time,
             previous.in_progress_snapshot if previous else None,
         )
-        await self.storage.abort_uploads(spec.storage, credentials, spec.root_key)
+        await self.storage.abort_uploads(storage, credentials, spec.root_key)
         statuses = [
             await self.backup_collection(spec, ref, credentials, connection, collection)
             for collection in collections
@@ -873,7 +882,7 @@ class ExecuteBackup:
             collections=tuple(CollectionBackup(s.name, s.snapshots) for s in completed),
         )
         await self.storage.put_object(
-            spec.storage,
+            storage,
             credentials,
             join_key(spec.root_key, MANIFEST_KEY),
             json.dumps(manifest.to_dict()).encode(),
@@ -886,7 +895,7 @@ class ExecuteBackup:
             start_time=start_time,
             completion_time=completion_time,
             expires_at=spec.expires_at(completion_time),
-            s3_path=spec.storage.uri(spec.name),
+            s3_path=storage.uri(spec.name),
             total_size=format_size(manifest.size_bytes),
             collections=tuple(statuses),
             error=failed[0].error if failed else None,
@@ -938,7 +947,7 @@ class ExecuteBackup:
         await self.kubernetes.patch_status(ref, {"inProgressSnapshot": marker.to_dict()})
         try:
             size = await self.storage.upload_stream(
-                spec.storage,
+                spec.s3_storage(),
                 credentials,
                 key,
                 self.qdrant.stream_snapshot(node, collection, snapshot.name),
@@ -963,6 +972,8 @@ class CleanupBackupSnapshots:
     kubernetes: KubernetesPort
 
     async def execute(self, spec: BackupSpec, status: BackupStatus) -> int:
+        if spec.method != BackupMethod.S3:
+            return 0
         if not status.start_time or status.phase == BackupPhase.COMPLETED:
             return 0
         connection = await ResolveCluster(self.kubernetes).execute(spec.cluster_ref)
@@ -1012,10 +1023,139 @@ class DeleteBackupData:
     kubernetes: KubernetesPort
 
     async def execute(self, spec: BackupSpec) -> int:
-        """Delete the backup's objects and abort its unfinished uploads; returns objects deleted."""
-        credentials = await read_credentials(self.kubernetes, spec.storage.credentials_secret_ref)
-        await self.storage.abort_uploads(spec.storage, credentials, spec.root_key)
-        return await self.storage.delete_prefix(spec.storage, credentials, spec.root_key)
+        """Delete the backup's objects or VolumeSnapshots and abort its unfinished uploads.
+
+        Returns how many were deleted."""
+        if spec.method == BackupMethod.VOLUME_SNAPSHOT:
+            return await DeleteVolumeSnapshots(self.kubernetes).execute(spec)
+        storage = spec.s3_storage()
+        credentials = await read_credentials(self.kubernetes, storage.credentials_secret_ref)
+        await self.storage.abort_uploads(storage, credentials, spec.root_key)
+        return await self.storage.delete_prefix(storage, credentials, spec.root_key)
+
+
+@dataclass
+class ExecuteVolumeSnapshotBackup:
+    """Back a cluster up with one CSI VolumeSnapshot per data volume.
+
+    The snapshots are crash-consistent: Qdrant offers no flush call, so each volume is captured
+    as it stands and Qdrant replays its write-ahead log when a restore starts from it.
+    """
+
+    kubernetes: KubernetesPort
+    ready_timeout_seconds: float = 3600.0
+    poll_seconds: float = 2.0
+
+    async def execute(
+        self, spec: BackupSpec, ref: ResourceRef, previous: BackupStatus | None = None
+    ) -> BackupStatus:
+        start_time = (previous.start_time if previous else None) or now_utc()
+        if not spec.volume_snapshot_class:
+            raise ValueError("volumeSnapshotClassName is required when method is volumeSnapshot")
+        connection = await ResolveCluster(self.kubernetes).execute(spec.cluster_ref)
+        await self.kubernetes.patch_status(
+            ref, BackupStatus(phase=BackupPhase.IN_PROGRESS, start_time=start_time).to_dict()
+        )
+        namespace = spec.cluster_ref.namespace
+        await DeleteVolumeSnapshots(self.kubernetes).execute(spec)
+        claims = {
+            c.name: c
+            for c in await self.kubernetes.list_volume_claims(
+                namespace, f"app.kubernetes.io/instance={release_name(spec.cluster_ref.name)}"
+            )
+        }
+        records = [self.record(spec, index, claims) for index in range(len(connection.nodes))]
+        try:
+            for index in range(len(records)):
+                await self.kubernetes.create_volume_snapshot(spec.volume_snapshot_body(index))
+            await self.await_ready(spec, [r.snapshot_name for r in records])
+        except Exception as error:
+            await DeleteVolumeSnapshots(self.kubernetes).execute(spec)
+            return self.failed(start_time, str(error))
+        completion_time = now_utc()
+        return BackupStatus(
+            phase=BackupPhase.COMPLETED,
+            start_time=start_time,
+            completion_time=completion_time,
+            expires_at=spec.expires_at(completion_time),
+            total_size=format_size(sum(parse_quantity(r.size) for r in records)),
+            volume_snapshots=tuple(records),
+            conditions=(
+                Condition(
+                    type="Complete",
+                    status=ConditionStatus.TRUE,
+                    last_transition_time=completion_time,
+                    reason="BackupCompleted",
+                    message=f"Snapshotted {len(records)} volumes",
+                ),
+            ),
+        )
+
+    @staticmethod
+    def record(
+        spec: BackupSpec, index: int, claims: Mapping[str, VolumeClaim]
+    ) -> VolumeSnapshotRecord:
+        name = data_claim_name(spec.cluster_ref.name, index)
+        claim = claims.get(name)
+        if not claim:
+            raise LookupError(f"Volume claim {spec.cluster_ref.namespace}/{name} not found")
+        return VolumeSnapshotRecord(
+            node_index=index,
+            claim_name=name,
+            snapshot_name=spec.volume_snapshot_name(index),
+            size=claim.size,
+            storage_class=claim.storage_class,
+            access_modes=claim.access_modes,
+        )
+
+    async def await_ready(self, spec: BackupSpec, names: Sequence[str]) -> None:
+        namespace = spec.cluster_ref.namespace
+        deadline = asyncio.get_running_loop().time() + self.ready_timeout_seconds
+        pending = list(names)
+        while pending:
+            states = [await self.kubernetes.get_volume_snapshot(n, namespace) for n in pending]
+            for name, state in zip(pending, states, strict=True):
+                if state and state.error:
+                    raise RuntimeError(f"VolumeSnapshot {name} failed: {state.error}")
+            pending = [n for n, s in zip(pending, states, strict=True) if not (s and s.ready)]
+            if pending and asyncio.get_running_loop().time() >= deadline:
+                raise TimeoutError(
+                    f"VolumeSnapshots not readyToUse within {self.ready_timeout_seconds:g}s: "
+                    f"{', '.join(pending)}"
+                )
+            if pending:
+                await asyncio.sleep(self.poll_seconds)
+
+    @staticmethod
+    def failed(start_time: datetime, message: str) -> BackupStatus:
+        completion_time = now_utc()
+        return BackupStatus(
+            phase=BackupPhase.FAILED,
+            start_time=start_time,
+            completion_time=completion_time,
+            error=message,
+            conditions=(
+                Condition(
+                    type="Complete",
+                    status=ConditionStatus.FALSE,
+                    last_transition_time=completion_time,
+                    reason="BackupFailed",
+                    message=message,
+                ),
+            ),
+        )
+
+
+@dataclass
+class DeleteVolumeSnapshots:
+    kubernetes: KubernetesPort
+
+    async def execute(self, spec: BackupSpec) -> int:
+        namespace = spec.cluster_ref.namespace
+        names = await self.kubernetes.list_volume_snapshots(namespace, spec.snapshot_selector)
+        for name in names:
+            await self.kubernetes.delete_volume_snapshot(name, namespace)
+        return len(names)
 
 
 @dataclass
@@ -1029,6 +1169,83 @@ class ExpireBackup:
             return False
         await self.kubernetes.delete_custom_resource(ref)
         return True
+
+
+@dataclass(frozen=True)
+class SourceBackup:
+    spec: BackupSpec
+    status: BackupStatus
+
+
+@dataclass
+class RestoreVolumeSnapshots:
+    """Pre-create the data PVCs of a new cluster from the VolumeSnapshots of a backup.
+
+    The qdrant-helm chart gives its volumeClaimTemplates no dataSource, but a StatefulSet adopts
+    existing PVCs of the names it would create, so the Helm install then starts from the data.
+    """
+
+    kubernetes: KubernetesPort
+
+    async def execute(self, spec: RestoreSpec, source: SourceBackup) -> RestoreStatus:
+        start_time = now_utc()
+        target = spec.target_cluster_ref
+        cluster = await self.kubernetes.get_custom_resource(target.to_resource_ref())
+        replicas = (
+            ClusterSpec.from_dict(cluster["spec"], cluster["metadata"]).replicas
+            if cluster
+            else None
+        )
+        selector = f"app.kubernetes.io/instance={release_name(target.name)}"
+        try:
+            claims = plan_volume_restore(
+                spec,
+                source.spec,
+                source.status.volume_snapshots,
+                replicas,
+                bool(
+                    await self.kubernetes.get_statefulset_status(
+                        release_name(target.name), target.namespace
+                    )
+                ),
+                [
+                    c.name
+                    for c in await self.kubernetes.list_volume_claims(target.namespace, selector)
+                ],
+            )
+        except ValueError as error:
+            return self.status(source, start_time, str(error), failed=True)
+        for claim in claims:
+            await self.kubernetes.create_volume_claim(claim)
+        return self.status(
+            source,
+            start_time,
+            f"Created {len(claims)} volume claims from VolumeSnapshots; "
+            f"create QdrantCluster {target.name} with {len(claims)} replicas to start from them",
+            failed=False,
+        )
+
+    @staticmethod
+    def status(
+        source: SourceBackup, start_time: datetime, message: str, failed: bool
+    ) -> RestoreStatus:
+        completion_time = now_utc()
+        return RestoreStatus(
+            phase=RestorePhase.FAILED if failed else RestorePhase.COMPLETED,
+            start_time=start_time,
+            completion_time=completion_time,
+            source_backup=source.spec.name,
+            error=message if failed else None,
+            conditions=(
+                Condition(
+                    type="Complete",
+                    status=ConditionStatus.FALSE if failed else ConditionStatus.TRUE,
+                    last_transition_time=completion_time,
+                    reason="IncompatibleTarget" if failed else "VolumesRestored",
+                    message=message,
+                ),
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -1046,8 +1263,11 @@ class ExecuteRestore:
     indexing_poll_seconds: float = 5.0
 
     async def execute(self, spec: RestoreSpec, ref: ResourceRef) -> RestoreStatus:
+        backup = await self.read_backup(spec)
+        if backup and backup.spec.method == BackupMethod.VOLUME_SNAPSHOT:
+            return await RestoreVolumeSnapshots(self.kubernetes).execute(spec, backup)
         start_time = now_utc()
-        source = await self.resolve_source(spec)
+        source = await self.resolve_source(spec, backup)
         credentials = await read_credentials(self.kubernetes, source.storage.credentials_secret_ref)
         connection = await ResolveCluster(self.kubernetes).execute(spec.target_cluster_ref)
 
@@ -1112,15 +1332,9 @@ class ExecuteRestore:
             ),
         )
 
-    async def resolve_source(self, spec: RestoreSpec) -> RestoreSource:
-        if spec.source_s3:
-            return RestoreSource(
-                storage=spec.source_s3,
-                root_key=spec.source_s3.prefix,
-                description=spec.source_s3.uri(),
-            )
-        if not spec.backup_ref:
-            raise ValueError("QdrantRestore needs either spec.backupRef or spec.source.s3")
+    async def read_backup(self, spec: RestoreSpec) -> SourceBackup | None:
+        if spec.source_s3 or not spec.backup_ref:
+            return None
         body = await self.kubernetes.get_custom_resource(spec.backup_ref.to_resource_ref())
         if not body:
             raise LookupError(
@@ -1131,9 +1345,21 @@ class ExecuteRestore:
             raise SourceNotReadyError(
                 f"QdrantBackup {spec.backup_ref.name} is {status.phase.value}, not Completed"
             )
-        backup = BackupSpec.from_dict(body["spec"], body["metadata"])
+        return SourceBackup(BackupSpec.from_dict(body["spec"], body["metadata"]), status)
+
+    async def resolve_source(self, spec: RestoreSpec, backup: SourceBackup | None) -> RestoreSource:
+        if spec.source_s3:
+            return RestoreSource(
+                storage=spec.source_s3,
+                root_key=spec.source_s3.prefix,
+                description=spec.source_s3.uri(),
+            )
+        if not backup:
+            raise ValueError("QdrantRestore needs either spec.backupRef or spec.source.s3")
         return RestoreSource(
-            storage=backup.storage, root_key=backup.root_key, description=spec.backup_ref.name
+            storage=backup.spec.s3_storage(),
+            root_key=backup.spec.root_key,
+            description=backup.spec.name,
         )
 
     async def restore_collection(
@@ -1252,7 +1478,16 @@ class ProcessSchedule:
             await self.kubernetes.delete_custom_resource(
                 ResourceRef(BACKUPS, expired.name, spec.namespace)
             )
+            await self.delete_volume_snapshots(spec, expired.name)
             records.remove(expired)
+
+    async def delete_volume_snapshots(self, spec: BackupScheduleSpec, backup: str) -> None:
+        if spec.method != BackupMethod.VOLUME_SNAPSHOT:
+            return
+        backup_spec = BackupSpec(
+            name=backup, namespace=spec.namespace, cluster_ref=spec.cluster_ref, method=spec.method
+        )
+        await DeleteVolumeSnapshots(self.kubernetes).execute(backup_spec)
 
     async def launch(
         self,
