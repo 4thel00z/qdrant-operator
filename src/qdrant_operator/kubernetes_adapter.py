@@ -24,6 +24,7 @@ from qdrant_operator.domain import SecretRef
 from qdrant_operator.domain import StatefulSetStatus
 from qdrant_operator.domain import VolumeClaim
 from qdrant_operator.domain import VolumeSnapshotState
+from qdrant_operator.domain import Zone
 
 config: Any = kubernetes_config
 MERGE_PATCH = "application/merge-patch+json"
@@ -258,6 +259,7 @@ class KubernetesAdapter:
                 c.spec.resources.requests["storage"],
                 c.spec.storage_class_name,
                 tuple(c.spec.access_modes or ("ReadWriteOnce",)),
+                c.spec.volume_name,
             )
             for c in claims.items
         ]
@@ -314,6 +316,39 @@ class KubernetesAdapter:
         logger.info(
             "volume snapshot created", name=metadata["name"], namespace=metadata["namespace"]
         )
+
+    async def volume_zone(self, volume_name: str) -> Zone | None:
+        async with self.api() as api:
+            try:
+                volume: Any = await client.CoreV1Api(api).read_persistent_volume(name=volume_name)
+            except ApiException as error:
+                if error.status == 404:
+                    return None
+                raise
+        affinity: Any = volume.spec.node_affinity
+        terms: list[Any] = (
+            affinity.required.node_selector_terms if affinity and affinity.required else []
+        )
+        zones = [
+            Zone(label=e.key, name=e.values[0])
+            for term in terms
+            for e in term.match_expressions or ()
+            if e.key.endswith("zone") and e.operator == "In" and len(e.values or ()) == 1
+        ]
+        return zones[0] if zones else None
+
+    async def node_in_zone(self, zone: Zone) -> str | None:
+        async with self.api() as api:
+            nodes: Any = await client.CoreV1Api(api).list_node(
+                label_selector=f"{zone.label}={zone.name}"
+            )
+        ready = sorted(
+            n.metadata.name
+            for n in nodes.items
+            if not n.spec.unschedulable
+            and any(c.type == "Ready" and c.status == "True" for c in n.status.conditions or ())
+        )
+        return ready[0] if ready else None
 
     async def get_volume_snapshot(self, name: str, namespace: str) -> VolumeSnapshotState | None:
         async with self.api() as api:

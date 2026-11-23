@@ -45,10 +45,16 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- default (include "qdrant-operator.fullname" .) .Values.ha.peeringName }}
 {{- end }}
 
-{{- define "qdrant-operator.crdRules" -}}
+{{- define "qdrant-operator.clusterRules" -}}
 - apiGroups: ["apiextensions.k8s.io"]
   resources: ["customresourcedefinitions"]
   verbs: ["list", "watch"]
+- apiGroups: [""]
+  resources: ["persistentvolumes"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["list"]
 {{- end }}
 
 {{- define "qdrant-operator.peeringRules" -}}

@@ -1048,6 +1048,21 @@ class VolumeClaim:
     size: str
     storage_class: str | None = None
     access_modes: tuple[str, ...] = ("ReadWriteOnce",)
+    volume_name: str | None = None
+
+
+@dataclass(frozen=True)
+class Zone:
+    """A topology zone as a node label: the key the CSI driver uses and its value."""
+
+    label: str
+    name: str
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "Zone | None":
+        if not data.get("zone") or not data.get("zoneLabel"):
+            return None
+        return Zone(label=data["zoneLabel"], name=data["zone"])
 
 
 def data_claim_name(cluster_name: str, ordinal: int) -> str:
@@ -1343,6 +1358,7 @@ class VolumeSnapshotRecord:
     size: str
     storage_class: str | None = None
     access_modes: tuple[str, ...] = ("ReadWriteOnce",)
+    zone: Zone | None = None
 
     @staticmethod
     def from_dict(data: Mapping[str, Any]) -> "VolumeSnapshotRecord":
@@ -1353,6 +1369,7 @@ class VolumeSnapshotRecord:
             size=data["size"],
             storage_class=data.get("storageClassName"),
             access_modes=tuple(data.get("accessModes", VolumeSnapshotRecord.access_modes)),
+            zone=Zone.from_dict(data),
         )
 
     def to_dict(self) -> JsonDict:
@@ -1364,6 +1381,8 @@ class VolumeSnapshotRecord:
                 "size": self.size,
                 "storageClassName": self.storage_class,
                 "accessModes": list(self.access_modes),
+                "zone": self.zone.name if self.zone else None,
+                "zoneLabel": self.zone.label if self.zone else None,
             }
         )
 
@@ -1839,23 +1858,33 @@ def indexing_timeout_message(spec: RestoreSpec, collection: str, info: Mapping[s
     return f"{message}; indexing is disabled in the restored config ({', '.join(disabled)} is 0)"
 
 
+SELECTED_NODE_ANNOTATION = "volume.kubernetes.io/selected-node"
+
+
 def restore_claim_body(
-    target: ClusterRef, record: VolumeSnapshotRecord, snapshot_namespace: str
+    target: ClusterRef, record: VolumeSnapshotRecord, snapshot_namespace: str, node: str | None
 ) -> JsonDict:
-    """PVC of a pod's data volume, filled from its VolumeSnapshot, named for adoption."""
+    """PVC of a pod's data volume, filled from its VolumeSnapshot, named for adoption.
+
+    A node in the snapshot's zone is pre-selected so the volume is provisioned where the snapshot
+    lives; the scheduler would otherwise pick any zone and drivers such as Cinder refuse.
+    """
     release = release_name(target.name)
     return {
         "apiVersion": "v1",
         "kind": "PersistentVolumeClaim",
-        "metadata": {
-            "name": data_claim_name(target.name, record.node_index),
-            "namespace": snapshot_namespace,
-            "labels": {
-                "app": CHART_NAME,
-                "app.kubernetes.io/name": CHART_NAME,
-                "app.kubernetes.io/instance": release,
-            },
-        },
+        "metadata": drop_empty(
+            {
+                "name": data_claim_name(target.name, record.node_index),
+                "namespace": snapshot_namespace,
+                "labels": {
+                    "app": CHART_NAME,
+                    "app.kubernetes.io/name": CHART_NAME,
+                    "app.kubernetes.io/instance": release,
+                },
+                "annotations": {SELECTED_NODE_ANNOTATION: node} if node else None,
+            }
+        ),
         "spec": drop_empty(
             {
                 "accessModes": list(record.access_modes),
@@ -1878,6 +1907,7 @@ def plan_volume_restore(
     target_replicas: int | None,
     deployed: bool,
     existing_claims: Iterable[str],
+    nodes: Mapping[int, str],
 ) -> tuple[JsonDict, ...]:
     """PVC bodies that bring a volumeSnapshot backup back, or ValueError naming the broken rule.
 
@@ -1916,7 +1946,10 @@ def plan_volume_restore(
     clashing = sorted(claims.intersection(existing_claims))
     if clashing:
         raise ValueError(f"Volume claims already exist: {', '.join(clashing)}")
-    return tuple(restore_claim_body(target, r, source.cluster_ref.namespace) for r in records)
+    return tuple(
+        restore_claim_body(target, r, source.cluster_ref.namespace, nodes.get(r.node_index))
+        for r in records
+    )
 
 
 @dataclass(frozen=True)

@@ -5,7 +5,7 @@ metadata:
   labels:
     {{- include "qdrant-operator.labels" . | nindent 4 }}
 rules:
-  {{- include "qdrant-operator.crdRules" . | nindent 2 }}
+  {{- include "qdrant-operator.clusterRules" . | nindent 2 }}
   {{- if not .Values.watchNamespaces }}
   {{- include "qdrant-operator.namespacedRules" . | nindent 2 }}
   {{- end }}

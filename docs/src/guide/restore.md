@@ -46,6 +46,16 @@ PVCs `qdrant-storage-qdrant-<cluster>-<i>` with `dataSource` pointing at the
 they exist; then create the `QdrantCluster` and its StatefulSet adopts the
 claims by name and starts from the data.
 
+A snapshot can only become a volume in the zone it was taken in, and with a
+`WaitForFirstConsumer` storage class the scheduler would pick any zone (Cinder
+then refuses with "Volume must be in the same availability zone as the
+snapshot"). The backup therefore records each volume's zone from its
+PersistentVolume's node affinity in `status.volumeSnapshots[].zone`, and the
+restore sets `volume.kubernetes.io/selected-node` on each claim to a Ready
+node in that zone, so the volume is provisioned there and the pod follows it.
+If no Ready node exists in a zone, the restore fails and names it. Backups
+taken before 0.6.1 have no zone, and their claims are left to the scheduler.
+
 The raft state and peer ids live on the volume, so the restore only works
 into a new cluster with the same name (hence release and pod names), the same
 replica count and the same namespace as the source; `VolumeSnapshot`s are
