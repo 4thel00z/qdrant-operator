@@ -181,7 +181,7 @@ async def test_observe_keeps_helm_apply_failure_until_apply_succeeds(
     assert {c.type: c.reason for c in healed.conditions}["Progressing"] == "RolloutComplete"
 
 
-async def test_reconcile_clears_apply_failure_when_spec_returns_to_applied(
+async def test_reconcile_reapplies_when_spec_returns_to_applied_after_a_failure(
     kubernetes: FakeKubernetes,
 ) -> None:
     helm = FakeHelm()
@@ -193,11 +193,17 @@ async def test_reconcile_clears_apply_failure_when_spec_returns_to_applied(
     helm.apply_error = "rejected by helm"
     with pytest.raises(ReleaseApplyError) as raised:
         await reconcile.execute(replace(spec, replicas=3), 2, applied)
+    helm.apply_error = None
 
     reverted = await reconcile.execute(spec, 3, raised.value.status)
 
     assert {c.type: c.reason for c in reverted.conditions}["Progressing"] == "HelmReleaseApplied"
-    assert helm.apply_calls == 2
+    assert helm.apply_calls == 3
+
+    again = await reconcile.execute(spec, 4, reverted)
+
+    assert helm.apply_calls == 3
+    assert again.observed_generation == 4
 
 
 async def test_delete_cluster_only_uninstalls_existing_release(
