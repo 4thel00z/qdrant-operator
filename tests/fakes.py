@@ -22,6 +22,7 @@ from qdrant_operator.domain import Snapshot
 from qdrant_operator.domain import SnapshotInfo
 from qdrant_operator.domain import StatefulSetStatus
 from qdrant_operator.domain import VolumeClaim
+from qdrant_operator.domain import VolumeSnapshotState
 from qdrant_operator.domain import format_time
 from qdrant_operator.domain import merge_dicts
 from qdrant_operator.domain import point_id_order
@@ -550,6 +551,15 @@ class FakeKubernetes:
     secret_owners: dict[tuple[str, str], JsonDict] = field(
         default_factory=dict[tuple[str, str], JsonDict]
     )
+    volume_snapshots: dict[tuple[str, str], JsonDict] = field(
+        default_factory=dict[tuple[str, str], JsonDict]
+    )
+    snapshot_ready: bool = True
+    snapshot_errors: dict[str, str] = field(default_factory=dict[str, str])
+    created_claims: dict[tuple[str, str], JsonDict] = field(
+        default_factory=dict[tuple[str, str], JsonDict]
+    )
+    claim_details: dict[str, VolumeClaim] = field(default_factory=dict[str, VolumeClaim])
     clock: datetime = datetime(2026, 9, 23, 2, 30, tzinfo=UTC)
 
     def put_resource(self, body: JsonDict) -> JsonDict:
@@ -623,7 +633,39 @@ class FakeKubernetes:
         return None if claims is None else dict(claims)
 
     async def list_volume_claims(self, namespace: str, label_selector: str) -> list[VolumeClaim]:
-        return [VolumeClaim(n, size) for n, size in self.volume_claims.get(namespace, {}).items()]
+        return [
+            self.claim_details.get(n, VolumeClaim(n, size))
+            for n, size in self.volume_claims.get(namespace, {}).items()
+        ]
+
+    async def create_volume_claim(self, body: JsonDict) -> None:
+        metadata = body["metadata"]
+        self.created_claims[(metadata["namespace"], metadata["name"])] = body
+        self.volume_claims.setdefault(metadata["namespace"], {})[metadata["name"]] = body["spec"][
+            "resources"
+        ]["requests"]["storage"]
+
+    async def create_volume_snapshot(self, body: JsonDict) -> None:
+        metadata = body["metadata"]
+        self.volume_snapshots.setdefault((metadata["namespace"], metadata["name"]), body)
+
+    async def get_volume_snapshot(self, name: str, namespace: str) -> VolumeSnapshotState | None:
+        if (namespace, name) not in self.volume_snapshots:
+            return None
+        return VolumeSnapshotState(
+            name=name, ready=self.snapshot_ready, error=self.snapshot_errors.get(name)
+        )
+
+    async def list_volume_snapshots(self, namespace: str, label_selector: str) -> list[str]:
+        key, value = label_selector.split("=", 1)
+        return [
+            name
+            for (ns, name), body in self.volume_snapshots.items()
+            if ns == namespace and body["metadata"].get("labels", {}).get(key) == value
+        ]
+
+    async def delete_volume_snapshot(self, name: str, namespace: str) -> None:
+        self.volume_snapshots.pop((namespace, name), None)
 
     async def resize_volume_claim(self, name: str, namespace: str, size: str) -> None:
         self.volume_claims[namespace][name] = size

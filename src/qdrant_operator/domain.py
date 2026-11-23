@@ -25,6 +25,9 @@ GROUP = "qdrant.io"
 VERSION = "v1alpha1"
 API_VERSION = f"{GROUP}/{VERSION}"
 SCHEDULE_LABEL = f"{GROUP}/schedule"
+BACKUP_LABEL = f"{GROUP}/backup"
+SNAPSHOT_API_GROUP = "snapshot.storage.k8s.io"
+SNAPSHOT_API_VERSION = "v1"
 QDRANT_HTTP_PORT = 6333
 HOSTNAME_TOPOLOGY_KEY = "kubernetes.io/hostname"
 ZONE_TOPOLOGY_KEY = "topology.kubernetes.io/zone"
@@ -58,6 +61,11 @@ class BackupPhase(StrEnum):
     IN_PROGRESS = "InProgress"
     COMPLETED = "Completed"
     FAILED = "Failed"
+
+
+class BackupMethod(StrEnum):
+    S3 = "s3"
+    VOLUME_SNAPSHOT = "volumeSnapshot"
 
 
 class RestorePhase(StrEnum):
@@ -1038,6 +1046,20 @@ def next_partition(strategy: RolloutStrategy, snapshot: RolloutSnapshot) -> int 
 class VolumeClaim:
     name: str
     size: str
+    storage_class: str | None = None
+    access_modes: tuple[str, ...] = ("ReadWriteOnce",)
+
+
+def data_claim_name(cluster_name: str, ordinal: int) -> str:
+    """Claim the StatefulSet of a cluster creates for the data volume of one pod."""
+    return f"{STORAGE_CLAIM}-{release_name(cluster_name)}-{ordinal}"
+
+
+@dataclass(frozen=True)
+class VolumeSnapshotState:
+    name: str
+    ready: bool
+    error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1202,25 +1224,65 @@ class BackupSpec:
     name: str
     namespace: str
     cluster_ref: ClusterRef
-    storage: S3StorageSpec
+    storage: S3StorageSpec | None = None
     collections: tuple[str, ...] = ()
     retention_days: int | None = None
+    method: BackupMethod = BackupMethod.S3
+    volume_snapshot_class: str | None = None
 
     @staticmethod
     def from_dict(spec: Mapping[str, Any], meta: Mapping[str, Any]) -> "BackupSpec":
         namespace = meta["namespace"]
+        method = BackupMethod(spec.get("method", BackupMethod.S3))
         return BackupSpec(
             name=meta["name"],
             namespace=namespace,
             cluster_ref=ClusterRef.from_dict(spec["clusterRef"], namespace),
-            storage=S3StorageSpec.from_dict(spec["storage"]["s3"], namespace),
+            storage=optional_s3_storage(spec, namespace, method),
             collections=tuple(spec.get("collections", [])),
             retention_days=spec.get("retentionDays"),
+            method=method,
+            volume_snapshot_class=spec.get("volumeSnapshotClassName"),
         )
+
+    def s3_storage(self) -> S3StorageSpec:
+        if not self.storage:
+            raise ValueError(f"QdrantBackup {self.name} has no S3 storage (method {self.method})")
+        return self.storage
+
+    @property
+    def location(self) -> str:
+        if self.method == BackupMethod.VOLUME_SNAPSHOT:
+            return f"VolumeSnapshots labelled {BACKUP_LABEL}={self.name}"
+        return self.s3_storage().uri(self.name)
+
+    @property
+    def snapshot_selector(self) -> str:
+        return f"{BACKUP_LABEL}={self.name}"
+
+    def volume_snapshot_name(self, ordinal: int) -> str:
+        return f"{self.name}-node-{ordinal}"
+
+    def volume_snapshot_body(self, ordinal: int) -> JsonDict:
+        return {
+            "apiVersion": f"{SNAPSHOT_API_GROUP}/{SNAPSHOT_API_VERSION}",
+            "kind": "VolumeSnapshot",
+            "metadata": {
+                "name": self.volume_snapshot_name(ordinal),
+                "namespace": self.cluster_ref.namespace,
+                "labels": {BACKUP_LABEL: self.name},
+            },
+            "spec": {
+                "volumeSnapshotClassName": self.volume_snapshot_class,
+                "source": {
+                    "persistentVolumeClaimName": data_claim_name(self.cluster_ref.name, ordinal)
+                },
+            },
+        }
 
     @property
     def root_key(self) -> str:
-        return join_key(self.storage.prefix, self.name)
+        return join_key(self.s3_storage().prefix, self.name)
 
     def snapshot_key(self, collection: str, node_index: int, snapshot_name: str) -> str:
         return join_key(self.root_key, collection, f"node-{node_index}", snapshot_name)
@@ -1259,6 +1321,49 @@ class SnapshotRecord:
                 "snapshotName": self.snapshot_name,
                 "sizeBytes": self.size_bytes,
                 "checksum": self.checksum,
+            }
+        )
+
+
+def optional_s3_storage(
+    spec: Mapping[str, Any], namespace: str, method: BackupMethod
+) -> S3StorageSpec | None:
+    if method == BackupMethod.VOLUME_SNAPSHOT:
+        return None
+    return S3StorageSpec.from_dict(spec["storage"]["s3"], namespace)
+
+
+@dataclass(frozen=True)
+class VolumeSnapshotRecord:
+    """One VolumeSnapshot of a pod's data claim, with what a restore needs to recreate the claim."""
+
+    node_index: int
+    claim_name: str
+    snapshot_name: str
+    size: str
+    storage_class: str | None = None
+    access_modes: tuple[str, ...] = ("ReadWriteOnce",)
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> "VolumeSnapshotRecord":
+        return VolumeSnapshotRecord(
+            node_index=data["nodeIndex"],
+            claim_name=data["claimName"],
+            snapshot_name=data["snapshotName"],
+            size=data["size"],
+            storage_class=data.get("storageClassName"),
+            access_modes=tuple(data.get("accessModes", VolumeSnapshotRecord.access_modes)),
+        )
+
+    def to_dict(self) -> JsonDict:
+        return drop_empty(
+            {
+                "nodeIndex": self.node_index,
+                "claimName": self.claim_name,
+                "snapshotName": self.snapshot_name,
+                "size": self.size,
+                "storageClassName": self.storage_class,
+                "accessModes": list(self.access_modes),
             }
         )
 
@@ -1379,6 +1484,7 @@ class BackupStatus:
     error: str | None = None
     conditions: tuple[Condition, ...] = ()
     in_progress_snapshot: InProgressSnapshot | None = None
+    volume_snapshots: tuple[VolumeSnapshotRecord, ...] = ()
 
     @staticmethod
     def from_dict(data: Mapping[str, Any]) -> "BackupStatus":
@@ -1392,6 +1498,9 @@ class BackupStatus:
             error=data.get("error"),
             conditions=tuple(conditions_from_dict(data)),
             in_progress_snapshot=InProgressSnapshot.from_dict(data.get("inProgressSnapshot") or {}),
+            volume_snapshots=tuple(
+                VolumeSnapshotRecord.from_dict(v) for v in data.get("volumeSnapshots", [])
+            ),
         )
 
     def to_dict(self) -> JsonDict:
@@ -1406,6 +1515,7 @@ class BackupStatus:
             "s3Path": self.s3_path,
             "totalSize": self.total_size,
             "collections": [c.to_dict() for c in self.collections],
+            "volumeSnapshots": [v.to_dict() for v in self.volume_snapshots],
             "error": self.error,
             "conditions": [c.to_dict() for c in self.conditions],
         }
@@ -1513,29 +1623,34 @@ class BackupScheduleSpec:
     namespace: str
     schedule: str
     cluster_ref: ClusterRef
-    storage: S3StorageSpec
+    storage: S3StorageSpec | None = None
     collections: tuple[str, ...] = ()
     retention_policy: RetentionPolicy = field(default_factory=RetentionPolicy)
     suspend: bool = False
     concurrency_policy: ConcurrencyPolicy = ConcurrencyPolicy.FORBID
     starting_deadline_seconds: int | None = None
     delete_backups_with_schedule: bool = False
+    method: BackupMethod = BackupMethod.S3
+    volume_snapshot_class: str | None = None
 
     @staticmethod
     def from_dict(spec: Mapping[str, Any], meta: Mapping[str, Any]) -> "BackupScheduleSpec":
         namespace = meta["namespace"]
+        method = BackupMethod(spec.get("method", BackupMethod.S3))
         return BackupScheduleSpec(
             name=meta["name"],
             namespace=namespace,
             schedule=spec["schedule"],
             cluster_ref=ClusterRef.from_dict(spec["clusterRef"], namespace),
-            storage=S3StorageSpec.from_dict(spec["storage"]["s3"], namespace),
+            storage=optional_s3_storage(spec, namespace, method),
             collections=tuple(spec.get("collections", [])),
             retention_policy=RetentionPolicy.from_dict(spec.get("retentionPolicy", {})),
             suspend=spec.get("suspend", False),
             concurrency_policy=ConcurrencyPolicy(spec.get("concurrencyPolicy", "Forbid")),
             starting_deadline_seconds=spec.get("startingDeadlineSeconds"),
             delete_backups_with_schedule=spec.get("deleteBackupsWithSchedule", False),
+            method=method,
+            volume_snapshot_class=spec.get("volumeSnapshotClassName"),
         )
 
     @property
@@ -1568,10 +1683,11 @@ class BackupScheduleSpec:
         Owned by the schedule (and garbage-collected with it) only when
         deleteBackupsWithSchedule is set; otherwise backups outlive the schedule.
         """
-        spec: JsonDict = {
-            "clusterRef": self.cluster_ref.to_dict(),
-            "storage": {"s3": self.storage.to_dict()},
-        }
+        spec: JsonDict = {"clusterRef": self.cluster_ref.to_dict(), "method": self.method.value}
+        if self.storage:
+            spec["storage"] = {"s3": self.storage.to_dict()}
+        if self.volume_snapshot_class:
+            spec["volumeSnapshotClassName"] = self.volume_snapshot_class
         if self.collections:
             spec["collections"] = list(self.collections)
         metadata: JsonDict = {
@@ -1721,6 +1837,86 @@ def indexing_timeout_message(spec: RestoreSpec, collection: str, info: Mapping[s
     if not disabled:
         return message
     return f"{message}; indexing is disabled in the restored config ({', '.join(disabled)} is 0)"
+
+
+def restore_claim_body(
+    target: ClusterRef, record: VolumeSnapshotRecord, snapshot_namespace: str
+) -> JsonDict:
+    """PVC of a pod's data volume, filled from its VolumeSnapshot, named for adoption."""
+    release = release_name(target.name)
+    return {
+        "apiVersion": "v1",
+        "kind": "PersistentVolumeClaim",
+        "metadata": {
+            "name": data_claim_name(target.name, record.node_index),
+            "namespace": snapshot_namespace,
+            "labels": {
+                "app": CHART_NAME,
+                "app.kubernetes.io/name": CHART_NAME,
+                "app.kubernetes.io/instance": release,
+            },
+        },
+        "spec": drop_empty(
+            {
+                "accessModes": list(record.access_modes),
+                "storageClassName": record.storage_class,
+                "resources": {"requests": {"storage": record.size}},
+                "dataSource": {
+                    "apiGroup": SNAPSHOT_API_GROUP,
+                    "kind": "VolumeSnapshot",
+                    "name": record.snapshot_name,
+                },
+            }
+        ),
+    }
+
+
+def plan_volume_restore(
+    spec: RestoreSpec,
+    source: BackupSpec,
+    records: Sequence[VolumeSnapshotRecord],
+    target_replicas: int | None,
+    deployed: bool,
+    existing_claims: Iterable[str],
+) -> tuple[JsonDict, ...]:
+    """PVC bodies that bring a volumeSnapshot backup back, or ValueError naming the broken rule.
+
+    The raft state and peer ids live on the volume, so the target must be a fresh cluster of the
+    source's name and size in the source's namespace: VolumeSnapshots are namespaced and the pod
+    and claim names derive from the cluster name.
+    """
+    target = spec.target_cluster_ref
+    if spec.collections or spec.collection_mapping:
+        raise ValueError(
+            "volumeSnapshot backups restore whole volumes; drop collections and collectionMapping"
+        )
+    if not records:
+        raise ValueError(f"QdrantBackup {source.name} recorded no volume snapshots")
+    if target.namespace != source.cluster_ref.namespace:
+        raise ValueError(
+            f"VolumeSnapshots live in namespace {source.cluster_ref.namespace}; "
+            f"target cluster is in {target.namespace}"
+        )
+    if target.name != source.cluster_ref.name:
+        raise ValueError(
+            f"Target cluster must be named {source.cluster_ref.name} like the source: "
+            "pod and claim names carry the cluster name and the volumes hold its peer ids"
+        )
+    if target_replicas is not None and target_replicas != len(records):
+        raise ValueError(
+            f"Backup holds {len(records)} volumes but target cluster has "
+            f"{target_replicas} replicas; sizes must match"
+        )
+    if deployed:
+        raise ValueError(
+            f"Cluster {target.name} is already deployed; restore into a new cluster, "
+            "after deleting the old one and its volume claims"
+        )
+    claims = {data_claim_name(target.name, r.node_index) for r in records}
+    clashing = sorted(claims.intersection(existing_claims))
+    if clashing:
+        raise ValueError(f"Volume claims already exist: {', '.join(clashing)}")
+    return tuple(restore_claim_body(target, r, source.cluster_ref.namespace) for r in records)
 
 
 @dataclass(frozen=True)

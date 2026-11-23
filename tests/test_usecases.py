@@ -43,6 +43,7 @@ from qdrant_operator.domain import RestorePriority
 from qdrant_operator.domain import RestoreSpec
 from qdrant_operator.domain import SchedulePhase
 from qdrant_operator.domain import StatefulSetStatus
+from qdrant_operator.domain import VolumeClaim
 from qdrant_operator.domain import format_time
 from qdrant_operator.jwt_adapter import JwtAdapter
 from qdrant_operator.usecases import CleanupBackupSnapshots
@@ -53,6 +54,7 @@ from qdrant_operator.usecases import DeleteCollection
 from qdrant_operator.usecases import ExecuteBackup
 from qdrant_operator.usecases import ExecuteMigration
 from qdrant_operator.usecases import ExecuteRestore
+from qdrant_operator.usecases import ExecuteVolumeSnapshotBackup
 from qdrant_operator.usecases import ExpireBackup
 from qdrant_operator.usecases import IssueAccessKey
 from qdrant_operator.usecases import ObserveCluster
@@ -1585,6 +1587,263 @@ async def test_restore_indexing_timeout_without_disabled_indexing_names_only_sta
         await use_case.await_indexing(spec, QdrantNode(node_url(0)), "docs")
 
     assert str(error.value) == "Collection docs did not turn green within 0s (status yellow)"
+
+
+SNAPSHOT_CLASS = "csi-snapshots"
+
+
+def volume_backup_spec(name: str = "nightly") -> BackupSpec:
+    return BackupSpec.from_dict(
+        {
+            "clusterRef": {"name": "db"},
+            "method": "volumeSnapshot",
+            "volumeSnapshotClassName": SNAPSHOT_CLASS,
+        },
+        {"name": name, "namespace": NS},
+    )
+
+
+def seed_data_claims(kubernetes: FakeKubernetes, replicas: int = 2) -> None:
+    kubernetes.volume_claims[NS] = {}
+    for index in range(replicas):
+        name = f"qdrant-storage-qdrant-db-{index}"
+        kubernetes.volume_claims[NS][name] = "20Gi"
+        kubernetes.claim_details[name] = VolumeClaim(name, "20Gi", "cinder-csi")
+
+
+async def test_volume_snapshot_backup_snapshots_every_data_claim_and_records_them(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    seed_data_claims(kubernetes)
+    spec = volume_backup_spec()
+
+    status = await ExecuteBackup(qdrant, FakeStorage(), kubernetes).execute(
+        spec, ResourceRef(BACKUPS, spec.name, NS)
+    )
+
+    assert status.phase == BackupPhase.COMPLETED
+    assert sorted(kubernetes.volume_snapshots) == [(NS, "nightly-node-0"), (NS, "nightly-node-1")]
+    body = kubernetes.volume_snapshots[(NS, "nightly-node-1")]
+    assert body["metadata"]["labels"] == {"qdrant.io/backup": "nightly"}
+    assert body["spec"]["volumeSnapshotClassName"] == SNAPSHOT_CLASS
+    assert body["spec"]["source"] == {"persistentVolumeClaimName": "qdrant-storage-qdrant-db-1"}
+    assert [
+        (v.claim_name, v.snapshot_name, v.size, v.storage_class) for v in status.volume_snapshots
+    ] == [
+        ("qdrant-storage-qdrant-db-0", "nightly-node-0", "20Gi", "cinder-csi"),
+        ("qdrant-storage-qdrant-db-1", "nightly-node-1", "20Gi", "cinder-csi"),
+    ]
+    assert status.total_size == "40.0GB"
+    assert BackupStatus.from_dict(status.to_dict()).volume_snapshots == status.volume_snapshots
+    assert not qdrant.snapshots
+
+
+async def test_volume_snapshot_backup_waits_until_ready_to_use(
+    kubernetes: FakeKubernetes,
+) -> None:
+    seed_data_claims(kubernetes)
+    kubernetes.snapshot_ready = False
+    spec = volume_backup_spec()
+    use_case = ExecuteVolumeSnapshotBackup(kubernetes, ready_timeout_seconds=0.0, poll_seconds=0)
+
+    status = await use_case.execute(spec, ResourceRef(BACKUPS, spec.name, NS))
+
+    assert status.phase == BackupPhase.FAILED
+    assert "not readyToUse" in (status.error or "")
+    assert not kubernetes.volume_snapshots
+
+
+async def test_volume_snapshot_backup_fails_and_cleans_up_on_a_snapshot_error(
+    kubernetes: FakeKubernetes,
+) -> None:
+    seed_data_claims(kubernetes)
+    kubernetes.snapshot_errors["nightly-node-1"] = "driver refused"
+    spec = volume_backup_spec()
+
+    status = await ExecuteVolumeSnapshotBackup(kubernetes, poll_seconds=0).execute(
+        spec, ResourceRef(BACKUPS, spec.name, NS)
+    )
+
+    assert status.phase == BackupPhase.FAILED
+    assert status.error == "VolumeSnapshot nightly-node-1 failed: driver refused"
+    assert not kubernetes.volume_snapshots
+
+
+async def test_volume_snapshot_backup_needs_a_claim_per_node(kubernetes: FakeKubernetes) -> None:
+    seed_data_claims(kubernetes, replicas=1)
+    spec = volume_backup_spec()
+
+    with pytest.raises(LookupError, match="qdrant-storage-qdrant-db-1"):
+        await ExecuteVolumeSnapshotBackup(kubernetes, poll_seconds=0).execute(
+            spec, ResourceRef(BACKUPS, spec.name, NS)
+        )
+
+
+async def test_deleting_a_volume_snapshot_backup_deletes_only_its_snapshots(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    seed_data_claims(kubernetes)
+    for name in ("nightly", "weekly"):
+        spec = volume_backup_spec(name)
+        await ExecuteBackup(qdrant, FakeStorage(), kubernetes).execute(
+            spec, ResourceRef(BACKUPS, name, NS)
+        )
+
+    deleted = await DeleteBackupData(FakeStorage(), kubernetes).execute(volume_backup_spec())
+    leftovers = await CleanupBackupSnapshots(qdrant, kubernetes).execute(
+        volume_backup_spec(), BackupStatus(BackupPhase.IN_PROGRESS, start_time=NOW)
+    )
+
+    assert deleted == 2 and leftovers == 0
+    assert sorted(kubernetes.volume_snapshots) == [(NS, "weekly-node-0"), (NS, "weekly-node-1")]
+
+
+async def test_schedule_retention_deletes_the_volume_snapshots_of_pruned_backups(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    seed_data_claims(kubernetes)
+    for days_ago in range(3):
+        name = f"sched-{days_ago}"
+        spec = volume_backup_spec(name)
+        await ExecuteBackup(qdrant, FakeStorage(), kubernetes).execute(
+            spec, ResourceRef(BACKUPS, name, NS)
+        )
+        kubernetes.put_resource(
+            {
+                "apiVersion": "qdrant.io/v1alpha1",
+                "kind": "QdrantBackup",
+                "metadata": {
+                    "name": name,
+                    "namespace": NS,
+                    "labels": {"qdrant.io/schedule": "sched"},
+                    "creationTimestamp": format_time(NOW - timedelta(days=days_ago, hours=1)),
+                },
+                "spec": {},
+                "status": {
+                    "phase": "Completed",
+                    "completionTime": format_time(NOW - timedelta(days=days_ago)),
+                },
+            }
+        )
+    spec = BackupScheduleSpec.from_dict(
+        {
+            "schedule": "0 2 * * *",
+            "clusterRef": {"name": "db"},
+            "method": "volumeSnapshot",
+            "volumeSnapshotClassName": SNAPSHOT_CLASS,
+            "retentionPolicy": {"keepLast": 1},
+            "suspend": True,
+        },
+        {"name": "sched", "namespace": NS},
+    )
+
+    await ProcessSchedule(kubernetes).execute(
+        spec, BackupScheduleStatus(SchedulePhase.ACTIVE), schedule_owner(), NOW
+    )
+
+    assert [r.name for r in kubernetes.deleted] == ["sched-1", "sched-2"]
+    assert sorted(kubernetes.volume_snapshots) == [(NS, "sched-0-node-0"), (NS, "sched-0-node-1")]
+
+
+async def completed_volume_backup(kubernetes: FakeKubernetes, qdrant: FakeQdrant) -> None:
+    seed_data_claims(kubernetes)
+    spec = volume_backup_spec()
+    status = await ExecuteBackup(qdrant, FakeStorage(), kubernetes).execute(
+        spec, ResourceRef(BACKUPS, spec.name, NS)
+    )
+    kubernetes.put_resource(
+        {
+            "apiVersion": "qdrant.io/v1alpha1",
+            "kind": "QdrantBackup",
+            "metadata": {"name": spec.name, "namespace": NS},
+            "spec": {
+                "clusterRef": {"name": "db"},
+                "method": "volumeSnapshot",
+                "volumeSnapshotClassName": SNAPSHOT_CLASS,
+            },
+            "status": status.to_dict(),
+        }
+    )
+    kubernetes.volume_claims[NS] = {}
+
+
+def volume_restore(target: str = "db", **extra: object) -> RestoreSpec:
+    return RestoreSpec.from_dict(
+        {"targetClusterRef": {"name": target}, "backupRef": {"name": "nightly"}, **extra},
+        {"name": "rs", "namespace": NS},
+    )
+
+
+async def test_volume_snapshot_restore_precreates_claims_from_the_snapshots(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    await completed_volume_backup(kubernetes, qdrant)
+
+    status = await ExecuteRestore(qdrant, FakeStorage(), kubernetes).execute(
+        volume_restore(), ResourceRef(RESTORES, "rs", NS)
+    )
+
+    assert status.phase == RestorePhase.COMPLETED
+    assert status.source_backup == "nightly"
+    assert sorted(kubernetes.created_claims) == [
+        (NS, "qdrant-storage-qdrant-db-0"),
+        (NS, "qdrant-storage-qdrant-db-1"),
+    ]
+    claim = kubernetes.created_claims[(NS, "qdrant-storage-qdrant-db-1")]
+    assert claim["spec"]["dataSource"] == {
+        "apiGroup": "snapshot.storage.k8s.io",
+        "kind": "VolumeSnapshot",
+        "name": "nightly-node-1",
+    }
+    assert claim["spec"]["storageClassName"] == "cinder-csi"
+    assert claim["spec"]["resources"] == {"requests": {"storage": "20Gi"}}
+    assert claim["metadata"]["labels"]["app.kubernetes.io/instance"] == "qdrant-db"
+
+
+@pytest.mark.parametrize(
+    ("target", "extra", "message"),
+    [
+        ("other", {}, "must be named db"),
+        ("db", {"collections": ["docs"]}, "restore whole volumes"),
+    ],
+)
+async def test_volume_snapshot_restore_reports_the_broken_constraint_as_a_condition(
+    kubernetes: FakeKubernetes,
+    qdrant: FakeQdrant,
+    target: str,
+    extra: dict[str, object],
+    message: str,
+) -> None:
+    await completed_volume_backup(kubernetes, qdrant)
+    kubernetes.put_resource(cluster_body(name=target))
+
+    status = await ExecuteRestore(qdrant, FakeStorage(), kubernetes).execute(
+        volume_restore(target, **extra), ResourceRef(RESTORES, "rs", NS)
+    )
+
+    assert status.phase == RestorePhase.FAILED
+    assert message in (status.error or "")
+    assert status.conditions[0].status == ConditionStatus.FALSE
+    assert status.conditions[0].reason == "IncompatibleTarget"
+    assert not kubernetes.created_claims
+
+
+async def test_volume_snapshot_restore_refuses_a_deployed_or_resized_target(
+    kubernetes: FakeKubernetes, qdrant: FakeQdrant
+) -> None:
+    await completed_volume_backup(kubernetes, qdrant)
+    use_case = ExecuteRestore(qdrant, FakeStorage(), kubernetes)
+    ref = ResourceRef(RESTORES, "rs", NS)
+
+    kubernetes.put_resource(cluster_body(replicas=3))
+    resized = await use_case.execute(volume_restore(), ref)
+    kubernetes.put_resource(cluster_body(replicas=2))
+    kubernetes.statefulsets[(NS, "qdrant-db")] = StatefulSetStatus(2, 2, 2, "a", "a", 0)
+    deployed = await use_case.execute(volume_restore(), ref)
+
+    assert "3 replicas" in (resized.error or "")
+    assert "already deployed" in (deployed.error or "")
+    assert not kubernetes.created_claims
 
 
 def syncing_source(

@@ -26,6 +26,7 @@
 
 - **Cluster Management** - Deploy and manage Qdrant clusters via Helm
 - **Automated Backups** - Per-node snapshots streamed to S3-compatible storage, with a manifest
+- **CSI Volume Snapshot Backups** - Opt-in `method: volumeSnapshot` snapshots every data volume in seconds instead of streaming through the operator
 - **Scheduled Backups** - CronJob-style schedules with concurrency and retention policies
 - **Disaster Recovery** - Restore collections node-by-node from presigned URLs, with optional remapping
 - **Declarative Collections** - `QdrantCollection` keeps vectors, payload indexes and aliases in Git and re-creates what was deleted by hand

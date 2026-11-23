@@ -10,7 +10,9 @@ The spec is immutable.
 |---|---|---|
 | `clusterRef.name` | required | The `QdrantCluster` |
 | `clusterRef.namespace` | own namespace | |
-| `storage.s3.bucket` | required | |
+| `method` | `s3` | `s3` or `volumeSnapshot` |
+| `volumeSnapshotClassName` | unset | `VolumeSnapshotClass`; required when `method` is `volumeSnapshot` |
+| `storage.s3.bucket` | required with `s3` | |
 | `storage.s3.prefix` | `""` | Key prefix; the backup lives under `<prefix>/<name>/` |
 | `storage.s3.region` | `us-east-1` | |
 | `storage.s3.endpoint` | AWS | Custom endpoint for MinIO and other S3-compatible stores |
@@ -28,6 +30,7 @@ The spec is immutable.
 | `phase` | `Pending`, `InProgress`, `Completed` or `Failed` |
 | `startTime`, `completionTime` | |
 | `expiresAt` | `completionTime` plus `retentionDays` |
+| `volumeSnapshots[]` | `volumeSnapshot` method: per data volume `nodeIndex`, `claimName`, `snapshotName`, `size`, `storageClassName`, `accessModes` |
 | `s3Path` | `s3://<bucket>/<prefix>/<name>` |
 | `totalSize` | Sum of the completed snapshots, human-readable |
 | `collections[]` | Per collection: `name`, `status`, `size`, `snapshots[]` with `node`, `snapshotName` and `key`, and `error` |

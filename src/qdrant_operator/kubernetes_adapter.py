@@ -14,6 +14,8 @@ from kubernetes_asyncio import config as kubernetes_config
 from kubernetes_asyncio.client.exceptions import ApiException
 from loguru import logger
 
+from qdrant_operator.domain import SNAPSHOT_API_GROUP
+from qdrant_operator.domain import SNAPSHOT_API_VERSION
 from qdrant_operator.domain import JsonDict
 from qdrant_operator.domain import PodState
 from qdrant_operator.domain import ResourceKind
@@ -21,12 +23,14 @@ from qdrant_operator.domain import ResourceRef
 from qdrant_operator.domain import SecretRef
 from qdrant_operator.domain import StatefulSetStatus
 from qdrant_operator.domain import VolumeClaim
+from qdrant_operator.domain import VolumeSnapshotState
 
 config: Any = kubernetes_config
 MERGE_PATCH = "application/merge-patch+json"
 REVISION_LABEL = "controller-revision-hash"
 ORPHAN_WAIT_SECONDS = 60.0
 ORPHAN_POLL_SECONDS = 1.0
+VOLUME_SNAPSHOT_PLURAL = "volumesnapshots"
 
 
 async def load_kubernetes_config() -> None:
@@ -249,7 +253,13 @@ class KubernetesAdapter:
                 namespace=namespace, label_selector=label_selector
             )
         return [
-            VolumeClaim(c.metadata.name, c.spec.resources.requests["storage"]) for c in claims.items
+            VolumeClaim(
+                c.metadata.name,
+                c.spec.resources.requests["storage"],
+                c.spec.storage_class_name,
+                tuple(c.spec.access_modes or ("ReadWriteOnce",)),
+            )
+            for c in claims.items
         ]
 
     async def resize_volume_claim(self, name: str, namespace: str, size: str) -> None:
@@ -273,6 +283,85 @@ class KubernetesAdapter:
                 if error.status != 404:
                     raise
         logger.info("volume claim deleted", name=name, namespace=namespace)
+
+    async def create_volume_claim(self, body: JsonDict) -> None:
+        metadata = body["metadata"]
+        async with self.api() as api:
+            try:
+                core: Any = client.CoreV1Api(api)
+                await core.create_namespaced_persistent_volume_claim(
+                    namespace=metadata["namespace"], body=body
+                )
+            except ApiException as error:
+                if error.status != 409:
+                    raise
+        logger.info("volume claim created", name=metadata["name"], namespace=metadata["namespace"])
+
+    async def create_volume_snapshot(self, body: JsonDict) -> None:
+        metadata = body["metadata"]
+        async with self.api() as api:
+            try:
+                await client.CustomObjectsApi(api).create_namespaced_custom_object(
+                    group=SNAPSHOT_API_GROUP,
+                    version=SNAPSHOT_API_VERSION,
+                    namespace=metadata["namespace"],
+                    plural=VOLUME_SNAPSHOT_PLURAL,
+                    body=body,
+                )
+            except ApiException as error:
+                if error.status != 409:
+                    raise
+        logger.info(
+            "volume snapshot created", name=metadata["name"], namespace=metadata["namespace"]
+        )
+
+    async def get_volume_snapshot(self, name: str, namespace: str) -> VolumeSnapshotState | None:
+        async with self.api() as api:
+            try:
+                body = await client.CustomObjectsApi(api).get_namespaced_custom_object(
+                    group=SNAPSHOT_API_GROUP,
+                    version=SNAPSHOT_API_VERSION,
+                    namespace=namespace,
+                    plural=VOLUME_SNAPSHOT_PLURAL,
+                    name=name,
+                )
+            except ApiException as error:
+                if error.status == 404:
+                    return None
+                raise
+        status: JsonDict = cast(JsonDict, body).get("status") or {}
+        failure: JsonDict = status.get("error") or {}
+        error_message: str | None = failure.get("message")
+        return VolumeSnapshotState(
+            name=name, ready=bool(status.get("readyToUse")), error=error_message
+        )
+
+    async def list_volume_snapshots(self, namespace: str, label_selector: str) -> list[str]:
+        async with self.api() as api:
+            result = await client.CustomObjectsApi(api).list_namespaced_custom_object(
+                group=SNAPSHOT_API_GROUP,
+                version=SNAPSHOT_API_VERSION,
+                namespace=namespace,
+                plural=VOLUME_SNAPSHOT_PLURAL,
+                label_selector=label_selector,
+            )
+        items = cast(list[JsonDict], cast(JsonDict, result).get("items", []))
+        return [item["metadata"]["name"] for item in items]
+
+    async def delete_volume_snapshot(self, name: str, namespace: str) -> None:
+        async with self.api() as api:
+            try:
+                await client.CustomObjectsApi(api).delete_namespaced_custom_object(
+                    group=SNAPSHOT_API_GROUP,
+                    version=SNAPSHOT_API_VERSION,
+                    namespace=namespace,
+                    plural=VOLUME_SNAPSHOT_PLURAL,
+                    name=name,
+                )
+            except ApiException as error:
+                if error.status != 404:
+                    raise
+        logger.info("volume snapshot deleted", name=name, namespace=namespace)
 
     async def crash_log(self, name: str, namespace: str, tail_lines: int) -> str:
         async with self.api() as api:

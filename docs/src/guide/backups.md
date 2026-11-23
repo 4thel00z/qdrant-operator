@@ -5,7 +5,65 @@ and streams each snapshot straight into an S3-compatible bucket. Nothing is
 staged on the operator's disk. A manifest written next to the snapshots
 records which node each one came from, so a restore needs no guessing.
 
-## Requirements
+## Choosing a method
+
+`spec.method` is `s3` (the default) or `volumeSnapshot`.
+
+| | `s3` | `volumeSnapshot` |
+|---|---|---|
+| What is stored | Qdrant snapshots per collection in a bucket | One CSI `VolumeSnapshot` per data volume |
+| Speed | Bound by the stream through the operator pod | Seconds, done by the storage backend |
+| Extra disk | One node snapshot on each node | None |
+| Consistency | Per node, per collection | Crash-consistent per volume |
+| Restore | Any cluster with the same node count, per collection | A new cluster of the same name and size, in the same namespace |
+| Survives losing the cluster's storage | Yes | Only if the CSI snapshots live outside it |
+
+Use `s3` for portability, partial restores and off-cluster copies. Use
+`volumeSnapshot` for fast, frequent backups on a cluster whose CSI driver
+supports snapshots.
+
+## Volume snapshot backups
+
+Prerequisites: the snapshot CRDs and snapshot controller installed, a CSI
+driver that supports snapshots, and a `VolumeSnapshotClass` for it. Managed
+Kubernetes usually ships all three.
+
+```yaml
+apiVersion: qdrant.io/v1alpha1
+kind: QdrantBackup
+metadata:
+  name: before-upgrade
+spec:
+  clusterRef: {name: my-qdrant}
+  method: volumeSnapshot
+  volumeSnapshotClassName: csi-cinder-snapclass
+```
+
+`storage` is not needed here: it is required
+only for `s3`, and `volumeSnapshotClassName` only for `volumeSnapshot`.
+`QdrantBackupSchedule` takes the same two fields and its retention deletes
+the snapshots of pruned backups.
+
+The operator creates `snapshot.storage.k8s.io/v1` `VolumeSnapshot`s named
+`<backup>-node-<i>` for the claims `qdrant-storage-qdrant-<cluster>-<i>`, in
+the cluster's namespace, labelled `qdrant.io/backup=<backup>`. It waits until
+every one is `readyToUse`, then records `status.volumeSnapshots[]` (node
+index, claim, snapshot, size, storage class and access modes) and completes.
+A failed or timed-out snapshot (one hour) deletes the others and fails the
+backup. Deleting the `QdrantBackup`, by hand, by `retentionDays` or by a
+schedule's retention, deletes its `VolumeSnapshot`s. The snapshot
+volume of `snapshotPersistence` is not snapshotted.
+
+The snapshots are crash-consistent: Qdrant has no API to flush to disk, so
+each volume is captured as it is and Qdrant replays its write-ahead log on
+start. Snapshots of different nodes are taken a moment apart and are not
+coordinated; pause writers for a clean cut.
+
+Restoring is described in [Restore](restore.md#from-a-volume-snapshot-backup).
+It works only into a new cluster of the same name and replica count in the
+same namespace.
+
+## Requirements (s3)
 
 - A bucket on S3 or anything speaking its API. MinIO needs `endpoint` and
   `forcePathStyle: true`.

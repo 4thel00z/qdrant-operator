@@ -233,7 +233,7 @@ async def execute_backup(
         raise kopf.PermanentError(f"Backup failed: {error}") from error
     METRICS.operation_finished(BACKUPS.kind, result.phase.value, time.monotonic() - started)
     patch.status.update(result.to_dict())
-    logger.info(f"Backup {result.phase.value}: {result.s3_path} ({result.total_size})")
+    logger.info(f"Backup {result.phase.value}: {backup.location} ({result.total_size})")
 
 
 @kopf.on.delete(GROUP, VERSION, BACKUPS.plural)
@@ -256,7 +256,7 @@ async def delete_backup(
     except KeyError as error:
         logger.warning(f"Leaving backup data in place, credentials unavailable: {error}")
         return
-    logger.info(f"Deleted {deleted} objects under {backup.storage.uri(backup.name)}")
+    logger.info(f"Deleted {deleted} objects of {backup.location}")
 
 
 def has_expiry(status: kopf.Status, **_: Any) -> bool:

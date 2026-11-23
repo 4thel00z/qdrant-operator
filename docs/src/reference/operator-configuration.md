@@ -61,6 +61,8 @@ in place of `clusterkopfpeerings`.
 | `events` | create | kopf posts events on handled resources |
 | `secrets` | get, list, create, update, patch, delete | API keys, TLS CA and bucket credentials are read, access key Secrets are written, Helm keeps its `helm.sh/release.v1` release records and the chart renders Secrets |
 | `persistentvolumeclaims` | list, patch, delete | Grow and clean up the data and snapshot volumes |
+| `persistentvolumeclaims` | create | Pre-create data volumes from VolumeSnapshots on restore |
+| `volumesnapshots.snapshot.storage.k8s.io` | create, get, list, delete | `volumeSnapshot` backups |
 | `pods` | list | Readiness and shard health before each partition step of a rollout |
 | `pods/log` | get | Crash logs for the status |
 | `services`, `configmaps`, `serviceaccounts`, `poddisruptionbudgets`, `servicemonitors` | get, create, patch, delete | What the qdrant chart renders; Helm reads, creates, patches and removes them |

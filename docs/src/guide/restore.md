@@ -27,6 +27,35 @@ still running is retried every thirty seconds. The restore reads the
 backup's storage settings and root path, and the bucket credentials from the
 backup's namespace.
 
+## From a volume snapshot backup
+
+```yaml
+apiVersion: qdrant.io/v1alpha1
+kind: QdrantRestore
+metadata:
+  name: restore-volumes
+spec:
+  backupRef: {name: before-upgrade}
+  targetClusterRef: {name: my-qdrant}
+```
+
+Create the restore before the `QdrantCluster`. The qdrant-helm chart gives
+its `volumeClaimTemplates` no `dataSource`, so the operator pre-creates the
+PVCs `qdrant-storage-qdrant-<cluster>-<i>` with `dataSource` pointing at the
+`VolumeSnapshot`s, labelled like the chart's own. The restore completes once
+they exist; then create the `QdrantCluster` and its StatefulSet adopts the
+claims by name and starts from the data.
+
+The raft state and peer ids live on the volume, so the restore only works
+into a new cluster with the same name (hence release and pod names), the same
+replica count and the same namespace as the source; `VolumeSnapshot`s are
+namespaced. Otherwise the restore ends `Failed` with the broken rule in
+`status.error` and in the `Complete` condition (`IncompatibleTarget`), and
+creates nothing. It also refuses when the target StatefulSet is already
+deployed or any of the claims exist, so delete an old cluster and its volume
+claims first. `collections` and `collectionMapping` are not supported; whole
+volumes come back.
+
 ## From a bucket path
 
 ```yaml
