@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.6.0](https://github.com/4thel00z/qdrant-operator/compare/v0.5.0...v0.6.0) (2026-11-23)
+
+
+### Features
+
+* **backup:** CSI VolumeSnapshot backup method ([6749f38](https://github.com/4thel00z/qdrant-operator/commit/6749f384c04cb45141928480dfc3934016932bcc))
+* **backup:** CSI VolumeSnapshot backups, retention and restore into a new cluster ([1f77129](https://github.com/4thel00z/qdrant-operator/commit/1f771295a665b988b964cdea00aed28c801cec9c))
+* **chart:** least-privilege RBAC and opt-in watchNamespaces ([1986c81](https://github.com/4thel00z/qdrant-operator/commit/1986c8189ad2e57b632f79c87e725d764f3abc88))
+* **chart:** least-privilege RBAC and opt-in watchNamespaces ([47c088d](https://github.com/4thel00z/qdrant-operator/commit/47c088dc5e02c2678c07202f68046de0ef2c917d))
+* **chart:** run several operator replicas with kopf peering ([add5110](https://github.com/4thel00z/qdrant-operator/commit/add51102e054f7a4e1bc969ab51eaef23587a9a9))
+* **chart:** run several operator replicas with kopf peering ([af07ef3](https://github.com/4thel00z/qdrant-operator/commit/af07ef3cd916545a399a62f2911fcac924024fec))
+* **cluster:** make the TLS Secret's CA key configurable ([c572a3b](https://github.com/4thel00z/qdrant-operator/commit/c572a3bab6ec1377e2effa07b300c5f2ce979156))
+* **crds:** add volumeSnapshot backup method with CEL validation ([3c159e0](https://github.com/4thel00z/qdrant-operator/commit/3c159e0b4f31d23197b6e8e6b15ae48a472f97e4))
+* **migration:** add opt-in sync pass for updates and deletes ([d0a518d](https://github.com/4thel00z/qdrant-operator/commit/d0a518d84496df5fb5c2c8593b9f8482ee7a3882))
+* **migration:** add opt-in sync pass for updates and deletes made during a copy ([06c299b](https://github.com/4thel00z/qdrant-operator/commit/06c299b72eb1313697b13ebe2ff6d49c489dfc52))
+
+
+### Bug Fixes
+
+* **cluster:** keep HelmApplyFailed visible until a later apply succeeds ([2683c9d](https://github.com/4thel00z/qdrant-operator/commit/2683c9d118b72941711e20a76ca0891a0b823683))
+* **cluster:** point Qdrant at the TLS Secret's CA for p2p TLS ([5268d0a](https://github.com/4thel00z/qdrant-operator/commit/5268d0aac449a70348c670e5a285081b32d88834))
+
+
+### Documentation
+
+* **backup:** document volume snapshot backups and restore constraints ([b51c835](https://github.com/4thel00z/qdrant-operator/commit/b51c835279eed41f15ccadaa95a8bc3837a0eda8))
+
 ## [0.5.0](https://github.com/4thel00z/qdrant-operator/compare/v0.4.0...v0.5.0) (2026-11-23)
 
 
