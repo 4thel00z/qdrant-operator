@@ -88,7 +88,7 @@ Frequent causes of `Failed`:
   NetworkPolicy between the operator namespace and the cluster namespace, or
   a `replicas` value higher than the pods that exist, produces this.
 - **TLS certificate verification failed.** With `tls.enabled`, the operator
-  needs `ca.crt` in the TLS Secret, or a certificate from a CA in the system
+  needs the CA in the TLS Secret under `tls.caKey` (default `ca.crt`), or a certificate from a CA in the system
   trust store, and the certificate must cover the headless pod names.
 - **No space left on device from Qdrant.** The snapshot did not fit on the
   node's volume. Enable `snapshotPersistence` or grow the data volume.

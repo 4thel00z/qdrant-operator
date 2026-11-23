@@ -203,6 +203,10 @@ spec:
                       properties:
                         name:
                           type: string
+                    caKey:
+                      type: string
+                      default: ca.crt
+                      description: Key in the TLS Secret that holds the CA certificate. Qdrant verifies its peers with it when cluster.p2p.enableTls is on, and the operator verifies Qdrant's HTTPS with it.
                 metrics:
                   type: object
                   properties:
