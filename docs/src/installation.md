@@ -65,9 +65,28 @@ The chart creates, in the release namespace, a Deployment with one replica, a
 ServiceAccount, and a ClusterRole plus binding. The ClusterRole covers the
 `qdrant.io` kinds and their status subresources, the objects the qdrant chart
 renders (StatefulSets, Services, ConfigMaps, Secrets, ServiceAccounts,
-PodDisruptionBudgets, Ingresses, ServiceMonitors), Events, and kopf's own
-peering resource. The Deployment uses the `Recreate` strategy, because two
+PodDisruptionBudgets, ServiceMonitors), Events, and kopf's own peering
+resource, each with the verbs Helm and the operator call and no wildcards.
+The Deployment uses the `Recreate` strategy, because two
 operator replicas would race on the same Helm releases.
+
+## Watching only some namespaces
+
+By default the operator watches every namespace. To limit it, list the
+namespaces in `watchNamespaces`:
+
+```sh
+helm install qdrant-operator oci://ghcr.io/4thel00z/charts/qdrant-operator \
+  --namespace qdrant-system --create-namespace \
+  --set 'watchNamespaces={team-a,team-b}'
+```
+
+The chart sets `WATCH_NAMESPACES` to the comma-separated list, and the operator runs `kopf` with one `--namespace` per entry. The rules above
+move into a Role and RoleBinding in each listed namespace, and kopf's peering
+resource becomes the namespaced `kopfpeerings`. The ClusterRole shrinks to
+`list` and `watch` on CustomResourceDefinitions, the one thing kopf needs
+cluster-wide. The listed namespaces must exist before the install; the
+operator no longer creates namespaces.
 
 ## Verifying
 

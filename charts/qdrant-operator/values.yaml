@@ -9,6 +9,8 @@ serviceAccount:
   create: true
   name: ""
 
+watchNamespaces: []  # empty: watch every namespace under a ClusterRole; otherwise watch only these, with a Role and RoleBinding in each
+
 resources:
   limits:
     cpu: 500m

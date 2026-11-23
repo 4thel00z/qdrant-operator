@@ -6,10 +6,11 @@ import sys
 from kopf import cli
 
 import qdrant_operator.handlers as handlers
+from qdrant_operator.ha import namespace_args
 from qdrant_operator.logs import configure_logging
 
 LIVENESS_URL = "http://0.0.0.0:8080/healthz"
-DEFAULT_ARGS = ("--all-namespaces", f"--liveness={LIVENESS_URL}")
+LIVENESS_ARG = f"--liveness={LIVENESS_URL}"
 
 
 def run(argv: list[str] | None = None) -> None:
@@ -17,7 +18,7 @@ def run(argv: list[str] | None = None) -> None:
     configure_logging(os.environ.get("LOG_LEVEL", "INFO"))
     extra = sys.argv[1:] if argv is None else argv
     cli.main(
-        args=["run", "-m", handlers.__name__, *DEFAULT_ARGS, *extra],
+        args=["run", "-m", handlers.__name__, *namespace_args(os.environ), LIVENESS_ARG, *extra],
         prog_name="qdrant-operator",
     )
 

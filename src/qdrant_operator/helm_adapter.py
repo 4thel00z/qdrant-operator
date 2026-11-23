@@ -68,7 +68,6 @@ class HelmAdapter:
             chart_version,
             "--namespace",
             namespace,
-            "--create-namespace",
             "--post-renderer",
             self.post_renderer,
             "--post-renderer-args",
