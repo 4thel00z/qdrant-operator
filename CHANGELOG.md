@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/4thel00z/qdrant-operator/compare/v0.6.1...v0.6.2) (2026-11-23)
+
+
+### Documentation
+
+* add 0.6.x field results and the Cinder force-create snapshot class ([#42](https://github.com/4thel00z/qdrant-operator/issues/42)) ([abda85d](https://github.com/4thel00z/qdrant-operator/commit/abda85d0cb2c97c4b949afa39a643a6eaf7d9015))
+
 ## [0.6.1](https://github.com/4thel00z/qdrant-operator/compare/v0.6.0...v0.6.1) (2026-11-23)
 
 
