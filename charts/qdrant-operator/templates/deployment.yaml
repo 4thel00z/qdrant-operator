@@ -36,16 +36,16 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
-            - name: LOG_LEVEL
+            - name: QDRANT_OPERATOR_LOGGING_LEVEL
               value: {{ .Values.operator.logLevel | quote }}
-            - name: LOG_FORMAT
+            - name: QDRANT_OPERATOR_LOGGING_FORMAT
               value: {{ .Values.operator.logFormat | quote }}
             {{- with .Values.watchNamespaces }}
-            - name: WATCH_NAMESPACES
+            - name: QDRANT_OPERATOR_KOPF_NAMESPACES
               value: {{ join "," . | quote }}
             {{- end }}
             {{- with .Values.operator.chartRepo }}
-            - name: QDRANT_CHART_REPO
+            - name: QDRANT_OPERATOR_HELM_REPO
               value: {{ . | quote }}
             {{- end }}
             {{- if .Values.ha.enabled }}
@@ -53,12 +53,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: PEERING_NAME
+            - name: QDRANT_OPERATOR_KOPF_PEERING_NAME
               value: {{ include "qdrant-operator.peeringName" . | quote }}
-            - name: PEERING_LIFETIME
+            - name: QDRANT_OPERATOR_KOPF_PEERING_LIFETIME
               value: {{ .Values.ha.lifetime | quote }}
             {{- end }}
-            - name: METRICS_PORT
+            - name: QDRANT_OPERATOR_METRICS_PORT
               value: {{ ternary .Values.metrics.port 0 .Values.metrics.enabled | quote }}
             - name: HELM_CACHE_HOME
               value: /tmp/helm/cache

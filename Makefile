@@ -14,7 +14,7 @@ help: ## Show this help
 
 # Development
 dev: ## Run operator locally against the current kubeconfig
-	LOG_FORMAT=text uv run qdrant-operator
+	QDRANT_OPERATOR_LOGGING_FORMAT=text uv run qdrant-operator
 
 lint: ## Run linters
 	uv run ruff check src tests

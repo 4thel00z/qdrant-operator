@@ -1,13 +1,17 @@
-"""Wires adapters into use cases. Adapters hold no state, so one container per event is fine."""
+"""Wires adapters into use cases; built once in main and handed to every handler as kopf memo."""
 
 from dataclasses import dataclass
-from dataclasses import field
+from typing import Any
+from typing import Self
 
 from qdrant_operator.helm_adapter import HelmAdapter
+from qdrant_operator.helm_adapter import post_renderer_path
 from qdrant_operator.jwt_adapter import JwtAdapter
 from qdrant_operator.kubernetes_adapter import KubernetesAdapter
+from qdrant_operator.metrics import OperatorMetrics
 from qdrant_operator.qdrant_adapter import QdrantAdapter
 from qdrant_operator.s3_adapter import S3Adapter
+from qdrant_operator.settings import Settings
 from qdrant_operator.usecases import CleanupBackupSnapshots
 from qdrant_operator.usecases import DeleteBackupData
 from qdrant_operator.usecases import DeleteCluster
@@ -26,13 +30,29 @@ from qdrant_operator.usecases import RecoverDeadPeers
 from qdrant_operator.usecases import StepRollout
 
 
-@dataclass
+@dataclass(frozen=True)
 class Container:
-    helm: HelmAdapter = field(default_factory=HelmAdapter)
-    kubernetes: KubernetesAdapter = field(default_factory=KubernetesAdapter)
-    storage: S3Adapter = field(default_factory=S3Adapter)
-    qdrant: QdrantAdapter = field(default_factory=QdrantAdapter)
-    token: JwtAdapter = field(default_factory=JwtAdapter)
+    helm: HelmAdapter
+    kubernetes: KubernetesAdapter
+    storage: S3Adapter
+    qdrant: QdrantAdapter
+    token: JwtAdapter
+    metrics: OperatorMetrics
+
+    @classmethod
+    def from_settings(cls, settings: Settings, configuration: Any) -> Self:
+        return cls(
+            helm=HelmAdapter(
+                settings.helm,
+                settings.kubernetes.kubeconfig,
+                post_renderer_path(settings.helm.post_renderer),
+            ),
+            kubernetes=KubernetesAdapter(configuration),
+            storage=S3Adapter(),
+            qdrant=QdrantAdapter(settings.qdrant),
+            token=JwtAdapter(),
+            metrics=OperatorMetrics(),
+        )
 
     def reconcile_cluster(self) -> ReconcileCluster:
         return ReconcileCluster(helm=self.helm, kubernetes=self.kubernetes, qdrant=self.qdrant)

@@ -25,6 +25,7 @@ from qdrant_operator.domain import StatefulSetStatus
 from qdrant_operator.domain import VolumeClaim
 from qdrant_operator.domain import VolumeSnapshotState
 from qdrant_operator.domain import Zone
+from qdrant_operator.settings import KubernetesSettings
 
 config: Any = kubernetes_config
 MERGE_PATCH = "application/merge-patch+json"
@@ -34,21 +35,31 @@ ORPHAN_POLL_SECONDS = 1.0
 VOLUME_SNAPSHOT_PLURAL = "volumesnapshots"
 
 
-async def load_kubernetes_config() -> None:
-    """In-cluster service account when present, otherwise the local kubeconfig."""
+async def load_configuration(settings: KubernetesSettings) -> Any:
+    """Configured kubeconfig, else the in-cluster service account, else the default kubeconfig."""
+    configuration: Any = client.Configuration()
+    if settings.kubeconfig:
+        await config.load_kube_config(
+            config_file=settings.kubeconfig, client_configuration=configuration
+        )
+        logger.info("kubernetes config loaded", source=settings.kubeconfig)
+        return configuration
     try:
-        config.load_incluster_config()
+        config.load_incluster_config(client_configuration=configuration)
         logger.info("kubernetes config loaded", source="in-cluster")
     except config.ConfigException:
-        await config.load_kube_config()
+        await config.load_kube_config(client_configuration=configuration)
         logger.info("kubernetes config loaded", source="kubeconfig")
+    return configuration
 
 
 @dataclass
 class KubernetesAdapter:
+    configuration: Any
+
     @asynccontextmanager
     async def api(self) -> AsyncGenerator[Any]:
-        api_client: Any = client.ApiClient()
+        api_client: Any = client.ApiClient(configuration=self.configuration)
         async with api_client as api:
             yield api
 

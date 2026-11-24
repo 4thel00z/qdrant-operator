@@ -26,10 +26,14 @@ from qdrant_operator.domain import QdrantNode
 from qdrant_operator.domain import ResourceRef
 from qdrant_operator.domain import is_subset
 from qdrant_operator.helm_adapter import HelmAdapter
+from qdrant_operator.helm_adapter import post_renderer_path
 from qdrant_operator.jwt_adapter import JwtAdapter
 from qdrant_operator.kubernetes_adapter import KubernetesAdapter
-from qdrant_operator.kubernetes_adapter import load_kubernetes_config
+from qdrant_operator.kubernetes_adapter import load_configuration
 from qdrant_operator.qdrant_adapter import QdrantAdapter
+from qdrant_operator.settings import HelmSettings
+from qdrant_operator.settings import KubernetesSettings
+from qdrant_operator.settings import QdrantSettings
 from qdrant_operator.usecases import DeleteCluster
 from qdrant_operator.usecases import ObserveCluster
 from qdrant_operator.usecases import ReconcileCluster
@@ -71,11 +75,6 @@ def namespace() -> Iterator[None]:
     )
 
 
-@pytest.fixture(autouse=True)
-async def kubernetes_config() -> None:
-    await load_kubernetes_config()
-
-
 @pytest.fixture
 def spec() -> ClusterSpec:
     return ClusterSpec.from_dict(
@@ -91,17 +90,19 @@ def spec() -> ClusterSpec:
 
 
 async def test_reconcile_installs_release(spec: ClusterSpec) -> None:
-    helm = HelmAdapter()
-    status = await ReconcileCluster(helm, KubernetesAdapter(), QdrantAdapter()).execute(
-        spec, 1, ClusterStatus(ClusterPhase.PENDING)
-    )
+    helm = HelmAdapter(HelmSettings(), "", post_renderer_path(""))
+    status = await ReconcileCluster(
+        helm,
+        KubernetesAdapter(await load_configuration(KubernetesSettings())),
+        QdrantAdapter(QdrantSettings()),
+    ).execute(spec, 1, ClusterStatus(ClusterPhase.PENDING))
 
     assert status.phase == ClusterPhase.PENDING
     assert await helm.release_exists(spec.release_name, NAMESPACE)
 
 
 async def test_cluster_becomes_running(spec: ClusterSpec) -> None:
-    use_case = ObserveCluster(KubernetesAdapter())
+    use_case = ObserveCluster(KubernetesAdapter(await load_configuration(KubernetesSettings())))
     status = ClusterStatus(ClusterPhase.PENDING)
     for _ in range(60):
         status = await use_case.execute(spec, status)
@@ -135,14 +136,14 @@ async def port_forward(spec: ClusterSpec) -> AsyncGenerator[QdrantNode]:
 
 async def test_qdrant_answers_over_port_forward(spec: ClusterSpec) -> None:
     async with port_forward(spec) as node:
-        adapter = QdrantAdapter()
+        adapter = QdrantAdapter(QdrantSettings())
         assert await adapter.ready(node)
         assert await adapter.list_collections(node) == []
 
 
 async def test_collection_calls_round_trip_against_real_qdrant(spec: ClusterSpec) -> None:
     """The bodies the domain derives are accepted by Qdrant and read back as the domain expects."""
-    adapter = QdrantAdapter()
+    adapter = QdrantAdapter(QdrantSettings())
     collection = CollectionSpec.from_dict(
         {
             "clusterRef": {"name": CLUSTER},
@@ -194,7 +195,7 @@ async def test_collection_calls_round_trip_against_real_qdrant(spec: ClusterSpec
 
 
 async def test_custom_sharding_calls_round_trip_against_real_qdrant(spec: ClusterSpec) -> None:
-    adapter = QdrantAdapter()
+    adapter = QdrantAdapter(QdrantSettings())
     sharded = CollectionSpec.from_dict(
         {
             "clusterRef": {"name": CLUSTER},
@@ -222,7 +223,7 @@ async def test_custom_sharding_calls_round_trip_against_real_qdrant(spec: Cluste
 
 
 async def test_jwt_signed_with_the_cluster_key_is_scoped_by_qdrant(spec: ClusterSpec) -> None:
-    adapter = QdrantAdapter()
+    adapter = QdrantAdapter(QdrantSettings())
     access_key = AccessKeySpec.from_dict(
         {"clusterRef": {"name": CLUSTER}, "access": "r", "ttl": "1h"},
         {"name": "reader", "namespace": NAMESPACE},
@@ -240,8 +241,10 @@ async def test_jwt_signed_with_the_cluster_key_is_scoped_by_qdrant(spec: Cluster
 
 
 async def test_delete_cluster_uninstalls_release(spec: ClusterSpec) -> None:
-    helm = HelmAdapter()
-    await DeleteCluster(helm, KubernetesAdapter()).execute(spec)
+    helm = HelmAdapter(HelmSettings(), "", post_renderer_path(""))
+    await DeleteCluster(
+        helm, KubernetesAdapter(await load_configuration(KubernetesSettings()))
+    ).execute(spec)
     assert not await helm.release_exists(spec.release_name, NAMESPACE)
 
 
@@ -293,7 +296,7 @@ async def test_status_patch_reaches_a_real_custom_resource() -> None:
         text=True,
         check=True,
     )
-    adapter = KubernetesAdapter()
+    adapter = KubernetesAdapter(await load_configuration(KubernetesSettings()))
     ref = ResourceRef(COLLECTIONS, "status-probe", NAMESPACE)
 
     await adapter.patch_status(ref, {"phase": "Pending", "collectionName": "probe"})

@@ -55,8 +55,8 @@ qdrant-operator
 Each GitHub release also attaches the seven CRD files as assets, so a pinned
 version can be applied without a clone.
 
-Extra arguments go to `kopf run` and override the defaults, so
-`qdrant-operator --namespace team-a` watches one namespace instead of all.
+Configuration comes from `QDRANT_OPERATOR_*` environment variables, so
+`QDRANT_OPERATOR_KOPF_NAMESPACES=team-a qdrant-operator` watches one namespace instead of all.
 This mode needs `helm` on your `PATH`.
 
 ## What gets installed
@@ -88,7 +88,7 @@ during rollouts. `replicaCount` above one without `ha.enabled` fails to render.
 
 Kopf pauses every operator but the one with the highest priority, and it pauses
 all of them when the top priorities are equal. Each pod therefore draws a random
-priority between 1 and 2147483647 at startup (or takes `PEERING_PRIORITY`). A
+priority between 1 and 2147483647 at startup (or takes `QDRANT_OPERATOR_KOPF_PRIORITY`). A
 restarted pod draws a new one, so the active pod can change after a rollout.
 Pods missing the peering object or CRD refuse to start instead of falling back
 to standalone.
@@ -120,7 +120,7 @@ helm install qdrant-operator oci://ghcr.io/4thel00z/charts/qdrant-operator \
   --set 'watchNamespaces={team-a,team-b}'
 ```
 
-The chart sets `WATCH_NAMESPACES` to the comma-separated list, and the operator runs `kopf` with one `--namespace` per entry. The rules above
+The chart sets `QDRANT_OPERATOR_KOPF_NAMESPACES` to the comma-separated list, and the operator watches only those namespaces. The rules above
 move into a Role and RoleBinding in each listed namespace, and kopf's peering
 resource becomes the namespaced `kopfpeerings`. The ClusterRole shrinks to
 `list` and `watch` on CustomResourceDefinitions, the one thing kopf needs

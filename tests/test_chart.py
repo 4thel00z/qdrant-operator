@@ -72,7 +72,7 @@ def env(manifests: list[Manifest]) -> dict[str, str]:
 
 
 def test_default_deployment_has_no_watch_namespaces() -> None:
-    assert "WATCH_NAMESPACES" not in env(render())
+    assert "QDRANT_OPERATOR_KOPF_NAMESPACES" not in env(render())
 
 
 def test_watch_namespaces_moves_rules_into_roles() -> None:
@@ -105,7 +105,10 @@ def test_watch_namespaces_moves_rules_into_roles() -> None:
 
 
 def test_watch_namespaces_become_the_watch_namespaces_variable() -> None:
-    assert env(render("watchNamespaces={team-a,team-b}"))["WATCH_NAMESPACES"] == "team-a,team-b"
+    assert (
+        env(render("watchNamespaces={team-a,team-b}"))["QDRANT_OPERATOR_KOPF_NAMESPACES"]
+        == "team-a,team-b"
+    )
 
 
 def kopf_crds(manifests: list[Manifest]) -> list[str]:
@@ -122,7 +125,7 @@ def test_default_is_one_replica_standalone() -> None:
     assert not of_kind(manifests, "ClusterKopfPeering")
     assert not of_kind(manifests, "KopfPeering")
     assert not kopf_crds(manifests)
-    assert "PEERING_NAME" not in env(manifests)
+    assert "QDRANT_OPERATOR_KOPF_PEERING_NAME" not in env(manifests)
 
 
 def test_several_replicas_without_peering_are_refused() -> None:
@@ -142,10 +145,12 @@ def test_cluster_wide_peering() -> None:
     assert deployment["spec"]["strategy"]["rollingUpdate"] == {"maxSurge": 1, "maxUnavailable": 0}
     assert kopf_crds(manifests) == ["clusterkopfpeerings.kopf.dev"]
     peerings = of_kind(manifests, "ClusterKopfPeering")
-    assert [p["metadata"]["name"] for p in peerings] == [variables["PEERING_NAME"]]
-    assert variables["PEERING_LIFETIME"] == "30"
+    assert [p["metadata"]["name"] for p in peerings] == [
+        variables["QDRANT_OPERATOR_KOPF_PEERING_NAME"]
+    ]
+    assert variables["QDRANT_OPERATOR_KOPF_PEERING_LIFETIME"] == "30"
     assert pod_id["valueFrom"]["fieldRef"]["fieldPath"] == "metadata.name"
-    assert "WATCH_NAMESPACES" not in variables
+    assert "QDRANT_OPERATOR_KOPF_NAMESPACES" not in variables
     assert not of_kind(manifests, "KopfPeering")
 
 
@@ -155,8 +160,8 @@ def test_peering_follows_watch_namespaces() -> None:
     )
     variables = env(manifests)
 
-    assert variables["WATCH_NAMESPACES"] == "a,b"
-    assert variables["PEERING_NAME"] == "ops"
+    assert variables["QDRANT_OPERATOR_KOPF_NAMESPACES"] == "a,b"
+    assert variables["QDRANT_OPERATOR_KOPF_PEERING_NAME"] == "ops"
     peerings = of_kind(manifests, "KopfPeering")
     assert [(p["metadata"]["namespace"], p["metadata"]["name"]) for p in peerings] == [
         ("a", "ops"),

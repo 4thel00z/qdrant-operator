@@ -39,8 +39,11 @@ from qdrant_operator.domain import S3StorageSpec
 from qdrant_operator.domain import join_key
 from qdrant_operator.domain import release_name
 from qdrant_operator.helm_adapter import HelmAdapter
+from qdrant_operator.helm_adapter import post_renderer_path
 from qdrant_operator.qdrant_adapter import QdrantAdapter
 from qdrant_operator.s3_adapter import S3Adapter
+from qdrant_operator.settings import HelmSettings
+from qdrant_operator.settings import QdrantSettings
 
 pytestmark = [
     pytest.mark.e2e,
@@ -283,7 +286,7 @@ async def test_collection_is_created_with_its_payload_index() -> None:
     )
     await wait_for_phase(COLLECTIONS, COLLECTION, CollectionPhase.READY)
     async with qdrant() as node:
-        info = await QdrantAdapter().collection_info(node, COLLECTION)
+        info = await QdrantAdapter(QdrantSettings()).collection_info(node, COLLECTION)
     assert "group" in info["payload_schema"]
 
 
@@ -297,7 +300,7 @@ async def test_access_key_token_is_accepted_by_qdrant() -> None:
     token = secret_value(ACCESS_KEY, TOKEN_SECRET_KEY)
     async with qdrant() as node:
         reader = QdrantNode(node.url, api_key=token)
-        assert await QdrantAdapter().list_collections(reader) == [COLLECTION]
+        assert await QdrantAdapter(QdrantSettings()).list_collections(reader) == [COLLECTION]
 
 
 async def test_backup_streams_snapshots_and_manifest_into_the_bucket() -> None:
@@ -306,7 +309,7 @@ async def test_backup_streams_snapshots_and_manifest_into_the_bucket() -> None:
         for i in range(1, POINTS + 1)
     ]
     async with qdrant() as node:
-        await QdrantAdapter().upsert_points(node, COLLECTION, points)
+        await QdrantAdapter(QdrantSettings()).upsert_points(node, COLLECTION, points)
     async with bucket() as client:
         await client.create_bucket(Bucket=BUCKET)
 
@@ -352,7 +355,9 @@ async def test_restore_recovers_the_points_into_a_new_collection() -> None:
     )
     await wait_for_phase(RESTORES, RESTORE, RestorePhase.COMPLETED)
     async with qdrant() as node:
-        assert await QdrantAdapter().count_points(node, RESTORED_COLLECTION) == POINTS
+        assert (
+            await QdrantAdapter(QdrantSettings()).count_points(node, RESTORED_COLLECTION) == POINTS
+        )
 
 
 async def test_deleting_the_backup_removes_its_objects() -> None:
@@ -365,14 +370,16 @@ async def test_deleting_the_backup_removes_its_objects() -> None:
 async def test_deleting_the_collection_drops_it() -> None:
     await delete(COLLECTIONS, COLLECTION)
     async with qdrant() as node:
-        assert not await QdrantAdapter().collection_exists(node, COLLECTION)
+        assert not await QdrantAdapter(QdrantSettings()).collection_exists(node, COLLECTION)
 
 
 async def test_deleting_the_cluster_uninstalls_its_release() -> None:
     await delete(ACCESS_KEYS, ACCESS_KEY)
     await delete(RESTORES, RESTORE)
     await delete(CLUSTERS, CLUSTER)
-    assert not await HelmAdapter().release_exists(release_name(CLUSTER), NAMESPACE)
+    assert not await HelmAdapter(HelmSettings(), "", post_renderer_path("")).release_exists(
+        release_name(CLUSTER), NAMESPACE
+    )
 
 
 def test_operator_never_restarted() -> None:

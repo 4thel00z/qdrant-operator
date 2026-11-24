@@ -13,7 +13,7 @@
 | `image.pullPolicy` | `IfNotPresent` | |
 | `serviceAccount.create` | `true` | |
 | `serviceAccount.name` | release full name | |
-| `watchNamespaces` | `[]` | Namespaces to watch. Empty watches all of them under one ClusterRole; otherwise each entry gets a Role and RoleBinding and kopf runs with `--namespace` per entry, see [Installation](../installation.md#watching-only-some-namespaces) |
+| `watchNamespaces` | `[]` | Namespaces to watch. Empty watches all of them under one ClusterRole; otherwise each entry gets a Role and RoleBinding and kopf watches only those, see [Installation](../installation.md#watching-only-some-namespaces) |
 | `resources` | `100m`/`128Mi` requests, `500m`/`1Gi` limits | Streaming itself is small (8 MiB upload parts, two at a time, 1 MiB reads); the memory goes to the interpreter and kopf state. A migration loop alone held about 320 Mi and a backup about 280 Mi, so concurrent ones need the headroom |
 | `operator.logLevel` | `INFO` | loguru level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `operator.logFormat` | `json` | `json` or `text` |
@@ -24,34 +24,33 @@
 
 ## Environment variables
 
+Read once at startup into `qdrant_operator.settings.Settings`, one section per prefix.
+
 | Variable | Default | Description |
 |---|---|---|
-| `LOG_LEVEL` | `INFO` | |
-| `LOG_FORMAT` | `json` | `json` writes one JSON object per line; `text` is for a terminal |
-| `QDRANT_CHART_REPO` | `https://qdrant.github.io/qdrant-helm` | Where the qdrant chart is pulled from |
-| `PEERING_NAME` | unset | Joins the kopf peering of this name; the operator fails to start if the peering object is missing. Unset keeps today's standalone behaviour |
-| `PEERING_PRIORITY` | random per start | Fixed priority instead of the random one |
-| `PEERING_LIFETIME` | `60` | Peering record lifetime in seconds |
-| `WATCH_NAMESPACES` | unset | Comma-separated namespaces to watch; unset watches all. The chart sets it from `watchNamespaces` |
-| `POD_ID` | generated | Peer identity in the peering object; the chart sets it to the pod name |
-| `METRICS_PORT` | `9090` | Port of the Prometheus endpoint; `0` turns it off |
-| `KUBECONFIG` | in-cluster | Used when no service account token is mounted |
+| `QDRANT_OPERATOR_LOGGING_LEVEL` | `INFO` | |
+| `QDRANT_OPERATOR_LOGGING_FORMAT` | `json` | `json` writes one JSON object per line; `text` is for a terminal |
+| `QDRANT_OPERATOR_KOPF_NAMESPACES` | unset | Comma-separated namespaces to watch; unset watches all. The chart sets it from `watchNamespaces` |
+| `QDRANT_OPERATOR_KOPF_PEERING_NAME` | unset | Joins the kopf peering of this name; the operator fails to start if the peering object is missing. Unset keeps today's standalone behaviour |
+| `QDRANT_OPERATOR_KOPF_PRIORITY` | random per start | Fixed priority instead of the random one; only used with a peering name |
+| `QDRANT_OPERATOR_KOPF_PEERING_LIFETIME` | `60` | Peering record lifetime in seconds |
+| `QDRANT_OPERATOR_KOPF_LIVENESS_ENDPOINT` | `http://0.0.0.0:8080/healthz` | |
+| `QDRANT_OPERATOR_METRICS_PORT` | `9090` | Port of the Prometheus endpoint; `0` turns it off |
+| `QDRANT_OPERATOR_KUBERNETES_KUBECONFIG` | unset | Kubeconfig for the API client and `helm`; unset uses the in-cluster service account, then `KUBECONFIG` |
+| `QDRANT_OPERATOR_HELM_REPO` | `https://qdrant.github.io/qdrant-helm` | Where the qdrant chart is pulled from |
+| `QDRANT_OPERATOR_HELM_CHART` | `qdrant` | |
+| `QDRANT_OPERATOR_HELM_TIMEOUT_SECONDS` | `600` | Per `helm` invocation |
+| `QDRANT_OPERATOR_HELM_POST_RENDERER` | unset | Post-render script; unset uses `qdrant-operator-postrender` on `PATH`, then beside the interpreter |
+| `QDRANT_OPERATOR_QDRANT_TIMEOUT_SECONDS` | `30` | Qdrant REST calls |
+| `QDRANT_OPERATOR_QDRANT_SNAPSHOT_TIMEOUT_SECONDS` | `3600` | Snapshot create, upload and download |
+| `POD_ID` | generated | Peer identity in the peering object, read by kopf; the chart sets it to the pod name |
 | `HELM_CACHE_HOME`, `HELM_CONFIG_HOME`, `HELM_DATA_HOME` | `/tmp/helm/*` in the chart | Where the bundled `helm` keeps its state on the read-only root filesystem |
 
-## Command line
+## Running next to an in-cluster operator
 
-The `qdrant-operator` entry point runs
-
-```sh
-kopf run -m qdrant_operator.handlers --all-namespaces --liveness=http://0.0.0.0:8080/healthz
-```
-
-and appends any arguments you pass. With `WATCH_NAMESPACES` set, `--namespace`
-per entry replaces `--all-namespaces`. Useful ones: `--namespace <ns>` to watch one namespace, `--verbose` for kopf's own debug
-output, `--standalone` to skip peering, `--dev` for a short peering priority
-when running next to an in-cluster operator. With `ha.enabled`, pods use random priorities
-up to 2147483647, so a `--dev` operator (priority 666) pauses itself; pass
-`--priority 4000000000` instead.
+With `ha.enabled`, pods use random priorities up to 2147483647. A local operator joins the same
+peering and takes over with `QDRANT_OPERATOR_KOPF_PEERING_NAME=<peering>
+QDRANT_OPERATOR_KOPF_PRIORITY=4000000000 qdrant-operator`.
 
 ## RBAC
 
@@ -111,7 +110,7 @@ either way.
 
 ## Metrics
 
-The operator serves Prometheus metrics on `METRICS_PORT`:
+The operator serves Prometheus metrics on `QDRANT_OPERATOR_METRICS_PORT`:
 
 | Metric | Labels | Meaning |
 |---|---|---|
@@ -122,7 +121,7 @@ The operator serves Prometheus metrics on `METRICS_PORT`:
 
 ## Metrics
 
-The operator serves Prometheus metrics on `METRICS_PORT`:
+The operator serves Prometheus metrics on `QDRANT_OPERATOR_METRICS_PORT`:
 
 | Metric | Labels | Meaning |
 |---|---|---|

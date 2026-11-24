@@ -1,33 +1,38 @@
-"""Operator entry point: starts kopf with the handlers registered."""
+"""Operator entry point: reads settings once, builds the container and runs kopf with it as memo."""
 
-import os
 import random
-import sys
 
-from kopf import cli
+import kopf
+import uvloop
 
-import qdrant_operator.handlers as handlers
-from qdrant_operator.ha import namespace_args
-from qdrant_operator.ha import peering_args
+from qdrant_operator.container import Container
+from qdrant_operator.ha import peering_priority
+from qdrant_operator.handlers import operator_settings
+from qdrant_operator.kubernetes_adapter import load_configuration
 from qdrant_operator.logs import configure_logging
-
-LIVENESS_URL = "http://0.0.0.0:8080/healthz"
-LIVENESS_ARG = f"--liveness={LIVENESS_URL}"
+from qdrant_operator.settings import Settings
 
 
-def run(argv: list[str] | None = None) -> None:
-    """Start the operator; extra arguments are passed to `kopf run` and override the defaults."""
-    configure_logging(os.environ.get("LOG_LEVEL", "INFO"))
-    extra = sys.argv[1:] if argv is None else argv
-    defaults = [
-        *namespace_args(os.environ),
-        LIVENESS_ARG,
-        *peering_args(os.environ, random.SystemRandom()),
-    ]
-    cli.main(
-        args=["run", "-m", handlers.__name__, *defaults, *extra],
-        prog_name="qdrant-operator",
+async def serve(settings: Settings) -> None:
+    container = Container.from_settings(settings, await load_configuration(settings.kubernetes))
+    if settings.metrics.port:
+        container.metrics.serve(settings.metrics.port)
+    peering = settings.kopf.peering_name
+    await kopf.operator(
+        settings=operator_settings(settings.kopf),
+        memo=container,
+        clusterwide=not settings.kopf.namespaces,
+        namespaces=settings.kopf.namespaces,
+        liveness_endpoint=settings.kopf.liveness_endpoint,
+        peering_name=peering or None,
+        priority=peering_priority(settings.kopf.priority, random.SystemRandom()) if peering else 0,
     )
+
+
+def run() -> None:
+    settings = Settings()
+    configure_logging(settings.logging)
+    uvloop.run(serve(settings))
 
 
 if __name__ == "__main__":

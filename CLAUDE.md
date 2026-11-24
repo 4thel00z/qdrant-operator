@@ -43,7 +43,8 @@ src/qdrant_operator/
 ├── ports.py             # typing.Protocol interfaces
 ├── usecases.py          # Application logic (orchestrates ports)
 ├── handlers.py          # Kopf handlers (driving adapters)
-├── container.py         # Dependency injection
+├── settings.py          # pydantic-settings, read once in main
+├── container.py         # Dependency injection; built once in main, passed to handlers as kopf memo
 ├── helm_adapter.py      # Driven adapter: Helm CLI
 ├── qdrant_adapter.py    # Driven adapter: Qdrant REST API
 ├── s3_adapter.py        # Driven adapter: S3/MinIO

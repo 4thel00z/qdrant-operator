@@ -5,6 +5,7 @@ from loguru import logger
 
 from qdrant_operator.logs import InterceptHandler
 from qdrant_operator.logs import configure_logging
+from qdrant_operator.settings import LoggingSettings
 
 
 def test_configure_logging_replaces_the_handler_kopf_installs() -> None:
@@ -14,7 +15,7 @@ def test_configure_logging_replaces_the_handler_kopf_installs() -> None:
         kopf.configure()
         assert len(root.handlers) >= 1
 
-        configure_logging("INFO")
+        configure_logging(LoggingSettings())
 
         assert [type(handler) for handler in root.handlers] == [InterceptHandler]
     finally:
@@ -26,8 +27,8 @@ def test_configure_logging_is_idempotent() -> None:
     root = logging.getLogger()
     saved = list(root.handlers)
     try:
-        configure_logging("INFO")
-        configure_logging("INFO")
+        configure_logging(LoggingSettings())
+        configure_logging(LoggingSettings())
 
         assert len(root.handlers) == 1
     finally:

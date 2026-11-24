@@ -1,10 +1,12 @@
 """Routes stdlib logging (kopf, httpx) into loguru so every line is emitted once."""
 
 import logging
-import os
 import sys
 
 from loguru import logger
+
+from qdrant_operator.settings import LogFormat
+from qdrant_operator.settings import LoggingSettings
 
 LEVELS = frozenset({"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"})
 
@@ -17,8 +19,8 @@ class InterceptHandler(logging.Handler):
         logger.opt(depth=6, exception=record.exc_info).log(level, record.getMessage())
 
 
-def configure_logging(level: str) -> None:
+def configure_logging(settings: LoggingSettings) -> None:
     """Replace every root handler, including the one kopf installs, with the loguru bridge."""
     logger.remove()
-    logger.add(sys.stderr, level=level, serialize=os.environ.get("LOG_FORMAT", "json") == "json")
+    logger.add(sys.stderr, level=settings.level, serialize=settings.format == LogFormat.JSON)
     logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)

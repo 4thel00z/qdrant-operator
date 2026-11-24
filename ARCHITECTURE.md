@@ -65,9 +65,12 @@ Rules the code follows:
 
 ## Runtime
 
-- Entry point `qdrant-operator` runs `kopf run -m qdrant_operator.handlers --all-namespaces
-  --liveness=http://0.0.0.0:8080/healthz`.
-- kopf logs go through stdlib logging into loguru (`LOG_LEVEL`, `LOG_FORMAT=json|text`).
+- Entry point `qdrant-operator` reads `Settings` (`settings.py`) from `QDRANT_OPERATOR_<SECTION>_*`
+  env vars once, loads the Kubernetes client configuration, builds the `Container` and runs
+  `kopf.operator` with it as `memo`. Handlers take `memo: Container`; nothing else reads the
+  environment.
+- kopf logs go through stdlib logging into loguru (`QDRANT_OPERATOR_LOGGING_LEVEL`,
+  `QDRANT_OPERATOR_LOGGING_FORMAT=json|text`).
 - Progress and diff-base annotations use the `qdrant.io` prefix; the finalizer is
   `qdrant.io/finalizer`.
 - In-cluster config is used when present, otherwise the local kubeconfig (`make dev`).

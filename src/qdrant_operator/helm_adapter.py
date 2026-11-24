@@ -2,27 +2,19 @@
 
 import asyncio
 import json
-import os
 import shutil
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
-from dataclasses import field
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
-QDRANT_CHART = "qdrant"
-QDRANT_CHART_REPO = "https://qdrant.github.io/qdrant-helm"
-CHART_REPO_ENV = "QDRANT_CHART_REPO"
+from qdrant_operator.settings import HelmSettings
+
 OCI_SCHEME = "oci://"
 POST_RENDERER = "qdrant-operator-postrender"
-
-
-def chart_repo_from_env() -> str:
-    """The chart repository from QDRANT_CHART_REPO, else the public qdrant-helm repository."""
-    return os.environ.get(CHART_REPO_ENV) or QDRANT_CHART_REPO
 
 
 def chart_arguments(chart: str, repo: str) -> list[str]:
@@ -32,8 +24,10 @@ def chart_arguments(chart: str, repo: str) -> list[str]:
     return [chart, "--repo", repo]
 
 
-def post_renderer_path() -> str:
-    """The post-render script on PATH, else next to the running interpreter."""
+def post_renderer_path(configured: str) -> str:
+    """The configured post-render script, else the one on PATH, else next to the interpreter."""
+    if configured:
+        return configured
     return shutil.which(POST_RENDERER) or str(Path(sys.executable).parent / POST_RENDERER)
 
 
@@ -43,11 +37,9 @@ class HelmError(RuntimeError):
 
 @dataclass
 class HelmAdapter:
-    chart: str = QDRANT_CHART
-    repo: str = field(default_factory=chart_repo_from_env)
-    kubeconfig: str | None = None
-    timeout_seconds: float = 600.0
-    post_renderer: str = field(default_factory=post_renderer_path)
+    settings: HelmSettings
+    kubeconfig: str
+    post_renderer: str
 
     async def apply(
         self,
@@ -63,7 +55,7 @@ class HelmAdapter:
             "upgrade",
             "--install",
             release_name,
-            *chart_arguments(self.chart, self.repo),
+            *chart_arguments(self.settings.chart, self.settings.repo),
             "--version",
             chart_version,
             "--namespace",
@@ -122,11 +114,13 @@ class HelmAdapter:
         )
         try:
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(stdin), timeout=self.timeout_seconds
+                process.communicate(stdin), timeout=self.settings.timeout_seconds
             )
         except TimeoutError:
             process.kill()
-            raise HelmError(f"helm {args[0]} timed out after {self.timeout_seconds}s") from None
+            raise HelmError(
+                f"helm {args[0]} timed out after {self.settings.timeout_seconds}s"
+            ) from None
         if process.returncode != 0:
             raise HelmError(f"helm {args[0]} failed: {stderr.decode().strip()}")
         return stdout.decode()

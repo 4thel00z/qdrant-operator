@@ -133,10 +133,11 @@ helm install qdrant-operator ./charts/qdrant-operator -f my-values.yaml
 
 ### Install from PyPI
 The operator is also a Python package; the `qdrant-operator` command runs it against your kubeconfig,
-forwarding any extra flags to `kopf run` (for example `--namespace team-a`).
+configured through `QDRANT_OPERATOR_*` environment variables (for example
+`QDRANT_OPERATOR_KOPF_NAMESPACES=team-a`).
 ```bash
 uv tool install qdrant-operator   # or: pipx install qdrant-operator
-qdrant-operator --help
+qdrant-operator
 ```
 Container images: `ghcr.io/4thel00z/qdrant-operator:<version>` (linux/amd64, linux/arm64, signed provenance).
 ### Build Docker Image (Optional)
@@ -377,8 +378,8 @@ run interrupted by an operator restart resumes where it stopped.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `KUBECONFIG` | Path to kubeconfig file | In-cluster config |
-| `LOG_LEVEL` | Logging level | `INFO` |
-| `LOG_FORMAT` | `json` or `text` | `json` |
+| `QDRANT_OPERATOR_LOGGING_LEVEL` | Logging level | `INFO` |
+| `QDRANT_OPERATOR_LOGGING_FORMAT` | `json` or `text` | `json` |
 
 ### S3 Credentials Secret
 

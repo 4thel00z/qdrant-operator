@@ -13,7 +13,8 @@ with `uv`. The package is `qdrant_operator`.
 | `src/qdrant_operator/handlers.py` | kopf handlers: event to dataclasses to use case to `patch.status` |
 | `src/qdrant_operator/*_adapter.py` | Helm CLI, Qdrant REST over httpx, S3 over aioboto3, Kubernetes over kubernetes-asyncio, JWT signing over PyJWT |
 | `src/qdrant_operator/container.py` | Wires adapters into use cases |
-| `src/qdrant_operator/main.py` | Entry point, loguru setup, `kopf run` |
+| `src/qdrant_operator/main.py` | Entry point: reads `Settings`, sets up loguru, runs kopf with the `Container` as memo |
+| `src/qdrant_operator/settings.py` | `QDRANT_OPERATOR_<SECTION>_*` settings, one pydantic-settings class per section |
 | `manifests/crds/` | The CRDs; `charts/qdrant-operator/crds/` must be an identical copy |
 | `charts/qdrant-operator/` | The operator's own chart |
 | `tests/` | Unit tests with in-memory fakes, CRD sync check, integration suite |

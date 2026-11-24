@@ -4,11 +4,10 @@ from dataclasses import field
 
 import pytest
 
-from qdrant_operator.helm_adapter import QDRANT_CHART_REPO
 from qdrant_operator.helm_adapter import HelmAdapter
 from qdrant_operator.helm_adapter import chart_arguments
-from qdrant_operator.helm_adapter import chart_repo_from_env
 from qdrant_operator.helm_adapter import post_renderer_path
+from qdrant_operator.settings import HelmSettings
 
 
 @dataclass
@@ -27,22 +26,19 @@ class RecordingHelm(HelmAdapter):
 
 
 def test_repo_defaults_to_public_qdrant_helm(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("QDRANT_CHART_REPO", raising=False)
+    monkeypatch.delenv("QDRANT_OPERATOR_HELM_REPO", raising=False)
 
-    assert chart_repo_from_env() == QDRANT_CHART_REPO
-    assert HelmAdapter().repo == QDRANT_CHART_REPO
+    assert HelmSettings().repo == "https://qdrant.github.io/qdrant-helm"
 
 
 def test_repo_comes_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("QDRANT_CHART_REPO", "https://charts.internal.example/qdrant")
+    monkeypatch.setenv("QDRANT_OPERATOR_HELM_REPO", "https://charts.internal.example/qdrant")
 
-    assert HelmAdapter().repo == "https://charts.internal.example/qdrant"
+    assert HelmSettings().repo == "https://charts.internal.example/qdrant"
 
 
-def test_empty_environment_value_falls_back_to_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("QDRANT_CHART_REPO", "")
-
-    assert chart_repo_from_env() == QDRANT_CHART_REPO
+def test_configured_post_renderer_wins() -> None:
+    assert post_renderer_path("/opt/postrender") == "/opt/postrender"
 
 
 def test_http_repository_uses_the_repo_flag() -> None:
@@ -60,7 +56,7 @@ def test_oci_repository_embeds_the_chart_in_the_reference() -> None:
 
 
 async def test_apply_passes_the_configured_repository_to_helm() -> None:
-    helm = RecordingHelm(repo="https://mirror.example/charts")
+    helm = RecordingHelm(HelmSettings(repo="https://mirror.example/charts"), "", "postrender")
 
     await helm.apply("qdrant-a", "ns", "1.16.3", {"replicaCount": 1}, "qdrant-a", 1)
 
@@ -69,7 +65,7 @@ async def test_apply_passes_the_configured_repository_to_helm() -> None:
 
 
 async def test_apply_post_renders_the_statefulset_partition() -> None:
-    helm = RecordingHelm(post_renderer="/venv/bin/qdrant-operator-postrender")
+    helm = RecordingHelm(HelmSettings(), "", "/venv/bin/qdrant-operator-postrender")
 
     await helm.apply("qdrant-a", "ns", "1.16.3", {}, "qdrant-a", 3)
 
@@ -84,11 +80,11 @@ def test_post_renderer_defaults_to_the_script_beside_the_interpreter(
 ) -> None:
     monkeypatch.setenv("PATH", "")
 
-    assert post_renderer_path().endswith("/qdrant-operator-postrender")
+    assert post_renderer_path("").endswith("/qdrant-operator-postrender")
 
 
 async def test_apply_never_asks_helm_to_create_the_namespace() -> None:
-    helm = RecordingHelm()
+    helm = RecordingHelm(HelmSettings(), "", "postrender")
 
     await helm.apply("qdrant-a", "ns", "1.16.3", {"replicaCount": 1}, "qdrant-a", 1)
 
