@@ -1,0 +1,372 @@
+{
+  "durations": [
+    {
+      "error": false,
+      "seconds": 2592000.0
+    },
+    {
+      "error": false,
+      "seconds": 5415.0
+    },
+    {
+      "error": false,
+      "seconds": 90.0
+    },
+    {
+      "error": false,
+      "seconds": 0.0
+    },
+    {
+      "error": false,
+      "seconds": 300.0
+    },
+    {
+      "error": false,
+      "seconds": 5400.0
+    },
+    {
+      "error": false,
+      "seconds": 420.0
+    },
+    {
+      "error": true,
+      "seconds": null
+    },
+    {
+      "error": true,
+      "seconds": null
+    },
+    {
+      "error": true,
+      "seconds": null
+    },
+    {
+      "error": true,
+      "seconds": null
+    },
+    {
+      "error": true,
+      "seconds": null
+    },
+    {
+      "error": true,
+      "seconds": null
+    },
+    {
+      "error": true,
+      "seconds": null
+    },
+    {
+      "error": true,
+      "seconds": null
+    }
+  ],
+  "fingerprints": [
+    "61372661cf51fbc3",
+    "e3b0c44298fc1c14",
+    "817281acd7012441",
+    "2aa50b47c92342dd"
+  ],
+  "specs": [
+    {
+      "access_claim": [
+        {
+          "access": "rw",
+          "collection": "docs"
+        },
+        {
+          "access": "r",
+          "collection": "logs"
+        }
+      ],
+      "claims": {
+        "access": [
+          {
+            "access": "rw",
+            "collection": "docs"
+          },
+          {
+            "access": "r",
+            "collection": "logs"
+          }
+        ],
+        "exp": 1792872000,
+        "sub": "billing-service",
+        "value_exists": {
+          "collection": "tenants",
+          "matches": [
+            {
+              "key": "id",
+              "value": 42
+            }
+          ]
+        }
+      },
+      "cluster_ref": {
+        "name": "db",
+        "namespace": "tenant-a"
+      },
+      "error": false,
+      "expires_at_micros": 1792872000000000,
+      "renew_at_micros": 1792785600000000,
+      "renew_before_seconds": 86400.0,
+      "secret_name": "app-token",
+      "token_secret_ref": {
+        "key": "token",
+        "name": "app-token",
+        "namespace": "tenant-a"
+      },
+      "ttl_seconds": 2592000.0
+    },
+    {
+      "access_claim": "r",
+      "claims": {
+        "access": "r"
+      },
+      "cluster_ref": {
+        "name": "db",
+        "namespace": "tenant-a"
+      },
+      "error": false,
+      "expires_at_micros": null,
+      "renew_at_micros": null,
+      "renew_before_seconds": null,
+      "secret_name": "app-token",
+      "token_secret_ref": {
+        "key": "token",
+        "name": "app-token",
+        "namespace": "tenant-a"
+      },
+      "ttl_seconds": null
+    },
+    {
+      "access_claim": "m",
+      "claims": {
+        "access": "m",
+        "exp": 1790604000
+      },
+      "cluster_ref": {
+        "name": "db",
+        "namespace": "other"
+      },
+      "error": false,
+      "expires_at_micros": 1790604000000000,
+      "renew_at_micros": 1790496000000000,
+      "renew_before_seconds": null,
+      "secret_name": "tokens",
+      "token_secret_ref": {
+        "key": "token",
+        "name": "tokens",
+        "namespace": "tenant-a"
+      },
+      "ttl_seconds": 324000.0
+    },
+    {
+      "access_claim": "r",
+      "claims": {
+        "access": "r",
+        "exp": 1790280002
+      },
+      "cluster_ref": {
+        "name": "db",
+        "namespace": "tenant-a"
+      },
+      "error": false,
+      "expires_at_micros": 1790280002000000,
+      "renew_at_micros": 1790280001333333,
+      "renew_before_seconds": null,
+      "secret_name": "app-token",
+      "token_secret_ref": {
+        "key": "token",
+        "name": "app-token",
+        "namespace": "tenant-a"
+      },
+      "ttl_seconds": 2.0
+    },
+    {
+      "access_claim": "r",
+      "claims": {
+        "access": "r",
+        "exp": 1790280001
+      },
+      "cluster_ref": {
+        "name": "db",
+        "namespace": "tenant-a"
+      },
+      "error": false,
+      "expires_at_micros": 1790280001000000,
+      "renew_at_micros": 1790280000666667,
+      "renew_before_seconds": null,
+      "secret_name": "app-token",
+      "token_secret_ref": {
+        "key": "token",
+        "name": "app-token",
+        "namespace": "tenant-a"
+      },
+      "ttl_seconds": 1.0
+    },
+    {
+      "access_claim": "r",
+      "claims": {
+        "access": "r"
+      },
+      "cluster_ref": {
+        "name": "db",
+        "namespace": "tenant-a"
+      },
+      "error": false,
+      "expires_at_micros": null,
+      "renew_at_micros": null,
+      "renew_before_seconds": 3600.0,
+      "secret_name": "app-token",
+      "token_secret_ref": {
+        "key": "token",
+        "name": "app-token",
+        "namespace": "tenant-a"
+      },
+      "ttl_seconds": null
+    },
+    {
+      "access_claim": "r",
+      "claims": {
+        "access": "r",
+        "exp": 1790283600
+      },
+      "cluster_ref": {
+        "name": "db",
+        "namespace": "tenant-a"
+      },
+      "error": false,
+      "expires_at_micros": 1790283600000000,
+      "renew_at_micros": 1790276400000000,
+      "renew_before_seconds": 7200.0,
+      "secret_name": "app-token",
+      "token_secret_ref": {
+        "key": "token",
+        "name": "app-token",
+        "namespace": "tenant-a"
+      },
+      "ttl_seconds": 3600.0
+    },
+    {
+      "access_claim": "r",
+      "claims": {
+        "access": "r",
+        "value_exists": {
+          "collection": "t",
+          "matches": [
+            {
+              "key": "id",
+              "value": 9007199254740993
+            },
+            {
+              "key": "tags",
+              "value": [
+                "a",
+                {
+                  "b": 1.5
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "cluster_ref": {
+        "name": "db",
+        "namespace": "tenant-a"
+      },
+      "error": false,
+      "expires_at_micros": null,
+      "renew_at_micros": null,
+      "renew_before_seconds": null,
+      "secret_name": "app-token",
+      "token_secret_ref": {
+        "key": "token",
+        "name": "app-token",
+        "namespace": "tenant-a"
+      },
+      "ttl_seconds": null
+    },
+    {
+      "error": true
+    },
+    {
+      "error": true
+    },
+    {
+      "error": true
+    },
+    {
+      "error": true
+    }
+  ],
+  "statuses": [
+    {
+      "api": {
+        "conditions": [
+          {
+            "lastTransitionTime": "2026-09-24T20:00:00Z",
+            "message": "ok",
+            "reason": "TokenIssued",
+            "status": "True",
+            "type": "Ready"
+          }
+        ],
+        "expiresAt": "2026-10-24T20:00:00Z",
+        "issuedAt": "2026-09-24T20:00:00Z",
+        "keyFingerprint": "abc",
+        "observedGeneration": 2,
+        "phase": "Ready",
+        "renewAt": "2026-10-23T20:00:00Z",
+        "secretRef": {
+          "key": "token",
+          "name": "app-token"
+        }
+      },
+      "secret_ref": {
+        "key": "token",
+        "name": "app-token",
+        "namespace": "tenant-a"
+      },
+      "token_current": [
+        true,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "api": {
+        "keyFingerprint": "abc",
+        "observedGeneration": 2,
+        "phase": "Ready"
+      },
+      "secret_ref": null,
+      "token_current": [
+        true
+      ]
+    },
+    {
+      "api": {
+        "phase": "Pending"
+      },
+      "secret_ref": null,
+      "token_current": [
+        false
+      ]
+    },
+    {
+      "api": {
+        "error": "cluster has no api key",
+        "observedGeneration": 4,
+        "phase": "Failed"
+      },
+      "secret_ref": null,
+      "token_current": [
+        false
+      ]
+    }
+  ]
+}
