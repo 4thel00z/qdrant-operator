@@ -23,7 +23,7 @@ import (
 
 // ClusterReconciler applies the Helm release of a QdrantCluster when its spec changes or a failed
 // apply is due a retry, and otherwise observes, steps rollouts and recovers peers every
-// Timing.ClusterObserve.
+// Timing.ClusterObserve, or every Timing.ClusterPendingObserve while the cluster is Pending or Upgrading.
 type ClusterReconciler struct {
 	Dependencies
 	memory clusterRegistry
@@ -104,7 +104,14 @@ func (r *ClusterReconciler) apply(ctx context.Context, key types.NamespacedName,
 	}
 	r.Metrics.SetClusterPhase(spec.Namespace, spec.Name, result.Phase)
 	log.FromContext(ctx).Info(fmt.Sprintf("Helm release %s reconciled; phase %s", spec.ReleaseName(), result.Phase))
-	return Every(r.Timing.ClusterObserve)
+	return Every(r.observeInterval(result.Phase))
+}
+
+func (r *ClusterReconciler) observeInterval(phase domain.ClusterPhase) time.Duration {
+	if phase.Settled() {
+		return r.Timing.ClusterObserve
+	}
+	return r.Timing.ClusterPendingObserve
 }
 
 func (r *ClusterReconciler) writeAndRetry(ctx context.Context, object *qdrantv1alpha1.QdrantCluster, status *domain.ClusterStatus, cause error, delay time.Duration) (ctrl.Result, error) {
@@ -173,7 +180,7 @@ func (r *ClusterReconciler) recoverPeers(ctx context.Context, key types.Namespac
 }
 
 func (r *ClusterReconciler) nextPass(spec domain.ClusterSpec, status domain.ClusterStatus, memory clusterMemory, now time.Time) time.Duration {
-	next := r.Timing.ClusterObserve
+	next := r.observeInterval(status.Phase)
 	if usecases.IsApplyFailed(status.Conditions) {
 		next = min(next, r.Timing.HelmRetry-now.Sub(memory.lastApply))
 	}

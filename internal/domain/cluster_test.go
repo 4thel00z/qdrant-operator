@@ -8,6 +8,21 @@ import (
 	"github.com/4thel00z/qdrant-operator/internal/domain"
 )
 
+func TestClusterPhaseSettled(t *testing.T) {
+	cases := map[domain.ClusterPhase]bool{
+		domain.PhasePending:     false,
+		domain.PhaseUpgrading:   false,
+		domain.PhaseRunning:     true,
+		domain.PhaseFailed:      true,
+		domain.PhaseTerminating: true,
+	}
+	for phase, want := range cases {
+		if got := phase.Settled(); got != want {
+			t.Errorf("%s: want %v, got %v", phase, want, got)
+		}
+	}
+}
+
 func TestParseQuantity(t *testing.T) {
 	cases := map[string]int64{"10Gi": 10 << 30, "500M": 500_000_000, "1.5Ki": 1536, "0.1": 1, "42": 42}
 	for value, want := range cases {

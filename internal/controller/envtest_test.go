@@ -154,15 +154,16 @@ func startWorld(t *testing.T, arrange Arrange, register Register) *world {
 // fastTiming keeps every requeue short so retries and timers show up within a test.
 func fastTiming() controller.Timing {
 	return controller.Timing{
-		ClusterObserve:      time.Second,
-		ScheduleTick:        time.Second,
-		CollectionReconcile: time.Second,
-		AccessKeyRenew:      time.Second,
-		BackupExpiry:        time.Second,
-		PeerRecovery:        time.Second,
-		Retry:               500 * time.Millisecond,
-		ScaleDownPoll:       500 * time.Millisecond,
-		HelmRetry:           time.Second,
+		ClusterObserve:        time.Second,
+		ClusterPendingObserve: 500 * time.Millisecond,
+		ScheduleTick:          time.Second,
+		CollectionReconcile:   time.Second,
+		AccessKeyRenew:        time.Second,
+		BackupExpiry:          time.Second,
+		PeerRecovery:          time.Second,
+		Retry:                 500 * time.Millisecond,
+		ScaleDownPoll:         500 * time.Millisecond,
+		HelmRetry:             time.Second,
 	}
 }
 

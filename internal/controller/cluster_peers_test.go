@@ -294,6 +294,24 @@ func TestClusterControllerLeavesUnevenShardsAloneWithoutRebalance(t *testing.T) 
 	}
 }
 
+func TestClusterControllerChecksAPendingClusterAtThePendingInterval(t *testing.T) {
+	qdrant := &peerQdrant{Qdrant: fakes.NewQdrant()}
+	register := func(manager ctrl.Manager, deps controller.Dependencies) error {
+		deps.Timing.ClusterObserve = time.Hour
+		deps.Timing.ClusterPendingObserve = 200 * time.Millisecond
+		return registerPeerClusters(qdrant)(manager, deps)
+	}
+	w := startWorld(t, nil, register)
+	create(t, w, clusterObject("db", peerClusterSpec(qdrantv1alpha1.ClusterScaling{})))
+	eventually(t, func() (bool, string) {
+		object := clusterFetch(t, w, "db")
+		return object.Status.Phase == "Pending", fmt.Sprintf("status %+v", object.Status)
+	})
+
+	settledStatefulSet(t, w)
+	awaitRunning(t, w)
+}
+
 func TestClusterControllerThrottlesRebalancingToThePeerRecoveryInterval(t *testing.T) {
 	qdrant := &peerQdrant{Qdrant: fakes.NewQdrant()}
 	register := func(manager ctrl.Manager, deps controller.Dependencies) error {
