@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
-	"slices"
 	"strconv"
-	"strings"
 )
 
 type ReclaimPolicy string
@@ -384,13 +382,7 @@ func (c ClusterSpec) PodSelector() map[string]string {
 }
 
 func (c ClusterSpec) PodLabelSelector() string {
-	selector := c.PodSelector()
-	keys := slices.Sorted(maps.Keys(selector))
-	pairs := make([]string, 0, len(keys))
-	for _, key := range keys {
-		pairs = append(pairs, key+"="+selector[key])
-	}
-	return strings.Join(pairs, ",")
+	return "app.kubernetes.io/name=" + ChartName + ",app.kubernetes.io/instance=" + c.ReleaseName()
 }
 
 func (c ClusterSpec) Scheme() string {
