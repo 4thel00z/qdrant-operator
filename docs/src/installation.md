@@ -96,8 +96,9 @@ by default. A shorter duration means faster failover and more Lease renewals.
 Check which pod is active with
 `kubectl get lease -n qdrant-system <name> -o jsonpath='{.spec.holderIdentity}'`.
 
-The Lease name is fixed per release; to run two releases that watch different
-namespaces, give each its own `ha.leaseName`.
+Each release gets its own Lease from its release name, so two releases can run
+side by side; set `ha.leaseName` only if two releases in one namespace share a
+full name through `fullnameOverride`.
 
 ## Watching only some namespaces
 

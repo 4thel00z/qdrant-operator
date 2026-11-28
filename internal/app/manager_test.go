@@ -61,3 +61,10 @@ func TestLoggerFormats(t *testing.T) {
 		t.Error("expected an error for an unknown level")
 	}
 }
+
+func TestManagerOptionsReleaseTheLeaseOnShutdown(t *testing.T) {
+	options := app.ManagerOptions(settings.Settings{}, nil)
+	if !options.LeaderElectionReleaseOnCancel {
+		t.Error("the Lease is kept until it expires after a clean shutdown")
+	}
+}

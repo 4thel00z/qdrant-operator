@@ -78,13 +78,14 @@ func ManagerOptions(config settings.Settings, scheme *runtime.Scheme) ctrl.Optio
 		metricsAddress = metricsDisabled
 	}
 	return ctrl.Options{
-		Scheme:                 scheme,
-		Metrics:                metricsserver.Options{BindAddress: metricsAddress},
-		HealthProbeBindAddress: config.Manager.HealthProbeAddress,
-		LeaderElection:         config.Manager.LeaderElection,
-		LeaderElectionID:       config.Manager.LeaderElectionID,
-		LeaseDuration:          &leaseDuration,
-		Cache:                  cache.Options{DefaultNamespaces: NamespaceConfigs(config.Manager.Namespaces)},
+		Scheme:                        scheme,
+		Metrics:                       metricsserver.Options{BindAddress: metricsAddress},
+		HealthProbeBindAddress:        config.Manager.HealthProbeAddress,
+		LeaderElection:                config.Manager.LeaderElection,
+		LeaderElectionID:              config.Manager.LeaderElectionID,
+		LeaderElectionReleaseOnCancel: true,
+		LeaseDuration:                 &leaseDuration,
+		Cache:                         cache.Options{DefaultNamespaces: NamespaceConfigs(config.Manager.Namespaces)},
 	}
 }
 
