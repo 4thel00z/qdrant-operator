@@ -72,13 +72,14 @@ cannot change (the size rules use CEL `quantity()`, Kubernetes 1.29 or newer); `
 
 ## Behavior
 
-On create, spec update and operator start: `helm upgrade --install
-qdrant-<name> qdrant --repo https://qdrant.github.io/qdrant-helm --version
-<version> --namespace <namespace> --values -` with the
-values from [Helm values the operator renders](./helm-values.md) on stdin.
+On create, spec update and operator start: a Helm upgrade or install, run
+in-process through the Helm Go SDK, of release `qdrant-<name>` from chart
+`qdrant` in repository `https://qdrant.github.io/qdrant-helm` (or
+`--helm-repo`), at `<version>`, in `<namespace>`, with the
+values from [Helm values the operator renders](./helm-values.md).
 The phase is `Pending` on a first install and `Upgrading` when the release
 existed. Every thirty seconds the StatefulSet `qdrant-<name>` is read and
-`Running` set once `readyReplicas` reaches `replicas`. On delete: `helm
-uninstall --wait`; PVCs are left behind.
+`Running` set once `readyReplicas` reaches `replicas`. On delete: a Helm
+uninstall that waits; PVCs are left behind.
 
 Print columns: `PHASE`, `REPLICAS`, `READY`, `VERSION`, `AGE`.

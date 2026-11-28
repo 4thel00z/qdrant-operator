@@ -5,71 +5,77 @@
 | Value | Default | Description |
 |---|---|---|
 | `replicaCount` | `1` | Above one only with `ha.enabled`; the chart refuses to render otherwise |
-| `ha.enabled` | `false` | Kopf peering: one replica is active, the rest wait as standbys. Switches the Deployment to `RollingUpdate`. See [High availability](../installation.md#high-availability) |
-| `ha.peeringName` | release full name | Name of the peering object |
-| `ha.lifetime` | `60` | Seconds before a standby takes over from a pod that died without a clean exit |
+| `ha.enabled` | `false` | Leader election: one replica holds a Lease and reconciles, the rest wait as standbys. Switches the Deployment to `RollingUpdate`. See [High availability](../installation.md#high-availability) |
+| `ha.leaseName` | release full name | Name of the Lease |
+| `ha.leaseDuration` | `15s` | How long a standby waits before taking over from a leader that stopped renewing; a clean shutdown releases the Lease at once |
 | `image.repository` | `ghcr.io/4thel00z/qdrant-operator` | |
 | `image.tag` | chart `appVersion` | |
 | `image.pullPolicy` | `IfNotPresent` | |
 | `serviceAccount.create` | `true` | |
 | `serviceAccount.name` | release full name | |
-| `watchNamespaces` | `[]` | Namespaces to watch. Empty watches all of them under one ClusterRole; otherwise each entry gets a Role and RoleBinding and kopf runs with `--namespace` per entry, see [Installation](../installation.md#watching-only-some-namespaces) |
-| `resources` | `100m`/`128Mi` requests, `500m`/`1Gi` limits | Streaming itself is small (8 MiB upload parts, two at a time, 1 MiB reads); the memory goes to the interpreter and kopf state. A migration loop alone held about 320 Mi and a backup about 280 Mi, so concurrent ones need the headroom |
-| `operator.logLevel` | `INFO` | loguru level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `watchNamespaces` | `[]` | Namespaces to watch. Empty watches all of them under one ClusterRole; otherwise each entry gets a Role and RoleBinding, see [Installation](../installation.md#watching-only-some-namespaces) |
+| `resources` | `100m`/`128Mi` requests, `500m`/`1Gi` limits | Backups, restores and migrations stream through the operator and can run at once (S3 upload parts of 8 MiB, two at a time; Qdrant stream chunks of 1 MiB) |
+| `operator.logLevel` | `info` | `debug`, `info`, `warn` or `error` |
 | `operator.logFormat` | `json` | `json` or `text` |
-| `operator.chartRepo` | public qdrant-helm | Chart repository for mirrors and air-gapped installs; `oci://` registries work too |
+| `operator.chartRepo` | public qdrant-helm | Chart repository for mirrors and air-gapped installs; `oci://` registries work too. Sets `--helm-repo` |
 | `metrics.enabled` | `true` | Prometheus endpoint, plus a `-metrics` Service |
 | `metrics.port` | `9090` | |
 | `metrics.serviceMonitor.enabled`, `.interval`, `.labels` | `false`, `30s`, `{}` | Optional ServiceMonitor |
 
-## Environment variables
+## Command line and environment
 
-| Variable | Default | Description |
-|---|---|---|
-| `LOG_LEVEL` | `INFO` | |
-| `LOG_FORMAT` | `json` | `json` writes one JSON object per line; `text` is for a terminal |
-| `QDRANT_CHART_REPO` | `https://qdrant.github.io/qdrant-helm` | Where the qdrant chart is pulled from |
-| `PEERING_NAME` | unset | Joins the kopf peering of this name; the operator fails to start if the peering object is missing. Unset keeps today's standalone behaviour |
-| `PEERING_PRIORITY` | random per start | Fixed priority instead of the random one |
-| `PEERING_LIFETIME` | `60` | Peering record lifetime in seconds |
-| `WATCH_NAMESPACES` | unset | Comma-separated namespaces to watch; unset watches all. The chart sets it from `watchNamespaces` |
-| `POD_ID` | generated | Peer identity in the peering object; the chart sets it to the pod name |
-| `METRICS_PORT` | `9090` | Port of the Prometheus endpoint; `0` turns it off |
-| `KUBECONFIG` | in-cluster | Used when no service account token is mounted |
-| `HELM_CACHE_HOME`, `HELM_CONFIG_HOME`, `HELM_DATA_HOME` | `/tmp/helm/*` in the chart | Where the bundled `helm` keeps its state on the read-only root filesystem |
+`qdrant-operator` takes no arguments, only flags. Every flag has an environment
+variable: `QDRANT_OPERATOR_` plus the flag name without the leading dashes, in
+upper case, with `-` and `.` as `_`. `--manager-lease-duration` is
+`QDRANT_OPERATOR_MANAGER_LEASE_DURATION`. Flags take precedence over the
+environment. Durations are Go durations such as `30s` or `10m`; list values are
+comma-separated.
 
-## Command line
+| Flag | Environment variable | Default | Description |
+|---|---|---|---|
+| `--logging-level` | `QDRANT_OPERATOR_LOGGING_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
+| `--logging-format` | `QDRANT_OPERATOR_LOGGING_FORMAT` | `json` | `json` writes one JSON object per line; `text` is for a terminal. Other values are rejected |
+| `--manager-namespaces` | `QDRANT_OPERATOR_MANAGER_NAMESPACES` | empty | Namespaces to watch; empty watches all. The chart sets it from `watchNamespaces` |
+| `--manager-leader-election` | `QDRANT_OPERATOR_MANAGER_LEADER_ELECTION` | `false` | Elect a leader so several replicas can run |
+| `--manager-leader-election-id` | `QDRANT_OPERATOR_MANAGER_LEADER_ELECTION_ID` | `qdrant-operator.qdrant.io` | Name of the leader election Lease; the chart sets it from `ha.leaseName` |
+| `--manager-lease-duration` | `QDRANT_OPERATOR_MANAGER_LEASE_DURATION` | `15s` | Leader election lease duration |
+| `--manager-health-probe-address` | `QDRANT_OPERATOR_MANAGER_HEALTH_PROBE_ADDRESS` | `:8080` | Address of `/healthz` and `/readyz` |
+| `--manager-max-concurrent-one-shots` | `QDRANT_OPERATOR_MANAGER_MAX_CONCURRENT_ONE_SHOTS` | `4` | Parallel backups, restores and migrations per kind; at least 1 |
+| `--manager-max-concurrent-levels` | `QDRANT_OPERATOR_MANAGER_MAX_CONCURRENT_LEVELS` | `4` | Parallel reconciles per kind for clusters, schedules, collections and access keys; at least 1 |
+| `--metrics-address` | `QDRANT_OPERATOR_METRICS_ADDRESS` | `:9090` | Address of the Prometheus endpoint; empty disables it. The chart passes `0` when `metrics.enabled` is false |
+| `--kubernetes-kubeconfig` | `QDRANT_OPERATOR_KUBERNETES_KUBECONFIG` | empty | Kubeconfig path; empty uses the in-cluster config |
+| `--helm-chart` | `QDRANT_OPERATOR_HELM_CHART` | `qdrant` | Qdrant chart name |
+| `--helm-repo` | `QDRANT_OPERATOR_HELM_REPO` | `https://qdrant.github.io/qdrant-helm` | Qdrant chart repository, `https://` or `oci://` |
+| `--helm-timeout` | `QDRANT_OPERATOR_HELM_TIMEOUT` | `10m` | Timeout of one Helm install or upgrade; must be positive |
+| `--helm-cache-dir` | `QDRANT_OPERATOR_HELM_CACHE_DIR` | `/tmp/helm` | Directory for downloaded charts; the chart sets `/tmp/helm/charts` |
+| `--qdrant-timeout` | `QDRANT_OPERATOR_QDRANT_TIMEOUT` | `30s` | Timeout of one Qdrant API call |
+| `--qdrant-snapshot-timeout` | `QDRANT_OPERATOR_QDRANT_SNAPSHOT_TIMEOUT` | `1h` | Timeout of one Qdrant snapshot create, upload or recover |
 
-The `qdrant-operator` entry point runs
+With no kubeconfig flag the operator uses the in-cluster config and falls back
+to the default kubeconfig. The chart also sets `HELM_CACHE_HOME`,
+`HELM_CONFIG_HOME` and `HELM_DATA_HOME` to `/tmp/helm/*`, where the Helm SDK
+keeps its state on the read-only root filesystem.
 
-```sh
-kopf run -m qdrant_operator.handlers --all-namespaces --liveness=http://0.0.0.0:8080/healthz
-```
-
-and appends any arguments you pass. With `WATCH_NAMESPACES` set, `--namespace`
-per entry replaces `--all-namespaces`. Useful ones: `--namespace <ns>` to watch one namespace, `--verbose` for kopf's own debug
-output, `--standalone` to skip peering, `--dev` for a short peering priority
-when running next to an in-cluster operator. With `ha.enabled`, pods use random priorities
-up to 2147483647, so a `--dev` operator (priority 666) pauses itself; pass
-`--priority 4000000000` instead.
+For development, `make dev` runs `go run ./cmd/operator --logging-format text`
+against your current kubeconfig. Scale an in-cluster operator down first, or
+both reconcile the same resources.
 
 ## RBAC
 
 Without `watchNamespaces` the chart creates one ClusterRole with every rule
-below. With it, only the CustomResourceDefinition rule stays in the
-ClusterRole and the rest is a Role in each listed namespace, with `kopfpeerings`
-in place of `clusterkopfpeerings`.
+below. With it, only the cluster-scoped rules (PersistentVolumes and Nodes) stay in the
+ClusterRole and the rest is a Role in each listed namespace. With `ha.enabled`
+a separate Role in the release namespace grants the Lease and Event verbs.
 
 | Resources | Verbs | Why |
 |---|---|---|
-| `customresourcedefinitions` | list, watch | kopf checks the CRDs it serves; cluster-scoped |
 | `persistentvolumes` | get | Zone of each data volume when a `volumeSnapshot` backup is taken; cluster-scoped |
 | `nodes` | list | A Ready node in the snapshot's zone when such a backup is restored; cluster-scoped |
-| `qdrant.io` kinds | get, list, watch, patch | kopf watches the seven custom resources and sets finalizers and annotations; cluster references are read |
+| `qdrant.io` kinds | get, list, watch, patch | The operator watches the seven custom resources and sets finalizers; cluster references are read |
 | `qdrantbackups` | create, delete | The schedule creates and prunes backups; a backup deletes itself at `expiresAt` |
 | `qdrant.io` `*/status` | get, patch | Status subresources |
-| `clusterkopfpeerings.kopf.dev` (or `kopfpeerings`) | get, list, watch, patch | kopf peering between operator instances |
-| `events` | create | kopf posts events on handled resources |
+| `events` (core and `events.k8s.io`) | create, patch | Phase-change events on handled resources |
+| `leases.coordination.k8s.io` | get, create, update | Leader election, with `ha.enabled`; Role in the release namespace |
 | `secrets` | get, list, create, update, patch, delete | API keys, TLS CA and bucket credentials are read, access key Secrets are written, Helm keeps its `helm.sh/release.v1` release records and the chart renders Secrets |
 | `persistentvolumeclaims` | list, patch, delete | Grow and clean up the data and snapshot volumes |
 | `persistentvolumeclaims` | create | Pre-create data volumes from VolumeSnapshots on restore |
@@ -84,49 +90,48 @@ Helm runs inside the operator pod with the pod's service account, so the
 operator needs every permission the chart's objects need. The operator does
 not create namespaces; a cluster's namespace is the one its resource lives in.
 
-## Timers and retries
+## Intervals and retries
+
+Reconcilers requeue themselves at these intervals (`Timing` in `internal/controller`):
 
 | What | Interval |
 |---|---|
-| `QdrantCluster` readiness check | 30 s, first after 10 s |
+| `QdrantCluster` readiness check | 30 s |
 | `QdrantCollection` reconcile | 60 s |
 | `QdrantAccessKey` renewal check | 60 s |
 | `QdrantBackupSchedule` tick | 60 s |
 | `QdrantBackup` expiry check | 300 s, only with `expiresAt` set |
+| Dead-peer recovery and rebalance, at most once per | 60 s |
+| Re-apply of a failed Helm release, at most once per | 60 s |
+| Scale-down poll | 15 s |
 | Retry after a missing cluster, Secret or not-yet-completed backup | 30 s |
-| `helm` command timeout | 600 s |
-| Qdrant snapshot, recovery, collection, index, scroll and upsert calls | 3600 s |
-| Other Qdrant calls | 30 s |
+| Helm install or upgrade timeout | `--helm-timeout`, 10 min |
+| Qdrant snapshot create, upload and recover | `--qdrant-snapshot-timeout`, 1 h |
+| Other Qdrant calls | `--qdrant-timeout`, 30 s |
 | Presigned URL lifetime | 3600 s |
-| Wait for a restored collection to turn `green` | poll 5 s, give up after 3600 s |
+| Wait for a restored collection to turn `green` | poll 5 s |
 
-## Annotations and finalizer
+## Finalizer
 
-kopf keeps its handler progress in annotations prefixed `qdrant.io/` and the
-last applied spec under `qdrant.io/last-applied-spec`. The finalizer on every
-resource is `qdrant.io/finalizer`. Removing the finalizer by hand skips the
-delete handler: the Helm release, the bucket objects or the Qdrant
-collection then stay. Access key Secrets are removed by owner reference
-either way.
+`QdrantCluster`, `QdrantBackup` and `QdrantCollection` carry the finalizer
+`qdrant.io/finalizer`. Removing it by hand skips the cleanup: the Helm release,
+the bucket objects or the Qdrant collection then stay. Access key Secrets are
+removed by owner reference either way.
 
-## Metrics
+## Events
 
-The operator serves Prometheus metrics on `METRICS_PORT`:
-
-| Metric | Labels | Meaning |
-|---|---|---|
-| `qdrant_operator_reconcile_errors_total` | `kind` | Handler failures |
-| `qdrant_operator_operations_total` | `kind`, `outcome` | Finished backups, restores and migrations |
-| `qdrant_operator_operation_duration_seconds` | `kind` | Wall time of the same |
-| `qdrant_operator_cluster_phase` | `namespace`, `name`, `phase` | `1` for the cluster's current phase |
+Every phase change is recorded as an `events.k8s.io` Event on the resource:
+`Warning` for `Failed`, `Normal` otherwise, with the status error or message as
+the note. Read them with `kubectl describe` or `kubectl get events`.
 
 ## Metrics
 
-The operator serves Prometheus metrics on `METRICS_PORT`:
+The operator serves Prometheus metrics on `--metrics-address` (`:9090` by default), the controller-runtime metrics
+endpoint:
 
 | Metric | Labels | Meaning |
 |---|---|---|
-| `qdrant_operator_reconcile_errors_total` | `kind` | Handler failures |
+| `qdrant_operator_reconcile_errors_total` | `kind` | Reconcile failures |
 | `qdrant_operator_operations_total` | `kind`, `outcome` | Finished backups, restores and migrations |
 | `qdrant_operator_operation_duration_seconds` | `kind` | Wall time of the same |
 | `qdrant_operator_cluster_phase` | `namespace`, `name`, `phase` | `1` for the cluster's current phase |

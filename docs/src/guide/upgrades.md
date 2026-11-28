@@ -82,9 +82,8 @@ Choose `Readiness` to get the previous behaviour; it also resets a partition
 left by `ShardHealth`. The operator needs `get`, `list` and `watch` on pods,
 which the chart's ClusterRole grants.
 
-The partition is part of every Helm apply: the operator runs `helm upgrade` with
-a post-renderer (`qdrant-operator-postrender`, shipped in the operator image)
-that sets the StatefulSet's `updateStrategy` to the held partition, so a
+The partition is part of every Helm apply: the operator runs the Helm upgrade with
+an in-process post-renderer that sets the StatefulSet's `updateStrategy` to the held partition, so a
 recreated StatefulSet and a template change never restart a pod before its
 turn. Re-applying the release in the middle of a rollout resets the hold, and
 the operator releases the pods again one by one.
@@ -125,7 +124,7 @@ helm upgrade qdrant-operator oci://ghcr.io/4thel00z/charts/qdrant-operator \
 
 Helm installs CRDs on first install only, so apply them from the new release
 before upgrading the chart. The operator's Deployment uses the `Recreate`
-strategy: the old pod stops before the new one starts, and handlers that were
+strategy: the old pod stops before the new one starts, and reconciles that were
 in flight, such as a running backup, are re-run by the new pod.
 
 On startup the new operator resumes every resource. For `QdrantCluster` that
