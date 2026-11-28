@@ -1,6 +1,7 @@
 package translate
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 
@@ -192,6 +193,12 @@ func collectionShardKeyToAPI(key any) intstr.IntOrString {
 	}
 	if number, ok := key.(float64); ok {
 		return intstr.FromInt32(int32(number))
+	}
+	if number, ok := key.(json.Number); ok {
+		value, err := number.Int64()
+		if err == nil {
+			return intstr.FromInt32(int32(value))
+		}
 	}
 	return intstr.FromString(fmt.Sprint(key))
 }

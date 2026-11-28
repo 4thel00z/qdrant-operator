@@ -337,3 +337,19 @@ func TestCollectionStatusKeepsAbsentCountersAbsent(t *testing.T) {
 		t.Errorf("round trip: %+v", got)
 	}
 }
+
+func TestCollectionStatusShardKeysFromJSONNumbers(t *testing.T) {
+	status := domain.CollectionStatus{ShardKeys: []any{json.Number("7"), "tenant-a", 3}}
+	converted := translate.CollectionStatusToAPI(status)
+	got := []string{}
+	for _, key := range converted.ShardKeys {
+		got = append(got, key.String())
+	}
+	want := []string{"7", "tenant-a", "3"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("shard keys = %v, want %v", got, want)
+	}
+	if converted.ShardKeys[0].Type != converted.ShardKeys[2].Type {
+		t.Fatalf("json.Number key became %v, want an int like 3", converted.ShardKeys[0].Type)
+	}
+}

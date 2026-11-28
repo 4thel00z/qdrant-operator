@@ -1,7 +1,6 @@
 package usecases
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -184,23 +183,12 @@ func finishedMigration(spec domain.MigrationSpec, startTime time.Time, collectio
 	return status
 }
 
-// migrationStatusBody is the status patch body; numbers stay exact so large point IDs survive.
 func migrationStatusBody(status domain.MigrationStatus) (domain.JSON, error) {
 	api, err := translate.MigrationStatusToAPI(status)
 	if err != nil {
 		return nil, fmt.Errorf("encode migration status: %w", err)
 	}
-	raw, err := json.Marshal(api)
-	if err != nil {
-		return nil, fmt.Errorf("encode migration status: %w", err)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	body := domain.JSON{}
-	if err := decoder.Decode(&body); err != nil {
-		return nil, fmt.Errorf("decode migration status: %w", err)
-	}
-	return body, nil
+	return EncodeObject(api)
 }
 
 // planCollection is a fresh entry, or the previous run's so a finished copy is kept and a partial one resumes.

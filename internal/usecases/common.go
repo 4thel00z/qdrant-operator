@@ -2,6 +2,7 @@
 package usecases
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -56,13 +57,16 @@ func DecodeBody[T any](body domain.JSON) (T, error) {
 }
 
 // EncodeObject converts an API object into a JSON body, for PatchStatus and CreateCustomResource.
+// Numbers decode as json.Number so large integer point IDs stay exact.
 func EncodeObject(object any) (domain.JSON, error) {
 	raw, err := json.Marshal(object)
 	if err != nil {
 		return nil, fmt.Errorf("encode object: %w", err)
 	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
 	body := domain.JSON{}
-	if err := json.Unmarshal(raw, &body); err != nil {
+	if err := decoder.Decode(&body); err != nil {
 		return nil, fmt.Errorf("decode object: %w", err)
 	}
 	return body, nil
