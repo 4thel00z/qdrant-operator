@@ -18,6 +18,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	qdrantv1alpha1 "github.com/4thel00z/qdrant-operator/api/v1alpha1"
+	"github.com/4thel00z/qdrant-operator/internal/controller"
 	"github.com/4thel00z/qdrant-operator/internal/settings"
 )
 
@@ -41,6 +42,13 @@ func Run(ctx context.Context, config settings.Settings, logOutput io.Writer) err
 	manager, err := ctrl.NewManager(restConfig, ManagerOptions(config, scheme))
 	if err != nil {
 		return fmt.Errorf("create manager: %w", err)
+	}
+	deps, err := Dependencies(manager, restConfig, config)
+	if err != nil {
+		return err
+	}
+	if err := controller.Setup(manager, deps, Concurrency(config.Manager)); err != nil {
+		return err
 	}
 	if err := manager.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return fmt.Errorf("add healthz check: %w", err)

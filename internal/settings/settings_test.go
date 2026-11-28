@@ -32,6 +32,9 @@ func TestDefaults(t *testing.T) {
 	if got.Helm.Timeout != 10*time.Minute || got.Helm.Repo != "https://qdrant.github.io/qdrant-helm" {
 		t.Errorf("helm defaults: %+v", got.Helm)
 	}
+	if got.Manager.MaxConcurrentOneShots != 4 || got.Manager.MaxConcurrentLevels != 4 {
+		t.Errorf("concurrency defaults: %+v", got.Manager)
+	}
 	if got.Logging.Format != "json" || got.Metrics.Address != ":9090" || len(got.Manager.Namespaces) != 0 {
 		t.Errorf("defaults: %+v", got)
 	}

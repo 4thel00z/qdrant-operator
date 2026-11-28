@@ -39,6 +39,7 @@ type Manager struct {
 	LeaseDuration         time.Duration `mapstructure:"lease-duration"`
 	HealthProbeAddress    string        `mapstructure:"health-probe-address"`
 	MaxConcurrentOneShots int           `mapstructure:"max-concurrent-one-shots"`
+	MaxConcurrentLevels   int           `mapstructure:"max-concurrent-levels"`
 }
 
 // Metrics serves Prometheus metrics on Address; an empty Address disables the endpoint.
@@ -74,6 +75,7 @@ func RegisterFlags(flags *pflag.FlagSet, v *viper.Viper) error {
 	flags.Duration("manager-lease-duration", 15*time.Second, "leader election lease duration")
 	flags.String("manager-health-probe-address", ":8080", "address of the /healthz and /readyz endpoints")
 	flags.Int("manager-max-concurrent-one-shots", 4, "parallel backups, restores and migrations per kind")
+	flags.Int("manager-max-concurrent-levels", 4, "parallel reconciles per kind for clusters, schedules, collections and access keys")
 	flags.String("metrics-address", ":9090", "address of the Prometheus endpoint; empty disables it")
 	flags.String("kubernetes-kubeconfig", "", "kubeconfig path; empty uses in-cluster config")
 	flags.String("helm-chart", "qdrant", "Qdrant chart name")
@@ -117,6 +119,9 @@ func (s Settings) Validate() error {
 	}
 	if s.Manager.MaxConcurrentOneShots < 1 {
 		return fmt.Errorf("manager max-concurrent-one-shots %d: want at least 1", s.Manager.MaxConcurrentOneShots)
+	}
+	if s.Manager.MaxConcurrentLevels < 1 {
+		return fmt.Errorf("manager max-concurrent-levels %d: want at least 1", s.Manager.MaxConcurrentLevels)
 	}
 	if s.Helm.Timeout <= 0 {
 		return fmt.Errorf("helm timeout %s: want a positive duration", s.Helm.Timeout)
