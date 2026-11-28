@@ -38,6 +38,7 @@ func Dependencies(manager ctrl.Manager, restConfig *rest.Config, config settings
 	}
 	return controller.Dependencies{
 		Client:     manager.GetClient(),
+		Recorder:   manager.GetEventRecorder(EventSource),
 		Live:       manager.GetAPIReader(),
 		Kubernetes: kubernetes.New(manager.GetAPIReader(), manager.GetClient(), logs),
 		Helm:       helm.New(config.Helm, restConfig),
@@ -51,6 +52,8 @@ func Dependencies(manager ctrl.Manager, restConfig *rest.Config, config settings
 		Timing:     controller.DefaultTiming(),
 	}, nil
 }
+
+const EventSource = "qdrant-operator"
 
 func ParseCron(expression string) (domain.CronSchedule, error) {
 	return cron.Parse(expression)

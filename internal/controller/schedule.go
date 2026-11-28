@@ -74,7 +74,7 @@ func (r *ScheduleReconciler) Reconcile(ctx context.Context, request ctrl.Request
 	if apiequality.Semantic.DeepEqual(status, object.Status) {
 		return Every(r.Timing.ScheduleTick)
 	}
-	if err := WriteStatus(ctx, r.Client, object, status, r.Clock()); err != nil {
+	if err := r.WriteStatus(ctx, object, status); err != nil {
 		return ctrl.Result{}, err
 	}
 	return Every(r.Timing.ScheduleTick)

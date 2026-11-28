@@ -67,7 +67,7 @@ func (r *CollectionReconciler) Reconcile(ctx context.Context, request ctrl.Reque
 	if reflect.DeepEqual(result, current) {
 		return Every(r.Timing.CollectionReconcile)
 	}
-	if err := WriteStatus(ctx, r.Client, object, translate.CollectionStatusToAPI(result), r.Clock()); err != nil {
+	if err := r.WriteStatus(ctx, object, translate.CollectionStatusToAPI(result)); err != nil {
 		return ctrl.Result{}, err
 	}
 	return Every(r.Timing.CollectionReconcile)
@@ -80,7 +80,7 @@ func (r *CollectionReconciler) fail(ctx context.Context, object *qdrantv1alpha1.
 	log.FromContext(ctx).Error(cause, "Collection reconcile failed")
 	current.Phase = domain.CollectionFailed
 	current.Error = cause.Error()
-	if err := WriteStatus(ctx, r.Client, object, translate.CollectionStatusToAPI(current), r.Clock()); err != nil {
+	if err := r.WriteStatus(ctx, object, translate.CollectionStatusToAPI(current)); err != nil {
 		return ctrl.Result{}, err
 	}
 	return Every(r.Timing.CollectionReconcile)

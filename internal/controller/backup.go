@@ -64,7 +64,7 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 			return r.fail(ctx, object, started, err)
 		}
 		r.Metrics.OperationFinished(domain.Backups, string(result.Phase), time.Since(started))
-		if err := WriteStatus(ctx, r.Client, object, translate.BackupStatusToAPI(result), r.Clock()); err != nil {
+		if err := r.WriteStatus(ctx, object, translate.BackupStatusToAPI(result)); err != nil {
 			return ctrl.Result{}, err
 		}
 		log.FromContext(ctx).Info(fmt.Sprintf("Backup %s: %s (%s)", result.Phase, result.S3Path, result.TotalSize))
@@ -76,7 +76,7 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 func (r *BackupReconciler) fail(ctx context.Context, object *qdrantv1alpha1.QdrantBackup, started time.Time, cause error) (ctrl.Result, error) {
 	r.Metrics.OperationFinished(domain.Backups, "failed", time.Since(started))
 	failed := domain.BackupStatus{Phase: domain.BackupFailed, Error: cause.Error()}
-	if err := WriteStatus(ctx, r.Client, object, translate.BackupStatusToAPI(failed), r.Clock()); err != nil {
+	if err := r.WriteStatus(ctx, object, translate.BackupStatusToAPI(failed)); err != nil {
 		return ctrl.Result{}, err
 	}
 	return Stop(fmt.Errorf("backup failed: %w", cause))

@@ -107,7 +107,7 @@ func (r *MigrationReconciler) run(ctx context.Context, key types.NamespacedName,
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := WriteStatus(ctx, r.Client, object, status, r.Clock()); err != nil {
+	if err := r.WriteStatus(ctx, object, status); err != nil {
 		return ctrl.Result{}, err
 	}
 	progress := domain.ProgressOf(result.Collections)
@@ -125,7 +125,7 @@ func (r *MigrationReconciler) fail(ctx context.Context, key types.NamespacedName
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := WriteStatus(ctx, r.Client, object, status, r.Clock()); err != nil {
+	if err := r.WriteStatus(ctx, object, status); err != nil {
 		return ctrl.Result{}, err
 	}
 	return Stop(fmt.Errorf("migration failed: %w", cause))

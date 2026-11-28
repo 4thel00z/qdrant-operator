@@ -63,7 +63,7 @@ func (r *RestoreReconciler) Reconcile(ctx context.Context, request ctrl.Request)
 		return r.fail(ctx, object, started, err)
 	}
 	r.Metrics.OperationFinished(domain.Restores, string(result.Phase), time.Since(started))
-	if err := WriteStatus(ctx, r.Client, object, translate.RestoreStatusToAPI(result), r.Clock()); err != nil {
+	if err := r.WriteStatus(ctx, object, translate.RestoreStatusToAPI(result)); err != nil {
 		return ctrl.Result{}, err
 	}
 	log.FromContext(ctx).Info(fmt.Sprintf("Restore %s from %s", result.Phase, result.SourceBackup))
@@ -73,7 +73,7 @@ func (r *RestoreReconciler) Reconcile(ctx context.Context, request ctrl.Request)
 func (r *RestoreReconciler) fail(ctx context.Context, object *qdrantv1alpha1.QdrantRestore, started time.Time, cause error) (ctrl.Result, error) {
 	r.Metrics.OperationFinished(domain.Restores, "failed", time.Since(started))
 	failed := domain.RestoreStatus{Phase: domain.RestoreFailed, Error: cause.Error()}
-	if err := WriteStatus(ctx, r.Client, object, translate.RestoreStatusToAPI(failed), r.Clock()); err != nil {
+	if err := r.WriteStatus(ctx, object, translate.RestoreStatusToAPI(failed)); err != nil {
 		return ctrl.Result{}, err
 	}
 	return Stop(fmt.Errorf("restore failed: %w", cause))

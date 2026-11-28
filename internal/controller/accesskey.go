@@ -67,7 +67,7 @@ func (r *AccessKeyReconciler) Reconcile(ctx context.Context, request ctrl.Reques
 	if reflect.DeepEqual(result, current) {
 		return Every(r.Timing.AccessKeyRenew)
 	}
-	if err := WriteStatus(ctx, r.Client, object, translate.AccessKeyStatusToAPI(result), r.Clock()); err != nil {
+	if err := r.WriteStatus(ctx, object, translate.AccessKeyStatusToAPI(result)); err != nil {
 		return ctrl.Result{}, err
 	}
 	if !result.IssuedAt.Equal(current.IssuedAt) {
@@ -83,7 +83,7 @@ func (r *AccessKeyReconciler) fail(ctx context.Context, object *qdrantv1alpha1.Q
 	log.FromContext(ctx).Error(cause, "Access key failed")
 	current.Phase = domain.AccessKeyFailed
 	current.Error = cause.Error()
-	if err := WriteStatus(ctx, r.Client, object, translate.AccessKeyStatusToAPI(current), r.Clock()); err != nil {
+	if err := r.WriteStatus(ctx, object, translate.AccessKeyStatusToAPI(current)); err != nil {
 		return ctrl.Result{}, err
 	}
 	return Every(r.Timing.AccessKeyRenew)

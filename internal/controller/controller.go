@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/4thel00z/qdrant-operator/internal/domain"
@@ -47,9 +48,10 @@ func DefaultTiming() Timing {
 
 // Dependencies are shared by every reconciler. Client reads from the informer cache and writes
 // status and finalizers; Live reads straight from the API server, for guards a stale cache would
-// get wrong.
+// get wrong. Recorder records phase changes as events.
 type Dependencies struct {
 	Client     client.Client
+	Recorder   events.EventRecorder
 	Live       client.Reader
 	Kubernetes ports.Kubernetes
 	Helm       ports.Helm

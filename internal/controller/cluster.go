@@ -99,7 +99,7 @@ func (r *ClusterReconciler) apply(ctx context.Context, key types.NamespacedName,
 		r.Metrics.ReconcileFailed(domain.Clusters)
 		return ctrl.Result{}, err
 	}
-	if err := WriteStatus(ctx, r.Client, object, translate.ClusterStatusToAPI(result), r.Clock()); err != nil {
+	if err := r.WriteStatus(ctx, object, translate.ClusterStatusToAPI(result)); err != nil {
 		return ctrl.Result{}, err
 	}
 	r.Metrics.SetClusterPhase(spec.Namespace, spec.Name, result.Phase)
@@ -109,7 +109,7 @@ func (r *ClusterReconciler) apply(ctx context.Context, key types.NamespacedName,
 
 func (r *ClusterReconciler) writeAndRetry(ctx context.Context, object *qdrantv1alpha1.QdrantCluster, status *domain.ClusterStatus, cause error, delay time.Duration) (ctrl.Result, error) {
 	if status != nil {
-		if err := WriteStatus(ctx, r.Client, object, translate.ClusterStatusToAPI(*status), r.Clock()); err != nil {
+		if err := r.WriteStatus(ctx, object, translate.ClusterStatusToAPI(*status)); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -131,7 +131,7 @@ func (r *ClusterReconciler) observe(ctx context.Context, key types.NamespacedNam
 		return ctrl.Result{}, ctx.Err()
 	}
 	if !reflect.DeepEqual(result, current) {
-		if err := WriteStatus(ctx, r.Client, object, translate.ClusterStatusToAPI(result), r.Clock()); err != nil {
+		if err := r.WriteStatus(ctx, object, translate.ClusterStatusToAPI(result)); err != nil {
 			return ctrl.Result{}, err
 		}
 	}

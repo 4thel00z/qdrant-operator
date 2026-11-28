@@ -120,6 +120,7 @@ func startWorld(t *testing.T, arrange Arrange, register Register) *world {
 	}
 	w.Deps = controller.Dependencies{
 		Client:     manager.GetClient(),
+		Recorder:   manager.GetEventRecorder("qdrant-operator"),
 		Live:       manager.GetAPIReader(),
 		Kubernetes: kubernetes.New(manager.GetAPIReader(), manager.GetClient(), logs),
 		Helm:       w.Helm,
