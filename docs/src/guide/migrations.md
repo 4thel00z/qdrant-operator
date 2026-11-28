@@ -102,7 +102,7 @@ kubectl annotate qdrantmigration move qdrant.io/retry="$(date +%s)" --overwrite
 ```
 
 Upserts are idempotent by point id. If the operator restarts in the middle,
-kopf re-runs the handler and points already copied are written again with
+the reconciler resumes from the recorded offset and points already copied are written again with
 the same content, so a migration is safe to repeat and a second migration
 with the same spec brings a target up to date.
 
@@ -134,8 +134,8 @@ spec:
 The source and the target are scrolled in ID order with payload and vectors,
 one source page of `batchSize` points at a time together with the target
 points in the same ID range. A point is upserted again when it is missing on
-the target or when its hash differs: the SHA-256 of the canonical JSON (sorted
-keys) of the payload plus the vectors, which covers unnamed, named, sparse and
+the target or when its hash differs: the SHA-256 of the JSON with sorted
+keys of the payload plus the vectors, which covers unnamed, named, sparse and
 multivectors. Identical points are not written. Target points whose ID no
 longer exists on the source are deleted. Collection renames from
 `collectionMapping` and custom shard keys are respected, exactly as in the
@@ -155,7 +155,7 @@ missing ones included), `pointsDeleted` and `syncPasses`, next to
 `sourceCount` and `targetCount`.
 
 Be clear about what this is. It is not live change capture: a write that
-lands on the source after the pass has read that ID is only seen by a later
+arrives on the source after the pass has read that ID is only seen by a later
 pass, so the target catches up fully only once writes to the source stop.
 Stop writers, run the migration, and use `syncMaxPasses` to confirm a pass
 finds nothing left. It also re-reads both sides, so its cost is about that

@@ -1,0 +1,2253 @@
+{
+  "manifests": [
+    {
+      "manifest": {
+        "backupName": "demo",
+        "cluster": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collections": [
+          {
+            "name": "a",
+            "snapshots": [
+              {
+                "checksum": "abc",
+                "key": "backups/demo/a/node-0/s.snapshot",
+                "nodeIndex": 0,
+                "sizeBytes": 1024,
+                "snapshotName": "s.snapshot"
+              },
+              {
+                "key": "backups/demo/a/node-1/s.snapshot",
+                "nodeIndex": 1,
+                "sizeBytes": 2048,
+                "snapshotName": "s.snapshot"
+              }
+            ]
+          },
+          {
+            "name": "b",
+            "snapshots": [
+              {
+                "key": "backups/demo/b/node-0/s.snapshot",
+                "nodeIndex": 0,
+                "sizeBytes": 3221225472,
+                "snapshotName": "s.snapshot"
+              }
+            ]
+          }
+        ],
+        "createdAt": "2026-09-23T12:00:00Z",
+        "nodeCount": 2
+      },
+      "name": "two collections",
+      "outputs": {
+        "collection_names": [
+          "a",
+          "b"
+        ],
+        "collection_sizes": {
+          "a": 3072,
+          "b": 3221225472
+        },
+        "first_collection": {
+          "name": "a",
+          "snapshots": [
+            {
+              "checksum": "abc",
+              "key": "backups/demo/a/node-0/s.snapshot",
+              "nodeIndex": 0,
+              "sizeBytes": 1024,
+              "snapshotName": "s.snapshot"
+            },
+            {
+              "key": "backups/demo/a/node-1/s.snapshot",
+              "nodeIndex": 1,
+              "sizeBytes": 2048,
+              "snapshotName": "s.snapshot"
+            }
+          ]
+        },
+        "json": {
+          "backupName": "demo",
+          "cluster": {
+            "name": "db",
+            "namespace": "tenant-a"
+          },
+          "collections": [
+            {
+              "name": "a",
+              "snapshots": [
+                {
+                  "checksum": "abc",
+                  "key": "backups/demo/a/node-0/s.snapshot",
+                  "nodeIndex": 0,
+                  "sizeBytes": 1024,
+                  "snapshotName": "s.snapshot"
+                },
+                {
+                  "key": "backups/demo/a/node-1/s.snapshot",
+                  "nodeIndex": 1,
+                  "sizeBytes": 2048,
+                  "snapshotName": "s.snapshot"
+                }
+              ]
+            },
+            {
+              "name": "b",
+              "snapshots": [
+                {
+                  "key": "backups/demo/b/node-0/s.snapshot",
+                  "nodeIndex": 0,
+                  "sizeBytes": 3221225472,
+                  "snapshotName": "s.snapshot"
+                }
+              ]
+            }
+          ],
+          "createdAt": "2026-09-23T12:00:00Z",
+          "nodeCount": 2
+        },
+        "missing_collection": false,
+        "size_bytes": 3221228544
+      }
+    },
+    {
+      "manifest": {
+        "backupName": "empty",
+        "cluster": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collections": [],
+        "createdAt": "2026-01-01T00:00:00Z",
+        "nodeCount": 1
+      },
+      "name": "no collections",
+      "outputs": {
+        "collection_names": [],
+        "collection_sizes": {},
+        "first_collection": null,
+        "json": {
+          "backupName": "empty",
+          "cluster": {
+            "name": "db",
+            "namespace": "tenant-a"
+          },
+          "collections": [],
+          "createdAt": "2026-01-01T00:00:00Z",
+          "nodeCount": 1
+        },
+        "missing_collection": false,
+        "size_bytes": 0
+      }
+    },
+    {
+      "manifest": {
+        "backupName": "odd",
+        "cluster": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "collections": [
+          {
+            "name": "x",
+            "snapshots": []
+          }
+        ],
+        "createdAt": "2026-02-03T04:05:06Z",
+        "nodeCount": 3
+      },
+      "name": "collection without snapshots",
+      "outputs": {
+        "collection_names": [
+          "x"
+        ],
+        "collection_sizes": {
+          "x": 0
+        },
+        "first_collection": {
+          "name": "x",
+          "snapshots": []
+        },
+        "json": {
+          "backupName": "odd",
+          "cluster": {
+            "name": "db",
+            "namespace": "ns"
+          },
+          "collections": [
+            {
+              "name": "x",
+              "snapshots": []
+            }
+          ],
+          "createdAt": "2026-02-03T04:05:06Z",
+          "nodeCount": 3
+        },
+        "missing_collection": false,
+        "size_bytes": 0
+      }
+    }
+  ],
+  "records": [
+    {
+      "backup": {
+        "metadata": {
+          "creationTimestamp": "2026-09-23T10:00:00Z",
+          "name": "b0"
+        }
+      },
+      "name": "pending without status",
+      "outputs": {
+        "finished": false,
+        "record": {
+          "creationTime": "2026-09-23T10:00:00Z",
+          "name": "b0",
+          "status": "Pending"
+        }
+      }
+    },
+    {
+      "backup": {
+        "metadata": {
+          "creationTimestamp": "2026-09-23T10:00:00Z",
+          "name": "b1"
+        },
+        "status": {
+          "completionTime": "2026-09-23T10:05:00Z",
+          "phase": "Completed",
+          "totalSize": "1.5GB"
+        }
+      },
+      "name": "completed",
+      "outputs": {
+        "finished": true,
+        "record": {
+          "completionTime": "2026-09-23T10:05:00Z",
+          "creationTime": "2026-09-23T10:00:00Z",
+          "name": "b1",
+          "size": "1.5GB",
+          "status": "Completed"
+        }
+      }
+    },
+    {
+      "backup": {
+        "metadata": {
+          "creationTimestamp": "2026-09-22T10:00:00Z",
+          "name": "b2"
+        },
+        "status": {
+          "error": "x",
+          "phase": "Failed"
+        }
+      },
+      "name": "failed",
+      "outputs": {
+        "finished": true,
+        "record": {
+          "creationTime": "2026-09-22T10:00:00Z",
+          "name": "b2",
+          "status": "Failed"
+        }
+      }
+    },
+    {
+      "backup": {
+        "metadata": {
+          "creationTimestamp": "2026-09-22T10:00:00Z",
+          "name": "b3"
+        },
+        "status": {
+          "phase": "InProgress"
+        }
+      },
+      "name": "in progress",
+      "outputs": {
+        "finished": false,
+        "record": {
+          "creationTime": "2026-09-22T10:00:00Z",
+          "name": "b3",
+          "status": "InProgress"
+        }
+      }
+    }
+  ],
+  "retention": [
+    {
+      "backups": [
+        {
+          "creationTime": "2026-09-23T12:00:00Z",
+          "name": "b0",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-22T12:00:00Z",
+          "name": "b1",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-21T12:00:00Z",
+          "name": "b2",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-20T12:00:00Z",
+          "name": "b3",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-19T12:00:00Z",
+          "name": "b4",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-18T12:00:00Z",
+          "name": "b5",
+          "phase": "Completed"
+        }
+      ],
+      "name": "nothing configured",
+      "outputs": {
+        "configured": false,
+        "expired": []
+      },
+      "policy": {}
+    },
+    {
+      "backups": [
+        {
+          "creationTime": "2026-09-23T12:00:00Z",
+          "name": "b0",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-22T12:00:00Z",
+          "name": "b1",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-21T12:00:00Z",
+          "name": "b2",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-20T12:00:00Z",
+          "name": "b3",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-19T12:00:00Z",
+          "name": "b4",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-18T12:00:00Z",
+          "name": "b5",
+          "phase": "Completed"
+        }
+      ],
+      "name": "keep last 2",
+      "outputs": {
+        "configured": true,
+        "expired": [
+          "b2",
+          "b3",
+          "b4",
+          "b5"
+        ]
+      },
+      "policy": {
+        "keepLast": 2
+      }
+    },
+    {
+      "backups": [
+        {
+          "creationTime": "2026-09-23T12:00:00Z",
+          "name": "b0",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-22T12:00:00Z",
+          "name": "b1",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-21T12:00:00Z",
+          "name": "b2",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-20T12:00:00Z",
+          "name": "b3",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-19T12:00:00Z",
+          "name": "b4",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-18T12:00:00Z",
+          "name": "b5",
+          "phase": "Completed"
+        }
+      ],
+      "name": "keep last 1 and daily 3",
+      "outputs": {
+        "configured": true,
+        "expired": [
+          "b3",
+          "b4",
+          "b5"
+        ]
+      },
+      "policy": {
+        "keepDaily": 3,
+        "keepLast": 1
+      }
+    },
+    {
+      "backups": [
+        {
+          "creationTime": "2026-09-23T12:00:00Z",
+          "name": "f0",
+          "phase": "Failed"
+        },
+        {
+          "creationTime": "2026-09-22T12:00:00Z",
+          "name": "f1",
+          "phase": "Failed"
+        },
+        {
+          "creationTime": "2026-09-21T12:00:00Z",
+          "name": "c2",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-20T12:00:00Z",
+          "name": "c3",
+          "phase": "Completed"
+        }
+      ],
+      "name": "failed newest never pushes out completed",
+      "outputs": {
+        "configured": true,
+        "expired": [
+          "f1"
+        ]
+      },
+      "policy": {
+        "keepLast": 2
+      }
+    },
+    {
+      "backups": [
+        {
+          "creationTime": "2026-09-23T12:00:00Z",
+          "name": "c0",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-22T12:00:00Z",
+          "name": "f1",
+          "phase": "Failed"
+        },
+        {
+          "creationTime": "2026-09-21T12:00:00Z",
+          "name": "c2",
+          "phase": "Completed"
+        }
+      ],
+      "name": "failed older than newest completed",
+      "outputs": {
+        "configured": true,
+        "expired": [
+          "f1"
+        ]
+      },
+      "policy": {
+        "keepLast": 2
+      }
+    },
+    {
+      "backups": [
+        {
+          "creationTime": "2026-09-23T12:00:00Z",
+          "name": "p0",
+          "phase": "InProgress"
+        },
+        {
+          "creationTime": "2026-09-22T12:00:00Z",
+          "name": "c1",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-21T12:00:00Z",
+          "name": "c2",
+          "phase": "Completed"
+        }
+      ],
+      "name": "in progress newest is kept",
+      "outputs": {
+        "configured": true,
+        "expired": [
+          "c2"
+        ]
+      },
+      "policy": {
+        "keepLast": 1
+      }
+    },
+    {
+      "backups": [
+        {
+          "creationTime": "2026-09-23T12:00:00Z",
+          "name": "f0",
+          "phase": "Failed"
+        },
+        {
+          "creationTime": "2026-09-22T12:00:00Z",
+          "name": "f1",
+          "phase": "Failed"
+        },
+        {
+          "creationTime": "2026-09-21T12:00:00Z",
+          "name": "f2",
+          "phase": "Failed"
+        }
+      ],
+      "name": "all failed keeps newest",
+      "outputs": {
+        "configured": true,
+        "expired": [
+          "f1",
+          "f2"
+        ]
+      },
+      "policy": {
+        "keepLast": 2
+      }
+    },
+    {
+      "backups": [
+        {
+          "creationTime": "2026-09-23T12:00:00Z",
+          "name": "h0",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-23T06:00:00Z",
+          "name": "h1",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-23T00:00:00Z",
+          "name": "h2",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-22T18:00:00Z",
+          "name": "h3",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-22T12:00:00Z",
+          "name": "h4",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-22T06:00:00Z",
+          "name": "h5",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-22T00:00:00Z",
+          "name": "h6",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-21T18:00:00Z",
+          "name": "h7",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-21T12:00:00Z",
+          "name": "h8",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-21T06:00:00Z",
+          "name": "h9",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-21T00:00:00Z",
+          "name": "h10",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-20T18:00:00Z",
+          "name": "h11",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-20T12:00:00Z",
+          "name": "h12",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-20T06:00:00Z",
+          "name": "h13",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-20T00:00:00Z",
+          "name": "h14",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-19T18:00:00Z",
+          "name": "h15",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-19T12:00:00Z",
+          "name": "h16",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-19T06:00:00Z",
+          "name": "h17",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-19T00:00:00Z",
+          "name": "h18",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-18T18:00:00Z",
+          "name": "h19",
+          "phase": "Completed"
+        }
+      ],
+      "name": "daily with several per day",
+      "outputs": {
+        "configured": true,
+        "expired": [
+          "h1",
+          "h2",
+          "h4",
+          "h5",
+          "h6",
+          "h8",
+          "h9",
+          "h10",
+          "h11",
+          "h12",
+          "h13",
+          "h14",
+          "h15",
+          "h16",
+          "h17",
+          "h18",
+          "h19"
+        ]
+      },
+      "policy": {
+        "keepDaily": 3
+      }
+    },
+    {
+      "backups": [
+        {
+          "creationTime": "2026-09-23T12:00:00Z",
+          "name": "d0",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-22T12:00:00Z",
+          "name": "d1",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-21T12:00:00Z",
+          "name": "d2",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-20T12:00:00Z",
+          "name": "d3",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-19T12:00:00Z",
+          "name": "d4",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-18T12:00:00Z",
+          "name": "d5",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-17T12:00:00Z",
+          "name": "d6",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-16T12:00:00Z",
+          "name": "d7",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-15T12:00:00Z",
+          "name": "d8",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-14T12:00:00Z",
+          "name": "d9",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-13T12:00:00Z",
+          "name": "d10",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-12T12:00:00Z",
+          "name": "d11",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-11T12:00:00Z",
+          "name": "d12",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-10T12:00:00Z",
+          "name": "d13",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-09T12:00:00Z",
+          "name": "d14",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-08T12:00:00Z",
+          "name": "d15",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-07T12:00:00Z",
+          "name": "d16",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-06T12:00:00Z",
+          "name": "d17",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-05T12:00:00Z",
+          "name": "d18",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-04T12:00:00Z",
+          "name": "d19",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-03T12:00:00Z",
+          "name": "d20",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-02T12:00:00Z",
+          "name": "d21",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-01T12:00:00Z",
+          "name": "d22",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-31T12:00:00Z",
+          "name": "d23",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-30T12:00:00Z",
+          "name": "d24",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-29T12:00:00Z",
+          "name": "d25",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-28T12:00:00Z",
+          "name": "d26",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-27T12:00:00Z",
+          "name": "d27",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-26T12:00:00Z",
+          "name": "d28",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-25T12:00:00Z",
+          "name": "d29",
+          "phase": "Completed"
+        }
+      ],
+      "name": "weekly over a month",
+      "outputs": {
+        "configured": true,
+        "expired": [
+          "d1",
+          "d2",
+          "d4",
+          "d5",
+          "d6",
+          "d7",
+          "d8",
+          "d9",
+          "d10",
+          "d11",
+          "d12",
+          "d13",
+          "d14",
+          "d15",
+          "d16",
+          "d17",
+          "d18",
+          "d19",
+          "d20",
+          "d21",
+          "d22",
+          "d23",
+          "d24",
+          "d25",
+          "d26",
+          "d27",
+          "d28",
+          "d29"
+        ]
+      },
+      "policy": {
+        "keepWeekly": 2
+      }
+    },
+    {
+      "backups": [
+        {
+          "creationTime": "2026-09-23T12:00:00Z",
+          "name": "d0",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-19T12:00:00Z",
+          "name": "d1",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-15T12:00:00Z",
+          "name": "d2",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-11T12:00:00Z",
+          "name": "d3",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-07T12:00:00Z",
+          "name": "d4",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-03T12:00:00Z",
+          "name": "d5",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-30T12:00:00Z",
+          "name": "d6",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-26T12:00:00Z",
+          "name": "d7",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-22T12:00:00Z",
+          "name": "d8",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-18T12:00:00Z",
+          "name": "d9",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-14T12:00:00Z",
+          "name": "d10",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-10T12:00:00Z",
+          "name": "d11",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-06T12:00:00Z",
+          "name": "d12",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-02T12:00:00Z",
+          "name": "d13",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-29T12:00:00Z",
+          "name": "d14",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-25T12:00:00Z",
+          "name": "d15",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-21T12:00:00Z",
+          "name": "d16",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-17T12:00:00Z",
+          "name": "d17",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-13T12:00:00Z",
+          "name": "d18",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-09T12:00:00Z",
+          "name": "d19",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-05T12:00:00Z",
+          "name": "d20",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-01T12:00:00Z",
+          "name": "d21",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-27T12:00:00Z",
+          "name": "d22",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-23T12:00:00Z",
+          "name": "d23",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-19T12:00:00Z",
+          "name": "d24",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-15T12:00:00Z",
+          "name": "d25",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-11T12:00:00Z",
+          "name": "d26",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-07T12:00:00Z",
+          "name": "d27",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-03T12:00:00Z",
+          "name": "d28",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-05-30T12:00:00Z",
+          "name": "d29",
+          "phase": "Completed"
+        }
+      ],
+      "name": "monthly over four months",
+      "outputs": {
+        "configured": true,
+        "expired": [
+          "d1",
+          "d2",
+          "d3",
+          "d4",
+          "d5",
+          "d7",
+          "d8",
+          "d9",
+          "d10",
+          "d11",
+          "d12",
+          "d13",
+          "d15",
+          "d16",
+          "d17",
+          "d18",
+          "d19",
+          "d20",
+          "d21",
+          "d22",
+          "d23",
+          "d24",
+          "d25",
+          "d26",
+          "d27",
+          "d28",
+          "d29"
+        ]
+      },
+      "policy": {
+        "keepMonthly": 3
+      }
+    },
+    {
+      "backups": [
+        {
+          "creationTime": "2025-12-28T10:00:00Z",
+          "name": "w1",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2025-12-29T10:00:00Z",
+          "name": "w2",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2025-12-31T23:59:59Z",
+          "name": "w3",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-01-01T00:00:00Z",
+          "name": "w4",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-01-04T10:00:00Z",
+          "name": "w5",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-01-05T10:00:00Z",
+          "name": "w6",
+          "phase": "Completed"
+        }
+      ],
+      "name": "iso week crosses the year",
+      "outputs": {
+        "configured": true,
+        "expired": [
+          "w4",
+          "w3",
+          "w2"
+        ]
+      },
+      "policy": {
+        "keepWeekly": 3
+      }
+    },
+    {
+      "backups": [
+        {
+          "creationTime": "2026-09-23T12:00:00Z",
+          "name": "b0",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-22T12:00:00Z",
+          "name": "b1",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-21T12:00:00Z",
+          "name": "b2",
+          "phase": "Completed"
+        }
+      ],
+      "name": "keep daily zero is configured",
+      "outputs": {
+        "configured": true,
+        "expired": [
+          "b0",
+          "b1",
+          "b2"
+        ]
+      },
+      "policy": {
+        "keepDaily": 0
+      }
+    },
+    {
+      "backups": [],
+      "name": "empty list",
+      "outputs": {
+        "configured": true,
+        "expired": []
+      },
+      "policy": {
+        "keepLast": 3
+      }
+    },
+    {
+      "backups": [
+        {
+          "creationTime": "2026-09-20T12:00:00Z",
+          "name": "a",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-22T12:00:00Z",
+          "name": "b",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-22T12:00:00Z",
+          "name": "c",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-21T12:00:00Z",
+          "name": "d",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-23T12:00:00Z",
+          "name": "e",
+          "phase": "Completed"
+        }
+      ],
+      "name": "unsorted input and equal timestamps",
+      "outputs": {
+        "configured": true,
+        "expired": [
+          "c",
+          "d",
+          "a"
+        ]
+      },
+      "policy": {
+        "keepLast": 2
+      }
+    },
+    {
+      "backups": [
+        {
+          "creationTime": "2026-09-23T12:00:00Z",
+          "name": "d0",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-20T12:00:00Z",
+          "name": "d1",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-17T12:00:00Z",
+          "name": "d2",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-14T12:00:00Z",
+          "name": "d3",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-11T12:00:00Z",
+          "name": "d4",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-08T12:00:00Z",
+          "name": "d5",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-05T12:00:00Z",
+          "name": "d6",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-09-02T12:00:00Z",
+          "name": "d7",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-30T12:00:00Z",
+          "name": "d8",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-27T12:00:00Z",
+          "name": "d9",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-24T12:00:00Z",
+          "name": "d10",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-21T12:00:00Z",
+          "name": "d11",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-18T12:00:00Z",
+          "name": "d12",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-15T12:00:00Z",
+          "name": "d13",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-12T12:00:00Z",
+          "name": "d14",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-09T12:00:00Z",
+          "name": "d15",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-06T12:00:00Z",
+          "name": "d16",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-08-03T12:00:00Z",
+          "name": "d17",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-31T12:00:00Z",
+          "name": "d18",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-28T12:00:00Z",
+          "name": "d19",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-25T12:00:00Z",
+          "name": "d20",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-22T12:00:00Z",
+          "name": "d21",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-19T12:00:00Z",
+          "name": "d22",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-16T12:00:00Z",
+          "name": "d23",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-13T12:00:00Z",
+          "name": "d24",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-10T12:00:00Z",
+          "name": "d25",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-07T12:00:00Z",
+          "name": "d26",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-04T12:00:00Z",
+          "name": "d27",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-07-01T12:00:00Z",
+          "name": "d28",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-28T12:00:00Z",
+          "name": "d29",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-25T12:00:00Z",
+          "name": "d30",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-22T12:00:00Z",
+          "name": "d31",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-19T12:00:00Z",
+          "name": "d32",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-16T12:00:00Z",
+          "name": "d33",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-13T12:00:00Z",
+          "name": "d34",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-10T12:00:00Z",
+          "name": "d35",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-07T12:00:00Z",
+          "name": "d36",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-04T12:00:00Z",
+          "name": "d37",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-06-01T12:00:00Z",
+          "name": "d38",
+          "phase": "Completed"
+        },
+        {
+          "creationTime": "2026-05-29T12:00:00Z",
+          "name": "d39",
+          "phase": "Completed"
+        }
+      ],
+      "name": "combined policy",
+      "outputs": {
+        "configured": true,
+        "expired": [
+          "d2",
+          "d3",
+          "d4",
+          "d5",
+          "d6",
+          "d7",
+          "d9",
+          "d10",
+          "d11",
+          "d12",
+          "d13",
+          "d14",
+          "d15",
+          "d16",
+          "d17",
+          "d18",
+          "d19",
+          "d20",
+          "d21",
+          "d22",
+          "d23",
+          "d24",
+          "d25",
+          "d26",
+          "d27",
+          "d28",
+          "d29",
+          "d30",
+          "d31",
+          "d32",
+          "d33",
+          "d34",
+          "d35",
+          "d36",
+          "d37",
+          "d38",
+          "d39"
+        ]
+      },
+      "policy": {
+        "keepLast": 1,
+        "keepMonthly": 2,
+        "keepWeekly": 2
+      }
+    }
+  ],
+  "specs": [
+    {
+      "completion": "2026-09-23T10:00:00Z",
+      "name": "s3 defaults",
+      "outputs": {
+        "access_key_ref": {
+          "key": "AWS_ACCESS_KEY_ID",
+          "name": "creds",
+          "namespace": "tenant-a"
+        },
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collections": [],
+        "expires_at": null,
+        "location": {
+          "value": "s3://b/demo"
+        },
+        "method": "s3",
+        "root_key": {
+          "value": "demo"
+        },
+        "s3_storage": {
+          "value": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "accessKeyIdKey": "AWS_ACCESS_KEY_ID",
+              "name": "creds",
+              "secretAccessKeyKey": "AWS_SECRET_ACCESS_KEY"
+            },
+            "forcePathStyle": false,
+            "prefix": "",
+            "region": "us-east-1"
+          }
+        },
+        "secret_key_ref": {
+          "key": "AWS_SECRET_ACCESS_KEY",
+          "name": "creds",
+          "namespace": "tenant-a"
+        },
+        "snapshot_key": {
+          "value": "demo/coll/node-1/s.snapshot"
+        },
+        "snapshot_selector": "qdrant.io/backup=demo",
+        "volume_snapshot_bodies": [
+          {
+            "apiVersion": "snapshot.storage.k8s.io/v1",
+            "kind": "VolumeSnapshot",
+            "metadata": {
+              "labels": {
+                "qdrant.io/backup": "demo"
+              },
+              "name": "demo-node-0",
+              "namespace": "tenant-a"
+            },
+            "spec": {
+              "source": {
+                "persistentVolumeClaimName": "qdrant-storage-qdrant-db-0"
+              },
+              "volumeSnapshotClassName": null
+            }
+          },
+          {
+            "apiVersion": "snapshot.storage.k8s.io/v1",
+            "kind": "VolumeSnapshot",
+            "metadata": {
+              "labels": {
+                "qdrant.io/backup": "demo"
+              },
+              "name": "demo-node-1",
+              "namespace": "tenant-a"
+            },
+            "spec": {
+              "source": {
+                "persistentVolumeClaimName": "qdrant-storage-qdrant-db-1"
+              },
+              "volumeSnapshotClassName": null
+            }
+          }
+        ],
+        "volume_snapshot_names": [
+          "demo-node-0",
+          "demo-node-1",
+          "demo-node-2"
+        ]
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "storage": {
+          "s3": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "name": "creds"
+            }
+          }
+        }
+      }
+    },
+    {
+      "completion": "2026-09-23T10:00:00Z",
+      "name": "s3 full",
+      "outputs": {
+        "access_key_ref": {
+          "key": "ID",
+          "name": "creds",
+          "namespace": "tenant-a"
+        },
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "other"
+        },
+        "collections": [
+          "a",
+          "b"
+        ],
+        "expires_at": "2026-09-30T10:00:00Z",
+        "location": {
+          "value": "s3://bk/backups/demo"
+        },
+        "method": "s3",
+        "root_key": {
+          "value": "backups/demo"
+        },
+        "s3_storage": {
+          "value": {
+            "bucket": "bk",
+            "credentialsSecretRef": {
+              "accessKeyIdKey": "ID",
+              "name": "creds",
+              "secretAccessKeyKey": "SECRET"
+            },
+            "endpoint": "http://minio:9000",
+            "forcePathStyle": true,
+            "prefix": "backups/",
+            "region": "eu-central-1"
+          }
+        },
+        "secret_key_ref": {
+          "key": "SECRET",
+          "name": "creds",
+          "namespace": "tenant-a"
+        },
+        "snapshot_key": {
+          "value": "backups/demo/coll/node-1/s.snapshot"
+        },
+        "snapshot_selector": "qdrant.io/backup=demo",
+        "volume_snapshot_bodies": [
+          {
+            "apiVersion": "snapshot.storage.k8s.io/v1",
+            "kind": "VolumeSnapshot",
+            "metadata": {
+              "labels": {
+                "qdrant.io/backup": "demo"
+              },
+              "name": "demo-node-0",
+              "namespace": "other"
+            },
+            "spec": {
+              "source": {
+                "persistentVolumeClaimName": "qdrant-storage-qdrant-db-0"
+              },
+              "volumeSnapshotClassName": null
+            }
+          },
+          {
+            "apiVersion": "snapshot.storage.k8s.io/v1",
+            "kind": "VolumeSnapshot",
+            "metadata": {
+              "labels": {
+                "qdrant.io/backup": "demo"
+              },
+              "name": "demo-node-1",
+              "namespace": "other"
+            },
+            "spec": {
+              "source": {
+                "persistentVolumeClaimName": "qdrant-storage-qdrant-db-1"
+              },
+              "volumeSnapshotClassName": null
+            }
+          }
+        ],
+        "volume_snapshot_names": [
+          "demo-node-0",
+          "demo-node-1",
+          "demo-node-2"
+        ]
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db",
+          "namespace": "other"
+        },
+        "collections": [
+          "a",
+          "b"
+        ],
+        "method": "s3",
+        "retentionDays": 7,
+        "storage": {
+          "s3": {
+            "bucket": "bk",
+            "credentialsSecretRef": {
+              "accessKeyIdKey": "ID",
+              "name": "creds",
+              "secretAccessKeyKey": "SECRET"
+            },
+            "endpoint": "http://minio:9000",
+            "forcePathStyle": true,
+            "prefix": "backups/",
+            "region": "eu-central-1"
+          }
+        }
+      }
+    },
+    {
+      "completion": "2026-09-23T10:00:00Z",
+      "name": "stray slashes in prefix",
+      "outputs": {
+        "access_key_ref": {
+          "key": "AWS_ACCESS_KEY_ID",
+          "name": "creds",
+          "namespace": "tenant-a"
+        },
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collections": [],
+        "expires_at": null,
+        "location": {
+          "value": "s3://bk/a/b/demo"
+        },
+        "method": "s3",
+        "root_key": {
+          "value": "a/b/demo"
+        },
+        "s3_storage": {
+          "value": {
+            "bucket": "bk",
+            "credentialsSecretRef": {
+              "accessKeyIdKey": "AWS_ACCESS_KEY_ID",
+              "name": "creds",
+              "secretAccessKeyKey": "AWS_SECRET_ACCESS_KEY"
+            },
+            "forcePathStyle": false,
+            "prefix": "/a//b/",
+            "region": "us-east-1"
+          }
+        },
+        "secret_key_ref": {
+          "key": "AWS_SECRET_ACCESS_KEY",
+          "name": "creds",
+          "namespace": "tenant-a"
+        },
+        "snapshot_key": {
+          "value": "a/b/demo/coll/node-1/s.snapshot"
+        },
+        "snapshot_selector": "qdrant.io/backup=demo",
+        "volume_snapshot_bodies": [
+          {
+            "apiVersion": "snapshot.storage.k8s.io/v1",
+            "kind": "VolumeSnapshot",
+            "metadata": {
+              "labels": {
+                "qdrant.io/backup": "demo"
+              },
+              "name": "demo-node-0",
+              "namespace": "tenant-a"
+            },
+            "spec": {
+              "source": {
+                "persistentVolumeClaimName": "qdrant-storage-qdrant-db-0"
+              },
+              "volumeSnapshotClassName": null
+            }
+          },
+          {
+            "apiVersion": "snapshot.storage.k8s.io/v1",
+            "kind": "VolumeSnapshot",
+            "metadata": {
+              "labels": {
+                "qdrant.io/backup": "demo"
+              },
+              "name": "demo-node-1",
+              "namespace": "tenant-a"
+            },
+            "spec": {
+              "source": {
+                "persistentVolumeClaimName": "qdrant-storage-qdrant-db-1"
+              },
+              "volumeSnapshotClassName": null
+            }
+          }
+        ],
+        "volume_snapshot_names": [
+          "demo-node-0",
+          "demo-node-1",
+          "demo-node-2"
+        ]
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "storage": {
+          "s3": {
+            "bucket": "bk",
+            "credentialsSecretRef": {
+              "name": "creds"
+            },
+            "prefix": "/a//b/"
+          }
+        }
+      }
+    },
+    {
+      "completion": "2026-01-15T23:59:59Z",
+      "name": "retention crosses month end",
+      "outputs": {
+        "access_key_ref": {
+          "key": "AWS_ACCESS_KEY_ID",
+          "name": "creds",
+          "namespace": "tenant-a"
+        },
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collections": [],
+        "expires_at": "2026-02-14T23:59:59Z",
+        "location": {
+          "value": "s3://b/demo"
+        },
+        "method": "s3",
+        "root_key": {
+          "value": "demo"
+        },
+        "s3_storage": {
+          "value": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "accessKeyIdKey": "AWS_ACCESS_KEY_ID",
+              "name": "creds",
+              "secretAccessKeyKey": "AWS_SECRET_ACCESS_KEY"
+            },
+            "forcePathStyle": false,
+            "prefix": "",
+            "region": "us-east-1"
+          }
+        },
+        "secret_key_ref": {
+          "key": "AWS_SECRET_ACCESS_KEY",
+          "name": "creds",
+          "namespace": "tenant-a"
+        },
+        "snapshot_key": {
+          "value": "demo/coll/node-1/s.snapshot"
+        },
+        "snapshot_selector": "qdrant.io/backup=demo",
+        "volume_snapshot_bodies": [
+          {
+            "apiVersion": "snapshot.storage.k8s.io/v1",
+            "kind": "VolumeSnapshot",
+            "metadata": {
+              "labels": {
+                "qdrant.io/backup": "demo"
+              },
+              "name": "demo-node-0",
+              "namespace": "tenant-a"
+            },
+            "spec": {
+              "source": {
+                "persistentVolumeClaimName": "qdrant-storage-qdrant-db-0"
+              },
+              "volumeSnapshotClassName": null
+            }
+          },
+          {
+            "apiVersion": "snapshot.storage.k8s.io/v1",
+            "kind": "VolumeSnapshot",
+            "metadata": {
+              "labels": {
+                "qdrant.io/backup": "demo"
+              },
+              "name": "demo-node-1",
+              "namespace": "tenant-a"
+            },
+            "spec": {
+              "source": {
+                "persistentVolumeClaimName": "qdrant-storage-qdrant-db-1"
+              },
+              "volumeSnapshotClassName": null
+            }
+          }
+        ],
+        "volume_snapshot_names": [
+          "demo-node-0",
+          "demo-node-1",
+          "demo-node-2"
+        ]
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "retentionDays": 30,
+        "storage": {
+          "s3": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "name": "creds"
+            }
+          }
+        }
+      }
+    },
+    {
+      "completion": "2026-09-23T10:00:00Z",
+      "name": "volume snapshot",
+      "outputs": {
+        "access_key_ref": null,
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "collections": [],
+        "expires_at": null,
+        "location": {
+          "value": "VolumeSnapshots labelled qdrant.io/backup=demo"
+        },
+        "method": "volumeSnapshot",
+        "root_key": {
+          "error": "QdrantBackup demo has no S3 storage (method volumeSnapshot)"
+        },
+        "s3_storage": {
+          "error": "QdrantBackup demo has no S3 storage (method volumeSnapshot)"
+        },
+        "secret_key_ref": null,
+        "snapshot_key": {
+          "error": "QdrantBackup demo has no S3 storage (method volumeSnapshot)"
+        },
+        "snapshot_selector": "qdrant.io/backup=demo",
+        "volume_snapshot_bodies": [
+          {
+            "apiVersion": "snapshot.storage.k8s.io/v1",
+            "kind": "VolumeSnapshot",
+            "metadata": {
+              "labels": {
+                "qdrant.io/backup": "demo"
+              },
+              "name": "demo-node-0",
+              "namespace": "ns"
+            },
+            "spec": {
+              "source": {
+                "persistentVolumeClaimName": "qdrant-storage-qdrant-db-0"
+              },
+              "volumeSnapshotClassName": "csi-snapshots"
+            }
+          },
+          {
+            "apiVersion": "snapshot.storage.k8s.io/v1",
+            "kind": "VolumeSnapshot",
+            "metadata": {
+              "labels": {
+                "qdrant.io/backup": "demo"
+              },
+              "name": "demo-node-1",
+              "namespace": "ns"
+            },
+            "spec": {
+              "source": {
+                "persistentVolumeClaimName": "qdrant-storage-qdrant-db-1"
+              },
+              "volumeSnapshotClassName": "csi-snapshots"
+            }
+          }
+        ],
+        "volume_snapshot_names": [
+          "demo-node-0",
+          "demo-node-1",
+          "demo-node-2"
+        ]
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "method": "volumeSnapshot",
+        "volumeSnapshotClassName": "csi-snapshots"
+      }
+    },
+    {
+      "completion": "2026-09-23T10:00:00Z",
+      "name": "volume snapshot without class",
+      "outputs": {
+        "access_key_ref": null,
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collections": [],
+        "expires_at": null,
+        "location": {
+          "value": "VolumeSnapshots labelled qdrant.io/backup=demo"
+        },
+        "method": "volumeSnapshot",
+        "root_key": {
+          "error": "QdrantBackup demo has no S3 storage (method volumeSnapshot)"
+        },
+        "s3_storage": {
+          "error": "QdrantBackup demo has no S3 storage (method volumeSnapshot)"
+        },
+        "secret_key_ref": null,
+        "snapshot_key": {
+          "error": "QdrantBackup demo has no S3 storage (method volumeSnapshot)"
+        },
+        "snapshot_selector": "qdrant.io/backup=demo",
+        "volume_snapshot_bodies": [
+          {
+            "apiVersion": "snapshot.storage.k8s.io/v1",
+            "kind": "VolumeSnapshot",
+            "metadata": {
+              "labels": {
+                "qdrant.io/backup": "demo"
+              },
+              "name": "demo-node-0",
+              "namespace": "tenant-a"
+            },
+            "spec": {
+              "source": {
+                "persistentVolumeClaimName": "qdrant-storage-qdrant-db-0"
+              },
+              "volumeSnapshotClassName": null
+            }
+          },
+          {
+            "apiVersion": "snapshot.storage.k8s.io/v1",
+            "kind": "VolumeSnapshot",
+            "metadata": {
+              "labels": {
+                "qdrant.io/backup": "demo"
+              },
+              "name": "demo-node-1",
+              "namespace": "tenant-a"
+            },
+            "spec": {
+              "source": {
+                "persistentVolumeClaimName": "qdrant-storage-qdrant-db-1"
+              },
+              "volumeSnapshotClassName": null
+            }
+          }
+        ],
+        "volume_snapshot_names": [
+          "demo-node-0",
+          "demo-node-1",
+          "demo-node-2"
+        ]
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "method": "volumeSnapshot"
+      }
+    }
+  ],
+  "statuses": [
+    {
+      "name": "empty is pending",
+      "outputs": {
+        "api": {
+          "phase": "Pending"
+        },
+        "finished": false
+      },
+      "status": {}
+    },
+    {
+      "name": "in progress",
+      "outputs": {
+        "api": {
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-09-23T10:00:01Z",
+              "message": "streaming",
+              "reason": "Running",
+              "status": "False",
+              "type": "Ready"
+            }
+          ],
+          "inProgressSnapshot": {
+            "collection": "c",
+            "nodeIndex": 1,
+            "snapshot": "s.snapshot"
+          },
+          "phase": "InProgress",
+          "startTime": "2026-09-23T10:00:00Z"
+        },
+        "finished": false
+      },
+      "status": {
+        "conditions": [
+          {
+            "lastTransitionTime": "2026-09-23T10:00:01Z",
+            "message": "streaming",
+            "reason": "Running",
+            "status": "False",
+            "type": "Ready"
+          }
+        ],
+        "inProgressSnapshot": {
+          "collection": "c",
+          "nodeIndex": 1,
+          "snapshot": "s.snapshot"
+        },
+        "phase": "InProgress",
+        "startTime": "2026-09-23T10:00:00Z"
+      }
+    },
+    {
+      "name": "in progress snapshot on node zero",
+      "outputs": {
+        "api": {
+          "inProgressSnapshot": {
+            "collection": "c",
+            "snapshot": "s.snapshot"
+          },
+          "phase": "InProgress"
+        },
+        "finished": false
+      },
+      "status": {
+        "inProgressSnapshot": {
+          "collection": "c",
+          "nodeIndex": 0,
+          "snapshot": "s.snapshot"
+        },
+        "phase": "InProgress"
+      }
+    },
+    {
+      "collections": [
+        {
+          "name": "a",
+          "snapshots": [
+            {
+              "key": "backups/demo/a/node-0/s.snapshot",
+              "nodeIndex": 0,
+              "sizeBytes": 1536,
+              "snapshotName": "s.snapshot"
+            },
+            {
+              "key": "backups/demo/a/node-1/s.snapshot",
+              "nodeIndex": 1,
+              "sizeBytes": 1024,
+              "snapshotName": "s.snapshot"
+            }
+          ],
+          "status": "Completed"
+        },
+        {
+          "error": "boom",
+          "name": "b",
+          "snapshots": [],
+          "status": "Failed"
+        }
+      ],
+      "name": "completed with collections",
+      "outputs": {
+        "api": {
+          "collections": [
+            {
+              "name": "a",
+              "size": "2.5KB",
+              "snapshots": [
+                {
+                  "key": "backups/demo/a/node-0/s.snapshot",
+                  "node": "node-0",
+                  "snapshotName": "s.snapshot"
+                },
+                {
+                  "key": "backups/demo/a/node-1/s.snapshot",
+                  "node": "node-1",
+                  "snapshotName": "s.snapshot"
+                }
+              ],
+              "status": "Completed"
+            },
+            {
+              "error": "boom",
+              "name": "b",
+              "size": "0.0B",
+              "status": "Failed"
+            }
+          ],
+          "completionTime": "2026-09-23T10:05:00Z",
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-09-23T10:05:00Z",
+              "status": "True",
+              "type": "Ready"
+            }
+          ],
+          "expiresAt": "2026-09-30T10:05:00Z",
+          "phase": "Completed",
+          "s3Path": "s3://b/demo",
+          "startTime": "2026-09-23T10:00:00Z",
+          "totalSize": "3.0GB"
+        },
+        "finished": true
+      },
+      "status": {
+        "completionTime": "2026-09-23T10:05:00Z",
+        "conditions": [
+          {
+            "lastTransitionTime": "2026-09-23T10:05:00Z",
+            "status": "True",
+            "type": "Ready"
+          }
+        ],
+        "expiresAt": "2026-09-30T10:05:00Z",
+        "phase": "Completed",
+        "s3Path": "s3://b/demo",
+        "startTime": "2026-09-23T10:00:00Z",
+        "totalSize": "3.0GB"
+      }
+    },
+    {
+      "name": "failed",
+      "outputs": {
+        "api": {
+          "completionTime": "2026-09-23T10:00:05Z",
+          "error": "bucket missing",
+          "phase": "Failed",
+          "startTime": "2026-09-23T10:00:00Z"
+        },
+        "finished": true
+      },
+      "status": {
+        "completionTime": "2026-09-23T10:00:05Z",
+        "error": "bucket missing",
+        "phase": "Failed",
+        "startTime": "2026-09-23T10:00:00Z"
+      }
+    },
+    {
+      "name": "volume snapshots",
+      "outputs": {
+        "api": {
+          "phase": "Completed",
+          "volumeSnapshots": [
+            {
+              "accessModes": [
+                "ReadWriteOnce",
+                "ReadWriteMany"
+              ],
+              "claimName": "qdrant-storage-qdrant-db-0",
+              "size": "10Gi",
+              "snapshotName": "nightly-node-0",
+              "storageClassName": "fast",
+              "zone": "eu01-2",
+              "zoneLabel": "topology.cinder.csi.openstack.org/zone"
+            },
+            {
+              "accessModes": [
+                "ReadWriteOnce"
+              ],
+              "claimName": "qdrant-storage-qdrant-db-1",
+              "nodeIndex": 1,
+              "size": "10Gi",
+              "snapshotName": "nightly-node-1"
+            },
+            {
+              "accessModes": [
+                "ReadWriteOnce"
+              ],
+              "claimName": "qdrant-storage-qdrant-db-2",
+              "nodeIndex": 2,
+              "size": "10Gi",
+              "snapshotName": "nightly-node-2"
+            }
+          ]
+        },
+        "finished": true
+      },
+      "status": {
+        "phase": "Completed",
+        "volumeSnapshots": [
+          {
+            "accessModes": [
+              "ReadWriteOnce",
+              "ReadWriteMany"
+            ],
+            "claimName": "qdrant-storage-qdrant-db-0",
+            "nodeIndex": 0,
+            "size": "10Gi",
+            "snapshotName": "nightly-node-0",
+            "storageClassName": "fast",
+            "zone": "eu01-2",
+            "zoneLabel": "topology.cinder.csi.openstack.org/zone"
+          },
+          {
+            "claimName": "qdrant-storage-qdrant-db-1",
+            "nodeIndex": 1,
+            "size": "10Gi",
+            "snapshotName": "nightly-node-1"
+          },
+          {
+            "claimName": "qdrant-storage-qdrant-db-2",
+            "nodeIndex": 2,
+            "size": "10Gi",
+            "snapshotName": "nightly-node-2",
+            "zone": "eu01-3"
+          }
+        ]
+      }
+    }
+  ]
+}

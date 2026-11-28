@@ -41,26 +41,17 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{- define "qdrant-operator.peeringName" -}}
-{{- default (include "qdrant-operator.fullname" .) .Values.ha.peeringName }}
+{{- define "qdrant-operator.leaseName" -}}
+{{- default (include "qdrant-operator.fullname" .) .Values.ha.leaseName }}
 {{- end }}
 
 {{- define "qdrant-operator.clusterRules" -}}
-- apiGroups: ["apiextensions.k8s.io"]
-  resources: ["customresourcedefinitions"]
-  verbs: ["list", "watch"]
 - apiGroups: [""]
   resources: ["persistentvolumes"]
   verbs: ["get"]
 - apiGroups: [""]
   resources: ["nodes"]
   verbs: ["list"]
-{{- end }}
-
-{{- define "qdrant-operator.peeringRules" -}}
-- apiGroups: ["kopf.dev"]
-  resources: [{{ ternary "\"kopfpeerings\"" "\"clusterkopfpeerings\"" (not (empty .Values.watchNamespaces)) }}]
-  verbs: ["get", "list", "watch", "patch"]
 {{- end }}
 
 {{- define "qdrant-operator.namespacedRules" -}}
@@ -73,19 +64,18 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 - apiGroups: ["qdrant.io"]
   resources: ["qdrantclusters/status", "qdrantbackups/status", "qdrantbackupschedules/status", "qdrantrestores/status", "qdrantcollections/status", "qdrantaccesskeys/status", "qdrantmigrations/status"]
   verbs: ["get", "patch"]
-{{ include "qdrant-operator.peeringRules" . }}
-- apiGroups: [""]
+- apiGroups: ["", "events.k8s.io"]
   resources: ["events"]
-  verbs: ["create"]
+  verbs: ["create", "patch"]
 - apiGroups: [""]
   resources: ["secrets"]
-  verbs: ["get", "list", "create", "update", "patch", "delete"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: [""]
   resources: ["services", "configmaps", "serviceaccounts"]
-  verbs: ["get", "create", "patch", "delete"]
+  verbs: ["get", "list", "watch", "create", "patch", "delete"]
 - apiGroups: [""]
   resources: ["persistentvolumeclaims"]
-  verbs: ["list", "patch", "delete"]
+  verbs: ["list", "watch", "patch", "delete"]
 - apiGroups: [""]
   resources: ["persistentvolumeclaims"]
   verbs: ["create"]
@@ -100,14 +90,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
   verbs: ["get"]
 - apiGroups: ["apps"]
   resources: ["statefulsets"]
-  verbs: ["get", "create", "patch", "delete"]
+  verbs: ["get", "list", "watch", "create", "patch", "delete"]
 - apiGroups: ["apps"]
   resources: ["statefulsets/status"]
   verbs: ["get"]
 - apiGroups: ["policy"]
   resources: ["poddisruptionbudgets"]
-  verbs: ["get", "create", "patch", "delete"]
+  verbs: ["get", "list", "watch", "create", "patch", "delete"]
 - apiGroups: ["monitoring.coreos.com"]
   resources: ["servicemonitors"]
-  verbs: ["get", "create", "patch", "delete"]
+  verbs: ["get", "list", "watch", "create", "patch", "delete"]
 {{- end }}

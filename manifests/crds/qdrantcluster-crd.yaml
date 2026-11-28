@@ -1,6 +1,9 @@
+---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: qdrantclusters.qdrant.io
 spec:
   group: qdrant.io
@@ -8,385 +11,474 @@ spec:
     kind: QdrantCluster
     listKind: QdrantClusterList
     plural: qdrantclusters
-    singular: qdrantcluster
     shortNames:
-      - qc
+    - qc
+    singular: qdrantcluster
   scope: Namespaced
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      subresources:
-        status: {}
-      additionalPrinterColumns:
-        - name: Phase
-          type: string
-          jsonPath: .status.phase
-        - name: Replicas
-          type: integer
-          jsonPath: .status.replicas
-        - name: Ready
-          type: integer
-          jsonPath: .status.readyReplicas
-        - name: Version
-          type: string
-          jsonPath: .spec.version
-        - name: Age
-          type: date
-          jsonPath: .metadata.creationTimestamp
-      schema:
-        openAPIV3Schema:
-          type: object
-          required:
-            - spec
-          properties:
-            spec:
-              type: object
-              required:
-                - version
-              x-kubernetes-validations:
-                - rule: "self.replicas == 1 || !has(self.cluster) || self.cluster.enabled"
-                  message: "replicas > 1 requires cluster.enabled"
-                - rule: "(has(self.persistence) && has(self.persistence.size) ? quantity(self.persistence.size) : quantity('10Gi')).compareTo(has(oldSelf.persistence) && has(oldSelf.persistence.size) ? quantity(oldSelf.persistence.size) : quantity('10Gi')) >= 0"
-                  message: "persistence.size can grow but not shrink"
-                - rule: "(has(self.snapshotPersistence) && has(self.snapshotPersistence.size) ? quantity(self.snapshotPersistence.size) : quantity('10Gi')).compareTo(has(oldSelf.snapshotPersistence) && has(oldSelf.snapshotPersistence.size) ? quantity(oldSelf.snapshotPersistence.size) : quantity('10Gi')) >= 0"
-                  message: "snapshotPersistence.size can grow but not shrink"
-                - rule: "(has(self.persistence) && has(self.persistence.storageClassName) ? self.persistence.storageClassName : '') == (has(oldSelf.persistence) && has(oldSelf.persistence.storageClassName) ? oldSelf.persistence.storageClassName : '')"
-                  message: "persistence.storageClassName is immutable"
-              properties:
-                replicas:
-                  type: integer
-                  minimum: 1
-                  default: 1
-                version:
-                  type: string
-                  pattern: '^v?[0-9]+\.[0-9]+\.[0-9]+$'
-                  description: Qdrant version, also the qdrant-helm chart version (e.g. v1.16.3)
-                image:
-                  type: object
-                  properties:
-                    repository:
-                      type: string
-                      default: "docker.io/qdrant/qdrant"
-                    pullPolicy:
-                      type: string
-                      enum: ["Always", "IfNotPresent", "Never"]
-                      default: "IfNotPresent"
-                resources:
-                  type: object
-                  properties:
-                    requests:
-                      type: object
-                      properties:
-                        cpu:
-                          type: string
-                        memory:
-                          type: string
-                    limits:
-                      type: object
-                      properties:
-                        cpu:
-                          type: string
-                        memory:
-                          type: string
-                persistence:
-                  type: object
-                  properties:
-                    size:
-                      type: string
-                      maxLength: 20
-                      default: "10Gi"
-                      description: Volume size per pod; increases are applied to the PVCs and the StatefulSet is recreated, decreases are rejected
-                    storageClassName:
-                      type: string
-                    accessModes:
-                      type: array
-                      items:
-                        type: string
-                      default: ["ReadWriteOnce"]
-                    reclaimPolicy:
-                      type: string
-                      enum: ["Retain", "Delete"]
-                      default: "Retain"
-                      description: Delete removes the cluster's PersistentVolumeClaims (data and snapshots) when the QdrantCluster is deleted; Retain keeps them
-                snapshotPersistence:
-                  type: object
-                  properties:
-                    enabled:
-                      type: boolean
-                      default: false
-                    size:
-                      type: string
-                      maxLength: 20
-                      default: "10Gi"
-                      description: Snapshot volume size per pod; size it for the largest snapshot of one node (a full copy of its shards)
-                    storageClassName:
-                      type: string
-                cluster:
-                  type: object
-                  properties:
-                    enabled:
-                      type: boolean
-                      default: true
-                    p2p:
-                      type: object
-                      properties:
-                        port:
-                          type: integer
-                          default: 6335
-                        enableTls:
-                          type: boolean
-                          default: false
-                service:
-                  type: object
-                  properties:
-                    type:
-                      type: string
-                      enum: ["ClusterIP", "LoadBalancer", "NodePort"]
-                      default: "ClusterIP"
-                    annotations:
-                      type: object
-                      additionalProperties:
-                        type: string
-                apiKey:
-                  type: object
-                  x-kubernetes-validations:
-                    - rule: "!(has(self.secretRef) && self.autoGenerate)"
-                      message: "set either secretRef or autoGenerate, not both"
-                    - rule: "!self.jwtRbac || has(self.secretRef) || self.autoGenerate"
-                      message: "jwtRbac needs an API key (secretRef or autoGenerate) to sign tokens with"
-                  properties:
-                    jwtRbac:
-                      type: boolean
-                      default: false
-                      description: Enable JWT role-based access (service.jwt_rbac); QdrantAccessKey resources need it
-                    secretRef:
-                      type: object
-                      required:
-                        - name
-                        - key
-                      properties:
-                        name:
-                          type: string
-                        key:
-                          type: string
-                    autoGenerate:
-                      type: boolean
-                      default: false
-                readOnlyApiKey:
-                  type: object
-                  x-kubernetes-validations:
-                    - rule: "!(has(self.secretRef) && self.autoGenerate)"
-                      message: "set either secretRef or autoGenerate, not both"
-                  properties:
-                    secretRef:
-                      type: object
-                      properties:
-                        name:
-                          type: string
-                        key:
-                          type: string
-                    autoGenerate:
-                      type: boolean
-                      default: false
-                tls:
-                  type: object
-                  x-kubernetes-validations:
-                    - rule: "!self.enabled || (has(self.secretRef) && has(self.secretRef.name))"
-                      message: "tls.enabled requires tls.secretRef.name (a kubernetes.io/tls secret)"
-                  properties:
-                    enabled:
-                      type: boolean
-                      default: false
-                    secretRef:
-                      type: object
-                      properties:
-                        name:
-                          type: string
-                    caKey:
-                      type: string
-                      default: ca.crt
-                      description: Key in the TLS Secret that holds the CA certificate. Qdrant verifies its peers with it when cluster.p2p.enableTls is on, and the operator verifies Qdrant's HTTPS with it.
-                metrics:
-                  type: object
-                  properties:
-                    enabled:
-                      type: boolean
-                      default: false
-                    serviceMonitor:
-                      type: object
-                      properties:
-                        enabled:
-                          type: boolean
-                          default: false
-                        interval:
-                          type: string
-                          default: "30s"
-                        labels:
-                          type: object
-                          additionalProperties:
-                            type: string
-                podAnnotations:
-                  type: object
-                  additionalProperties:
-                    type: string
-                  description: Annotations on the Qdrant pods (e.g. scrape hints for a metrics collector)
-                podLabels:
-                  type: object
-                  additionalProperties:
-                    type: string
-                nodeSelector:
-                  type: object
-                  additionalProperties:
-                    type: string
-                tolerations:
-                  type: array
-                  items:
-                    type: object
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.replicas
+      name: Replicas
+      type: integer
+    - jsonPath: .status.readyReplicas
+      name: Ready
+      type: integer
+    - jsonPath: .spec.version
+      name: Version
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              affinity:
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              apiKey:
+                properties:
+                  autoGenerate:
+                    default: false
+                    type: boolean
+                  jwtRbac:
+                    default: false
+                    description: Enable JWT role-based access (service.jwt_rbac);
+                      QdrantAccessKey resources need it
+                    type: boolean
+                  secretRef:
                     properties:
                       key:
                         type: string
-                      operator:
+                      name:
                         type: string
-                      value:
-                        type: string
-                      effect:
-                        type: string
-                      tolerationSeconds:
-                        type: integer
-                affinity:
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
-                podDisruptionBudget:
-                  type: object
-                  x-kubernetes-validations:
-                    - rule: "!(has(self.maxUnavailable) && has(self.minAvailable))"
-                      message: "set either maxUnavailable or minAvailable, not both"
-                  description: PodDisruptionBudget of the pods; enabled by default when replicas > 1 with maxUnavailable 1
-                  properties:
-                    enabled:
-                      type: boolean
-                      description: Unset means on when replicas > 1
-                    maxUnavailable:
-                      x-kubernetes-int-or-string: true
-                    minAvailable:
-                      x-kubernetes-int-or-string: true
-                topologySpread:
-                  type: object
-                  description: Spread of pods over nodes (on by default when replicas > 1) and zones (opt in)
-                  properties:
-                    hostname:
-                      type: object
-                      properties:
-                        enabled:
-                          type: boolean
-                          default: true
-                        maxSkew:
-                          type: integer
-                          minimum: 1
-                          default: 1
-                        whenUnsatisfiable:
-                          type: string
-                          enum: ["ScheduleAnyway", "DoNotSchedule"]
-                          default: "ScheduleAnyway"
-                    zone:
-                      type: object
-                      properties:
-                        enabled:
-                          type: boolean
-                          default: false
-                        maxSkew:
-                          type: integer
-                          minimum: 1
-                          default: 1
-                        whenUnsatisfiable:
-                          type: string
-                          enum: ["ScheduleAnyway", "DoNotSchedule"]
-                          default: "ScheduleAnyway"
-                    constraints:
-                      type: array
-                      description: Replaces the generated constraints; labelSelector defaults to the cluster's pods; an empty list disables spreading
-                      items:
-                        type: object
-                        x-kubernetes-preserve-unknown-fields: true
-                minReadySeconds:
-                  type: integer
-                  minimum: 0
-                  default: 0
-                  description: Seconds a pod must be Ready before the rolling update moves to the next one
-                scaling:
-                  type: object
-                  description: Opt-in peer management when the replica count changes or pods are rebuilt
-                  properties:
-                    drainOnScaleDown:
-                      type: boolean
-                      default: false
-                      description: Before removing pods, move their shard replicas to the remaining peers and remove the peers from consensus
-                    removeDeadPeers:
-                      type: boolean
-                      default: false
-                      description: Re-replicate shards off peers whose pod was rebuilt on an empty volume, then remove those peers
-                    rebalance:
-                      type: boolean
-                      default: false
-                      description: Keep every collection at its replication factor and its replicas spread evenly over the pods, e.g. after a scale-up, a restore or a peer repair; one shard operation per collection at a time
-                rollout:
-                  type: object
-                  description: How pods are restarted when the pod template changes
-                  properties:
-                    strategy:
-                      type: string
-                      enum: ["ShardHealth", "Readiness"]
-                      default: "ShardHealth"
-                      description: ShardHealth has the operator lower the StatefulSet partition one pod at a time, each only once every pod is Ready, every shard replica is Active, no transfer runs and every pod is a peer. Readiness is the plain StatefulSet RollingUpdate with partition 0
-                config:
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
-            status:
-              type: object
-              properties:
-                phase:
-                  type: string
-                  enum: ["Pending", "Running", "Failed", "Upgrading", "Terminating"]
-                replicas:
-                  type: integer
-                readyReplicas:
-                  type: integer
-                updatedReplicas:
-                  type: integer
-                currentRevision:
-                  type: string
-                updateRevision:
-                  type: string
-                appliedHash:
-                  type: string
-                  description: Digest of the chart version and values last applied; an unchanged digest skips the helm upgrade
-                version:
-                  type: string
-                helmRelease:
-                  type: string
-                endpoint:
-                  type: string
-                conditions:
-                  type: array
-                  items:
-                    type: object
                     required:
-                      - type
-                      - status
+                    - key
+                    - name
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: set either secretRef or autoGenerate, not both
+                  rule: '!(has(self.secretRef) && self.autoGenerate)'
+                - message: jwtRbac needs an API key (secretRef or autoGenerate) to
+                    sign tokens with
+                  rule: '!self.jwtRbac || has(self.secretRef) || self.autoGenerate'
+              cluster:
+                properties:
+                  enabled:
+                    default: true
+                    type: boolean
+                  p2p:
                     properties:
-                      type:
+                      enableTls:
+                        default: false
+                        type: boolean
+                      port:
+                        default: 6335
+                        format: int32
+                        type: integer
+                    type: object
+                type: object
+              config:
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              image:
+                properties:
+                  pullPolicy:
+                    default: IfNotPresent
+                    enum:
+                    - Always
+                    - IfNotPresent
+                    - Never
+                    type: string
+                  repository:
+                    default: docker.io/qdrant/qdrant
+                    type: string
+                type: object
+              metrics:
+                properties:
+                  enabled:
+                    default: false
+                    type: boolean
+                  serviceMonitor:
+                    properties:
+                      enabled:
+                        default: false
+                        type: boolean
+                      interval:
+                        default: 30s
                         type: string
-                      status:
+                      labels:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    type: object
+                type: object
+              minReadySeconds:
+                default: 0
+                description: Seconds a pod must be Ready before the rolling update
+                  moves to the next one
+                format: int32
+                minimum: 0
+                type: integer
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                type: object
+              persistence:
+                properties:
+                  accessModes:
+                    default:
+                    - ReadWriteOnce
+                    items:
+                      type: string
+                    type: array
+                  reclaimPolicy:
+                    default: Retain
+                    description: Delete removes the cluster's PersistentVolumeClaims
+                      (data and snapshots) when the QdrantCluster is deleted; Retain
+                      keeps them
+                    enum:
+                    - Retain
+                    - Delete
+                    type: string
+                  size:
+                    default: 10Gi
+                    description: Volume size per pod; increases are applied to the
+                      PVCs and the StatefulSet is recreated, decreases are rejected
+                    maxLength: 20
+                    type: string
+                  storageClassName:
+                    type: string
+                type: object
+              podAnnotations:
+                additionalProperties:
+                  type: string
+                description: Annotations on the Qdrant pods (e.g. scrape hints for
+                  a metrics collector)
+                type: object
+              podDisruptionBudget:
+                description: PodDisruptionBudget of the pods; enabled by default when
+                  replicas > 1 with maxUnavailable 1
+                properties:
+                  enabled:
+                    description: Unset means on when replicas > 1
+                    type: boolean
+                  maxUnavailable:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    x-kubernetes-int-or-string: true
+                  minAvailable:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    x-kubernetes-int-or-string: true
+                type: object
+                x-kubernetes-validations:
+                - message: set either maxUnavailable or minAvailable, not both
+                  rule: '!(has(self.maxUnavailable) && has(self.minAvailable))'
+              podLabels:
+                additionalProperties:
+                  type: string
+                type: object
+              readOnlyApiKey:
+                properties:
+                  autoGenerate:
+                    default: false
+                    type: boolean
+                  secretRef:
+                    properties:
+                      key:
                         type: string
-                        enum: ["True", "False", "Unknown"]
-                      lastTransitionTime:
+                      name:
                         type: string
-                        format: date-time
-                      reason:
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: set either secretRef or autoGenerate, not both
+                  rule: '!(has(self.secretRef) && self.autoGenerate)'
+              replicas:
+                default: 1
+                format: int32
+                minimum: 1
+                type: integer
+              resources:
+                properties:
+                  limits:
+                    properties:
+                      cpu:
                         type: string
-                      message:
+                      memory:
                         type: string
-                observedGeneration:
-                  type: integer
-                  format: int64
+                    type: object
+                  requests:
+                    properties:
+                      cpu:
+                        type: string
+                      memory:
+                        type: string
+                    type: object
+                type: object
+              rollout:
+                description: How pods are restarted when the pod template changes
+                properties:
+                  strategy:
+                    default: ShardHealth
+                    description: ShardHealth has the operator lower the StatefulSet
+                      partition one pod at a time, each only once every pod is Ready,
+                      every shard replica is Active, no transfer runs and every pod
+                      is a peer. Readiness is the plain StatefulSet RollingUpdate
+                      with partition 0
+                    enum:
+                    - ShardHealth
+                    - Readiness
+                    type: string
+                type: object
+              scaling:
+                description: Opt-in peer management when the replica count changes
+                  or pods are rebuilt
+                properties:
+                  drainOnScaleDown:
+                    default: false
+                    description: Before removing pods, move their shard replicas to
+                      the remaining peers and remove the peers from consensus
+                    type: boolean
+                  rebalance:
+                    default: false
+                    description: Keep every collection at its replication factor and
+                      its replicas spread evenly over the pods, e.g. after a scale-up,
+                      a restore or a peer repair; one shard operation per collection
+                      at a time
+                    type: boolean
+                  removeDeadPeers:
+                    default: false
+                    description: Re-replicate shards off peers whose pod was rebuilt
+                      on an empty volume, then remove those peers
+                    type: boolean
+                type: object
+              service:
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  type:
+                    default: ClusterIP
+                    enum:
+                    - ClusterIP
+                    - LoadBalancer
+                    - NodePort
+                    type: string
+                type: object
+              snapshotPersistence:
+                properties:
+                  enabled:
+                    default: false
+                    type: boolean
+                  size:
+                    default: 10Gi
+                    description: Snapshot volume size per pod; size it for the largest
+                      snapshot of one node (a full copy of its shards)
+                    maxLength: 20
+                    type: string
+                  storageClassName:
+                    type: string
+                type: object
+              tls:
+                properties:
+                  caKey:
+                    default: ca.crt
+                    description: Key in the TLS Secret that holds the CA certificate.
+                      Qdrant verifies its peers with it when cluster.p2p.enableTls
+                      is on, and the operator verifies Qdrant's HTTPS with it.
+                    type: string
+                  enabled:
+                    default: false
+                    type: boolean
+                  secretRef:
+                    properties:
+                      name:
+                        type: string
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: tls.enabled requires tls.secretRef.name (a kubernetes.io/tls
+                    secret)
+                  rule: '!self.enabled || (has(self.secretRef) && has(self.secretRef.name))'
+              tolerations:
+                items:
+                  properties:
+                    effect:
+                      type: string
+                    key:
+                      type: string
+                    operator:
+                      type: string
+                    tolerationSeconds:
+                      format: int64
+                      type: integer
+                    value:
+                      type: string
+                  type: object
+                type: array
+              topologySpread:
+                description: Spread of pods over nodes (on by default when replicas
+                  > 1) and zones (opt in)
+                properties:
+                  constraints:
+                    description: Replaces the generated constraints; labelSelector
+                      defaults to the cluster's pods; an empty list disables spreading
+                    items:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    type: array
+                  hostname:
+                    properties:
+                      enabled:
+                        default: true
+                        type: boolean
+                      maxSkew:
+                        default: 1
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      whenUnsatisfiable:
+                        default: ScheduleAnyway
+                        enum:
+                        - ScheduleAnyway
+                        - DoNotSchedule
+                        type: string
+                    type: object
+                  zone:
+                    properties:
+                      enabled:
+                        default: false
+                        type: boolean
+                      maxSkew:
+                        default: 1
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      whenUnsatisfiable:
+                        default: ScheduleAnyway
+                        enum:
+                        - ScheduleAnyway
+                        - DoNotSchedule
+                        type: string
+                    type: object
+                type: object
+              version:
+                description: Qdrant version, also the qdrant-helm chart version (e.g.
+                  v1.16.3)
+                pattern: ^v?[0-9]+\.[0-9]+\.[0-9]+$
+                type: string
+            required:
+            - version
+            type: object
+            x-kubernetes-validations:
+            - message: replicas > 1 requires cluster.enabled
+              rule: self.replicas == 1 || !has(self.cluster) || self.cluster.enabled
+            - message: persistence.size can grow but not shrink
+              rule: '(has(self.persistence) && has(self.persistence.size) ? quantity(self.persistence.size)
+                : quantity(''10Gi'')).compareTo(has(oldSelf.persistence) && has(oldSelf.persistence.size)
+                ? quantity(oldSelf.persistence.size) : quantity(''10Gi'')) >= 0'
+            - message: snapshotPersistence.size can grow but not shrink
+              rule: '(has(self.snapshotPersistence) && has(self.snapshotPersistence.size)
+                ? quantity(self.snapshotPersistence.size) : quantity(''10Gi'')).compareTo(has(oldSelf.snapshotPersistence)
+                && has(oldSelf.snapshotPersistence.size) ? quantity(oldSelf.snapshotPersistence.size)
+                : quantity(''10Gi'')) >= 0'
+            - message: persistence.storageClassName is immutable
+              rule: '(has(self.persistence) && has(self.persistence.storageClassName)
+                ? self.persistence.storageClassName : '''') == (has(oldSelf.persistence)
+                && has(oldSelf.persistence.storageClassName) ? oldSelf.persistence.storageClassName
+                : '''')'
+          status:
+            properties:
+              appliedHash:
+                description: Digest of the chart version and values last applied;
+                  an unchanged digest skips the helm upgrade
+                type: string
+              conditions:
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                    reason:
+                      type: string
+                    status:
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              currentRevision:
+                type: string
+              endpoint:
+                type: string
+              helmRelease:
+                type: string
+              observedGeneration:
+                format: int64
+                type: integer
+              phase:
+                enum:
+                - Pending
+                - Running
+                - Failed
+                - Upgrading
+                - Terminating
+                type: string
+              readyReplicas:
+                format: int32
+                type: integer
+              replicas:
+                format: int32
+                type: integer
+              updateRevision:
+                type: string
+              updatedReplicas:
+                format: int32
+                type: integer
+              version:
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -150,9 +150,9 @@ resource.
    `status.error` the first failure.
 
 Collections and nodes are processed one after another, not in parallel. The
-whole backup happens inside one handler invocation, so a restart of the
-operator mid-way leaves the resource without a final phase; kopf then re-runs
-the handler and the backup is taken again from the start. Snapshot names
+whole backup happens inside one reconcile, so a restart of the
+operator mid-way leaves the resource without a final phase; the reconciler
+then runs again and the backup is taken again from the start. Snapshot names
 carry Qdrant's timestamp, so the second run writes new objects and only
 `manifest.json` is overwritten; the first run's partial objects stay under
 the same root until the resource is deleted, when everything under it goes.
@@ -170,7 +170,7 @@ node's snapshot and not another's. Pause writers or accept that window.
 ## Retention and deletion
 
 `retentionDays` sets `status.expiresAt` to the completion time plus that
-many days. A timer checks every five minutes and deletes the resource once
+many days. The reconciler checks every five minutes and deletes the resource once
 the time has passed.
 
 Deleting a `QdrantBackup`, by hand, by expiry or by a schedule's retention,

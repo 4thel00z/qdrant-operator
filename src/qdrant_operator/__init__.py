@@ -1,1 +1,0 @@
-"""Qdrant Kubernetes Operator."""

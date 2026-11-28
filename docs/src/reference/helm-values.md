@@ -1,9 +1,9 @@
 # Helm values the operator renders
 
-Each `QdrantCluster` becomes one `helm upgrade --install` of the `qdrant`
+Each `QdrantCluster` becomes one Helm upgrade or install of the `qdrant`
 chart from `https://qdrant.github.io/qdrant-helm`, at chart version
-`spec.version` without its leading `v`. The values below are passed on
-stdin; everything the spec does not cover keeps the chart's default for that
+`spec.version` without its leading `v`. The values below are passed to the
+Helm SDK as a values map; everything the spec does not cover keeps the chart's default for that
 version.
 
 | Spec field | Chart value |

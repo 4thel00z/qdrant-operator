@@ -1,0 +1,67 @@
+{
+  "durations": ["720h", "1h30m15s", "90s", "0s", "5m", "30m1h", "007m", "30d", "", "h", "1.5h", "1h 30m", "-5m", "1H", "99999999999999999999s"],
+  "fingerprints": ["secret-api-key", "", "ключ-🔑", "another key"],
+  "specs": [
+    {
+      "name": "per collection with ttl, renewBefore, subject and valueExists",
+      "issued_at": "2026-09-24T20:00:00Z",
+      "spec": {
+        "clusterRef": {"name": "db"},
+        "collections": [{"name": "docs", "access": "rw"}, {"name": "logs", "access": "r"}],
+        "subject": "billing-service",
+        "ttl": "720h",
+        "renewBefore": "24h",
+        "valueExists": {"collection": "tenants", "matches": [{"key": "id", "value": 42}]}
+      }
+    },
+    {"name": "cluster wide read without ttl", "issued_at": "2026-09-24T20:00:00Z", "spec": {"clusterRef": {"name": "db"}, "access": "r"}},
+    {"name": "manage with default renew lead", "issued_at": "2026-09-24T20:00:00Z", "spec": {"clusterRef": {"name": "db", "namespace": "other"}, "access": "m", "ttl": "90h", "secretName": "tokens"}},
+    {"name": "third of ttl rounds to microseconds up", "issued_at": "2026-09-24T20:00:00Z", "spec": {"clusterRef": {"name": "db"}, "access": "r", "ttl": "2s"}},
+    {"name": "third of ttl rounds to microseconds down", "issued_at": "2026-09-24T20:00:00Z", "spec": {"clusterRef": {"name": "db"}, "access": "r", "ttl": "1s"}},
+    {"name": "zero ttl never expires", "issued_at": "2026-09-24T20:00:00Z", "spec": {"clusterRef": {"name": "db"}, "access": "r", "ttl": "0s", "renewBefore": "1h"}},
+    {"name": "renewBefore longer than ttl", "issued_at": "2026-09-24T20:00:00Z", "spec": {"clusterRef": {"name": "db"}, "access": "r", "ttl": "1h", "renewBefore": "2h"}},
+    {"name": "value exists carries large and nested values", "issued_at": "2026-09-24T20:00:00Z", "spec": {"clusterRef": {"name": "db"}, "access": "r", "valueExists": {"collection": "t", "matches": [{"key": "id", "value": 9007199254740993}, {"key": "tags", "value": ["a", {"b": 1.5}]}]}}},
+    {"name": "no access form is invalid", "issued_at": "2026-09-24T20:00:00Z", "spec": {"clusterRef": {"name": "db"}}},
+    {"name": "both access forms are invalid", "issued_at": "2026-09-24T20:00:00Z", "spec": {"clusterRef": {"name": "db"}, "access": "r", "collections": [{"name": "docs", "access": "r"}]}},
+    {"name": "bad ttl is invalid", "issued_at": "2026-09-24T20:00:00Z", "spec": {"clusterRef": {"name": "db"}, "access": "r", "ttl": "30d"}},
+    {"name": "bad renewBefore is invalid", "issued_at": "2026-09-24T20:00:00Z", "spec": {"clusterRef": {"name": "db"}, "access": "r", "ttl": "1h", "renewBefore": "soon"}}
+  ],
+  "statuses": [
+    {
+      "name": "ready with every field",
+      "status": {
+        "phase": "Ready",
+        "secretRef": {"name": "app-token", "key": "token"},
+        "issuedAt": "2026-09-24T20:00:00Z",
+        "expiresAt": "2026-10-24T20:00:00Z",
+        "renewAt": "2026-10-23T20:00:00Z",
+        "keyFingerprint": "abc",
+        "observedGeneration": 2,
+        "conditions": [{"type": "Ready", "status": "True", "lastTransitionTime": "2026-09-24T20:00:00Z", "reason": "TokenIssued", "message": "ok"}]
+      },
+      "checks": [
+        {"generation": 2, "fingerprint": "abc", "secret_present": true, "now": "2026-09-24T20:30:00Z"},
+        {"generation": 3, "fingerprint": "abc", "secret_present": true, "now": "2026-09-24T20:30:00Z"},
+        {"generation": 2, "fingerprint": "rotated", "secret_present": true, "now": "2026-09-24T20:30:00Z"},
+        {"generation": 2, "fingerprint": "abc", "secret_present": false, "now": "2026-09-24T20:30:00Z"},
+        {"generation": 2, "fingerprint": "abc", "secret_present": true, "now": "2026-10-23T20:00:00Z"},
+        {"generation": 2, "fingerprint": "abc", "secret_present": true, "now": "2026-10-25T20:00:00Z"}
+      ]
+    },
+    {
+      "name": "ready without renewAt never expires",
+      "status": {"phase": "Ready", "keyFingerprint": "abc", "observedGeneration": 2},
+      "checks": [{"generation": 2, "fingerprint": "abc", "secret_present": true, "now": "2036-09-24T20:30:00Z"}]
+    },
+    {
+      "name": "empty status is pending",
+      "status": {},
+      "checks": [{"generation": 0, "fingerprint": "", "secret_present": true, "now": "2026-09-24T20:30:00Z"}]
+    },
+    {
+      "name": "failed with error",
+      "status": {"phase": "Failed", "error": "cluster has no api key", "observedGeneration": 4},
+      "checks": [{"generation": 4, "fingerprint": "", "secret_present": true, "now": "2026-09-24T20:30:00Z"}]
+    }
+  ]
+}

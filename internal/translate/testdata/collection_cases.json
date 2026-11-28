@@ -1,0 +1,368 @@
+{
+  "spec_cases": [
+    {
+      "name": "single-unnamed-vector",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 768, "distance": "Cosine", "onDisk": true}]},
+      "config": {"params": {"vectors": {"size": 768, "distance": "Cosine"}}}
+    },
+    {
+      "name": "single-unnamed-vector-satisfied",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 768, "distance": "Cosine", "onDisk": true}]},
+      "config": {"params": {"vectors": {"on_disk": true}}}
+    },
+    {
+      "name": "named-vectors-and-tuning",
+      "spec": {
+        "clusterRef": {"name": "db"},
+        "collectionName": "Docs_v2",
+        "vectors": [
+          {"name": "text", "size": 384, "distance": "Dot", "hnsw": {"m": 32}},
+          {"name": "image", "size": 512, "distance": "Euclid", "datatype": "float16"}
+        ],
+        "sparseVectors": [{"name": "bm25", "modifier": "idf", "index": {"on_disk": true}}],
+        "shardNumber": 6,
+        "replicationFactor": 2,
+        "onDiskPayload": false,
+        "optimizers": {"indexing_threshold": 10000},
+        "quantization": {"scalar": {"type": "int8"}},
+        "wal": {"wal_capacity_mb": 64},
+        "strictMode": {"enabled": true, "max_query_limit": 100}
+      },
+      "config": {
+        "params": {
+          "vectors": {"text": {"size": 384, "distance": "Dot"}},
+          "replication_factor": 1,
+          "on_disk_payload": true
+        },
+        "optimizer_config": {"indexing_threshold": 10000}
+      }
+    },
+    {
+      "name": "memory-tiers-metadata-shard-keys",
+      "spec": {
+        "clusterRef": {"name": "db"},
+        "vectors": [{"size": 4, "distance": "Dot", "memory": "cold", "datatype": "turbo4"}],
+        "shardingMethod": "custom",
+        "shardNumber": 1,
+        "shardKeys": [{"key": "eu", "replicationFactor": 2}, {"key": 7}, {"key": "us", "shardsNumber": 3}],
+        "payloadMemory": "cached",
+        "readFanOutDelayMs": 50,
+        "readFanOutFactor": 0,
+        "metadata": {"owner": "search-team"}
+      },
+      "config": {"params": {"vectors": {"size": 4, "distance": "Dot", "memory": "cold"}}},
+      "existing_shard_keys": ["eu"]
+    },
+    {
+      "name": "multivector-with-vector-level-tuning",
+      "spec": {
+        "clusterRef": {"name": "db", "namespace": "infra"},
+        "vectors": [
+          {"name": "colbert", "size": 128, "distance": "Cosine", "multivector": {"comparator": "max_sim"},
+           "quantization": {"binary": {"always_ram": true}}, "onDisk": false, "hnsw": {"m": 0}}
+        ],
+        "deletionPolicy": "Delete"
+      },
+      "config": {
+        "params": {"vectors": {"colbert": {"size": 128, "distance": "Cosine", "multivector_config": {"comparator": "max_sim"}, "on_disk": null}}}
+      }
+    },
+    {
+      "name": "sparse-only",
+      "spec": {"clusterRef": {"name": "db"}, "sparseVectors": [{"name": "bm25"}, {"name": "splade", "index": {"full_scan_threshold": 1000}}]},
+      "config": {"params": {"vectors": {}, "sparse_vectors": {"bm25": {}, "splade": {"index": {"full_scan_threshold": 1000, "on_disk": false}}}}}
+    },
+    {
+      "name": "dense-and-sparse-config-missing-keys",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 3, "distance": "Manhattan"}], "sparseVectors": [{"name": "s", "modifier": "none"}], "hnsw": {"ef_construct": 200}},
+      "config": {}
+    },
+    {
+      "name": "error-no-vectors",
+      "spec": {"clusterRef": {"name": "db"}}
+    },
+    {
+      "name": "error-mixed-unnamed-vector",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}, {"name": "b", "size": 4, "distance": "Dot"}]}
+    },
+    {
+      "name": "error-unknown-deletion-policy",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}], "deletionPolicy": "Bogus"}
+    },
+    {
+      "name": "immutable-mismatch",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 8, "distance": "Dot"}], "shardNumber": 2, "shardingMethod": "auto"},
+      "config": {"params": {"vectors": {"size": 4, "distance": "Dot"}, "shard_number": 2, "sharding_method": "auto"}}
+    },
+    {
+      "name": "immutable-matches-with-extra-live-keys",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}], "shardNumber": 2},
+      "config": {"params": {"vectors": {"size": 4, "distance": "Dot", "on_disk": true}, "shard_number": 2, "sharding_method": "auto"}}
+    },
+    {
+      "name": "resets-optimizers",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}], "optimizers": {"indexing_threshold": 5000}},
+      "applied": {"optimizers": ["deleted_threshold", "flush_interval_sec", "indexing_threshold", "max_optimization_threads", "unknown_field"]},
+      "config": {"optimizer_config": {"indexing_threshold": 5000, "deleted_threshold": 0.3, "flush_interval_sec": 5, "max_optimization_threads": null}}
+    },
+    {
+      "name": "resets-threads-live-value",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}]},
+      "applied": {"optimizers": ["default_segment_number", "max_optimization_threads", "vacuum_min_vector_number"]},
+      "config": {"optimizer_config": {"max_optimization_threads": 4, "default_segment_number": 0, "vacuum_min_vector_number": 2000}}
+    },
+    {
+      "name": "resets-hnsw-and-params",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}], "writeConsistencyFactor": 2},
+      "applied": {"hnsw": ["ef_construct", "full_scan_threshold", "m", "max_indexing_threads", "on_disk"], "params": ["on_disk_payload", "read_fan_out_factor", "replication_factor", "write_consistency_factor"]},
+      "config": {
+        "hnsw_config": {"m": 32, "on_disk": true, "ef_construct": 100, "max_indexing_threads": 2},
+        "params": {"replication_factor": 3, "on_disk_payload": false, "write_consistency_factor": 2, "read_fan_out_factor": 2}
+      }
+    },
+    {
+      "name": "resets-hnsw-bool-null-is-default",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}]},
+      "applied": {"hnsw": ["on_disk"], "strict_mode": ["enabled"]},
+      "config": {"hnsw_config": {"on_disk": null}, "strict_mode_config": {"enabled": false}}
+    },
+    {
+      "name": "resets-quantization",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}]},
+      "applied": {"quantization": ["quantization"]},
+      "config": {"quantization_config": {"scalar": {"type": "int8"}}}
+    },
+    {
+      "name": "resets-quantization-already-off",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}]},
+      "applied": {"quantization": ["quantization"]},
+      "config": {"quantization_config": null}
+    },
+    {
+      "name": "resets-quantization-still-declared",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}], "quantization": {"scalar": {"type": "int8"}}},
+      "applied": {"quantization": ["quantization"]},
+      "config": {"quantization_config": {"scalar": {"type": "int8"}}}
+    },
+    {
+      "name": "resets-strict-mode-merged-with-declared",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}], "strictMode": {"max_query_limit": 100}},
+      "applied": {"strict_mode": ["enabled", "max_query_limit"]},
+      "config": {"strict_mode_config": {"enabled": true, "max_query_limit": 50}}
+    },
+    {
+      "name": "optimizer-null-threads-reads-as-auto",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}], "optimizers": {"max_optimization_threads": "auto", "indexing_threshold": 20000}},
+      "config": {"optimizer_config": {"max_optimization_threads": null, "indexing_threshold": 20000}}
+    },
+    {
+      "name": "optimizer-threads-change-needs-patch",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}], "optimizers": {"max_optimization_threads": 2, "deleted_threshold": 0.25}},
+      "config": {"optimizer_config": {"max_optimization_threads": null, "deleted_threshold": 0.2}}
+    },
+    {
+      "name": "strict-mode-false-matches-null",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}], "strictMode": {"enabled": false}, "metadata": {"a": {"b": 1}}},
+      "config": {"strict_mode_config": {"enabled": null}, "metadata": {"a": {"b": 1, "c": 2}}}
+    },
+    {
+      "name": "metadata-and-payload-memory-drift",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}], "payloadMemory": "cached", "metadata": {"a": {"b": 2}}, "onDiskPayload": true},
+      "config": {"params": {"payload": {"memory": "cold"}, "on_disk_payload": true}, "metadata": {"a": {"b": 1}}}
+    },
+    {
+      "name": "payload-indexes-plan",
+      "spec": {
+        "clusterRef": {"name": "db"},
+        "vectors": [{"size": 4, "distance": "Dot"}],
+        "payloadIndexes": [
+          {"field": "city", "type": "keyword"},
+          {"field": "age", "type": "integer", "params": {"lookup": true, "range": false}},
+          {"field": "body", "type": "text", "params": {"tokenizer": "word", "lowercase": true}},
+          {"field": "created", "type": "datetime"},
+          {"field": "new", "type": "bool"},
+          {"field": "ident", "type": "uuid", "params": {"is_tenant": true}}
+        ]
+      },
+      "payload_schema": {
+        "city": {"data_type": "keyword", "params": null, "points": 3},
+        "age": {"data_type": "integer", "params": {"type": "integer", "lookup": true, "range": null}, "points": 2},
+        "body": {"data_type": "text", "params": {"type": "text", "tokenizer": "prefix"}, "points": 4},
+        "created": {"data_type": "keyword", "params": null, "points": 1},
+        "ident": {"data_type": "uuid", "params": {"type": "uuid", "is_tenant": false}, "points": 0},
+        "legacy": {"data_type": "keyword", "params": null, "points": 1},
+        "manual": {"data_type": "keyword", "params": null, "points": 1}
+      },
+      "managed_indexes": ["city", "legacy", "gone", "created"]
+    },
+    {
+      "name": "payload-indexes-none-declared",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}]},
+      "payload_schema": {"a": {"data_type": "keyword", "params": null, "points": 1}},
+      "managed_indexes": ["a", "b"]
+    },
+    {
+      "name": "payload-indexes-duplicate-field-last-wins",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}], "payloadIndexes": [{"field": "x", "type": "keyword"}, {"field": "y", "type": "integer"}, {"field": "x", "type": "text"}]},
+      "payload_schema": {"x": {"data_type": "keyword", "params": null, "points": 1}}
+    },
+    {
+      "name": "aliases-plan",
+      "spec": {"clusterRef": {"name": "db"}, "collectionName": "articles", "vectors": [{"size": 4, "distance": "Dot"}], "aliases": ["zeta", "live", "kept", "moved"]},
+      "actual_aliases": {"kept": "articles", "moved": "other", "stale": "articles", "foreign": "other", "live": "articles"},
+      "managed_aliases": ["kept", "stale", "foreign", "missing", "live"]
+    },
+    {
+      "name": "aliases-none-declared",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}]},
+      "actual_aliases": {"a": "docs", "b": "docs"},
+      "managed_aliases": ["a"]
+    },
+    {
+      "name": "shard-keys-custom-creates-missing",
+      "spec": {
+        "clusterRef": {"name": "db"},
+        "vectors": [{"size": 4, "distance": "Dot"}],
+        "shardingMethod": "custom",
+        "shardKeys": [{"key": "eu"}, {"key": 7, "shardsNumber": 2}, {"key": "us"}, {"key": "9"}]
+      },
+      "existing_shard_keys": ["eu", 7, "manual"]
+    },
+    {
+      "name": "shard-keys-ignored-without-custom-sharding",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}], "shardingMethod": "auto", "shardKeys": [{"key": "eu"}]},
+      "existing_shard_keys": ["x"]
+    },
+    {
+      "name": "observe-ready-first-time",
+      "spec": {"clusterRef": {"name": "db"}, "collectionName": "articles", "vectors": [{"size": 4, "distance": "Dot"}]},
+      "observe": {
+        "current": {"phase": "Pending", "payloadIndexes": ["a"], "aliases": ["b"], "appliedFields": {"hnsw": ["m"], "params": []}, "shardKeys": ["eu"]},
+        "info": {"status": "green", "points_count": 12, "indexed_vectors_count": 10, "segments_count": 2},
+        "generation": 3,
+        "phase": "Ready",
+        "reason": "CollectionReady",
+        "message": "Collection articles matches the spec"
+      }
+    },
+    {
+      "name": "observe-ready-keeps-transition-time",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}]},
+      "observe": {
+        "current": {
+          "phase": "Ready",
+          "error": "stale",
+          "conditions": [
+            {"type": "Other", "status": "True", "lastTransitionTime": "2026-01-01T00:00:00Z", "reason": "X", "message": "m"},
+            {"type": "Ready", "status": "True", "lastTransitionTime": "2026-02-02T02:02:02Z", "reason": "Old", "message": "old"}
+          ]
+        },
+        "info": {"status": "yellow", "points_count": 0, "indexed_vectors_count": 0, "segments_count": 0},
+        "generation": 4,
+        "phase": "Ready",
+        "reason": "CollectionReady",
+        "message": "Collection docs matches the spec; reset to Qdrant defaults: hnsw_config.m"
+      }
+    },
+    {
+      "name": "observe-degraded-flips-condition",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}]},
+      "observe": {
+        "current": {
+          "phase": "Ready",
+          "appliedFields": {"optimizers": ["indexing_threshold"]},
+          "payloadIndexes": ["city"],
+          "conditions": [{"type": "Ready", "status": "True", "lastTransitionTime": "2026-02-02T02:02:02Z", "reason": "CollectionReady", "message": "ok"}]
+        },
+        "info": {"status": "red", "points_count": 5},
+        "generation": 5,
+        "phase": "Degraded",
+        "reason": "ImmutableFieldMismatch",
+        "message": "vectors, shardNumber or shardingMethod differ from the live collection; only re-creating the collection can change them"
+      }
+    },
+    {
+      "name": "observe-failed-without-generation-or-info",
+      "spec": {"clusterRef": {"name": "db"}, "vectors": [{"size": 4, "distance": "Dot"}]},
+      "observe": {
+        "current": {"phase": "Pending"},
+        "info": {},
+        "phase": "Failed",
+        "reason": "ReconcileError",
+        "message": "boom"
+      }
+    }
+  ],
+  "subset_cases": [
+    {"name": "declared-subset-matches", "desired": {"params": {"vectors": {"size": 4, "on_disk": false}}}, "actual": {"params": {"vectors": {"size": 4, "distance": "Dot", "on_disk": null}, "x": 1}}},
+    {"name": "value-differs", "desired": {"params": {"vectors": {"size": 8}}}, "actual": {"params": {"vectors": {"size": 4}}}},
+    {"name": "missing-nested-map", "desired": {"params": {"missing": {"a": 1}}}, "actual": {"params": {"vectors": {}}}},
+    {"name": "true-needs-true", "desired": {"params": {"vectors": {"on_disk": true}}}, "actual": {"params": {"vectors": {"on_disk": null}}}},
+    {"name": "false-matches-null", "desired": {"a": false}, "actual": {"a": null}},
+    {"name": "false-matches-absent", "desired": {"a": false}, "actual": {}},
+    {"name": "false-differs-from-true", "desired": {"a": false}, "actual": {"a": true}},
+    {"name": "null-desired-ignored", "desired": {"a": null, "b": 1}, "actual": {"b": 1}},
+    {"name": "actual-not-a-map", "desired": {"a": 1}, "actual": null},
+    {"name": "actual-scalar", "desired": {"a": 1}, "actual": 3},
+    {"name": "empty-desired-matches-empty-map", "desired": {}, "actual": {}},
+    {"name": "empty-desired-needs-a-map", "desired": {}, "actual": null},
+    {"name": "int-equals-float", "desired": {"a": 1}, "actual": {"a": 1.0}},
+    {"name": "float-differs", "desired": {"a": 0.2}, "actual": {"a": 0.25}},
+    {"name": "lists-compare-whole", "desired": {"a": [1, 2]}, "actual": {"a": [1, 2]}},
+    {"name": "lists-shorter-differs", "desired": {"a": [1]}, "actual": {"a": [1, 2]}},
+    {"name": "lists-of-maps-compare-exactly", "desired": {"a": [{"k": 1}]}, "actual": {"a": [{"k": 1, "extra": 2}]}},
+    {"name": "strings", "desired": {"a": "x"}, "actual": {"a": "x"}},
+    {"name": "string-vs-number", "desired": {"a": "1"}, "actual": {"a": 1}},
+    {"name": "scalar-desired-equal", "desired": 3, "actual": 3},
+    {"name": "scalar-desired-false-null", "desired": false, "actual": null},
+    {"name": "scalar-desired-null-null", "desired": null, "actual": null},
+    {"name": "map-vs-list", "desired": {"a": {"b": 1}}, "actual": {"a": [1]}}
+  ],
+  "optimizer_cases": [
+    {"name": "null-threads-become-auto", "config": {"optimizer_config": {"max_optimization_threads": null, "indexing_threshold": 1}}},
+    {"name": "absent-threads-become-auto", "config": {"optimizer_config": {"indexing_threshold": 1}}},
+    {"name": "set-threads-kept", "config": {"optimizer_config": {"max_optimization_threads": 4}}},
+    {"name": "zero-threads-kept", "config": {"optimizer_config": {"max_optimization_threads": 0}}},
+    {"name": "empty-optimizers-untouched", "config": {"optimizer_config": {}}},
+    {"name": "null-optimizers", "config": {"optimizer_config": null}},
+    {"name": "no-optimizers", "config": {}}
+  ],
+  "default_cases": [
+    {"name": "equal-float", "live": 0.2, "default": 0.2},
+    {"name": "int-vs-float", "live": 5, "default": 5.0},
+    {"name": "different", "live": 6, "default": 5},
+    {"name": "null-default-null-live", "live": null, "default": null},
+    {"name": "null-default-set-live", "live": 4, "default": null},
+    {"name": "false-default-null-live", "live": null, "default": false},
+    {"name": "false-default-false-live", "live": false, "default": false},
+    {"name": "false-default-true-live", "live": true, "default": false},
+    {"name": "false-default-zero-live", "live": 0, "default": false},
+    {"name": "true-default-null-live", "live": null, "default": true},
+    {"name": "true-default-true-live", "live": true, "default": true},
+    {"name": "string-default", "live": "auto", "default": "auto"}
+  ],
+  "status_cases": [
+    {
+      "name": "full-roundtrip",
+      "status": {
+        "phase": "Ready",
+        "collectionName": "articles",
+        "health": "green",
+        "pointsCount": 100,
+        "indexedVectorsCount": 90,
+        "segmentsCount": 4,
+        "payloadIndexes": ["body", "city"],
+        "aliases": ["live"],
+        "shardKeys": ["eu", 7],
+        "appliedFields": {"optimizers": ["indexing_threshold"], "params": ["replication_factor", "on_disk_payload"]},
+        "error": "oops",
+        "observedGeneration": 7,
+        "conditions": [{"type": "Ready", "status": "False", "lastTransitionTime": "2026-03-04T05:06:07Z", "reason": "R", "message": "m"}]
+      }
+    },
+    {"name": "empty-defaults-to-pending", "status": {}},
+    {"name": "applied-fields-drop-empty-groups", "status": {"phase": "Degraded", "appliedFields": {"hnsw": [], "strict_mode": ["enabled"]}}},
+    {"name": "condition-without-reason", "status": {"phase": "Failed", "conditions": [{"type": "Ready", "status": "Unknown", "lastTransitionTime": "2026-03-04T05:06:07Z"}]}},
+    {"name": "error-unknown-phase", "status": {"phase": "Exploded"}}
+  ]
+}

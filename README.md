@@ -7,8 +7,7 @@
 **A Kubernetes operator for managing Qdrant vector database clusters**
 
 [![CI](https://github.com/4thel00z/qdrant-operator/actions/workflows/ci.yml/badge.svg)](https://github.com/4thel00z/qdrant-operator/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/qdrant-operator.svg)](https://pypi.org/project/qdrant-operator/)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Go](https://img.shields.io/badge/go-1.26+-00add8.svg)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Kubernetes](https://img.shields.io/badge/kubernetes-%3E%3D1.26-326ce5.svg)](https://kubernetes.io/)
 
@@ -33,10 +32,10 @@
 - **Least-Privilege Tokens** - `QdrantAccessKey` signs Qdrant JWT tokens per collection and writes them into a Secret, renewing before expiry
 - **Live Migrations** - `QdrantMigration` copies collections between clusters (or from Qdrant Cloud) without an S3 round trip
 - **Sync Passes** - `sync: true` re-reads the source after the copy and applies what changed, until a pass finds nothing, so writers can keep going during a migration
-- **High Availability** - Several operator replicas with kopf peering: one active, the rest standby
+- **High Availability** - Several operator replicas with leader election: one active, the rest standby
 - **Bring Your Own TLS** - Serve HTTPS from any Secret; `caKey` names the CA entry when it is not `ca.crt`
 - **Admission Validation** - CEL rules on every CRD reject impossible specs before the operator sees them
-- **Async-First** - Built on kopf with fully async adapters for performance
+- **Single Binary** - Built on controller-runtime; Helm runs in-process through the Helm Go SDK, so the image needs no `helm` binary
 
 ## Tested on a real cluster
 
@@ -72,7 +71,7 @@ The checks below ran on the same cluster against two-node test clusters.
 ### Prerequisites
 
 - Kubernetes cluster (v1.26+)
-- Helm 3.x installed
+- Helm 3.x or 4.x client installed
 - kubectl configured with cluster access
 
 ### Install with Helm (Recommended)
@@ -107,12 +106,12 @@ Override default values:
 
 ```bash
 helm install qdrant-operator ./charts/qdrant-operator \
-  --set operator.logLevel=DEBUG \
+  --set operator.logLevel=debug \
   --set resources.limits.memory=2Gi
 ```
 
-Run several replicas with kopf peering (one active, the rest standby; failover within
-`ha.lifetime`, 60 seconds by default):
+Run several replicas with leader election (one active, the rest standby; failover within
+`ha.leaseDuration`, 15 seconds by default):
 
 ```bash
 helm install qdrant-operator ./charts/qdrant-operator --set ha.enabled=true --set replicaCount=2
@@ -131,28 +130,27 @@ Or use a values file:
 helm install qdrant-operator ./charts/qdrant-operator -f my-values.yaml
 ```
 
-### Install from PyPI
-The operator is also a Python package; the `qdrant-operator` command runs it against your kubeconfig,
-forwarding any extra flags to `kopf run` (for example `--namespace team-a`).
+### Run the binary
+Each GitHub release attaches `qdrant-operator` binaries for linux and darwin on amd64 and arm64. The
+binary runs against your kubeconfig (`--kubernetes-kubeconfig`, or the default kubeconfig when not in
+a cluster); every setting is a flag and a `QDRANT_OPERATOR_*` environment variable, see
+[Operator configuration](https://4thel00z.github.io/qdrant-operator/reference/operator-configuration.html).
 ```bash
-uv tool install qdrant-operator   # or: pipx install qdrant-operator
 qdrant-operator --help
+qdrant-operator --manager-namespaces team-a --logging-format text
 ```
 Container images: `ghcr.io/4thel00z/qdrant-operator:<version>` (linux/amd64, linux/arm64, signed provenance).
 ### Build Docker Image (Optional)
 
 ```bash
 # Replace with your registry
-docker build -t ghcr.io/YOUR_ORG/qdrant-operator:0.1.0 .
-docker push ghcr.io/YOUR_ORG/qdrant-operator:0.1.0
+make image IMAGE_REPO=ghcr.io/YOUR_ORG/qdrant-operator IMAGE_TAG=0.1.0
+make push IMAGE_REPO=ghcr.io/YOUR_ORG/qdrant-operator IMAGE_TAG=0.1.0
 ```
 
 ### Local Development
 
 ```bash
-# Install dependencies
-uv sync
-
 # Apply CRDs to cluster
 kubectl apply -f manifests/crds/
 
@@ -372,13 +370,23 @@ run interrupted by an operator restart resumes where it stopped.
 
 ## Configuration
 
-### Environment Variables
+### Settings
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `KUBECONFIG` | Path to kubeconfig file | In-cluster config |
-| `LOG_LEVEL` | Logging level | `INFO` |
-| `LOG_FORMAT` | `json` or `text` | `json` |
+Every setting is a command-line flag and an environment variable named `QDRANT_OPERATOR_` plus the
+flag name in upper case with `-` as `_` (`--manager-lease-duration` is
+`QDRANT_OPERATOR_MANAGER_LEASE_DURATION`); flags win. The main ones:
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--logging-level` | `debug`, `info`, `warn` or `error` | `info` |
+| `--logging-format` | `json` or `text` | `json` |
+| `--manager-namespaces` | Namespaces to watch, comma-separated | all |
+| `--manager-leader-election` | Elect a leader so several replicas can run | `false` |
+| `--kubernetes-kubeconfig` | Kubeconfig path | in-cluster config, else the default kubeconfig |
+
+The full list, with the chart values that set them, is in the
+[Operator configuration](https://4thel00z.github.io/qdrant-operator/reference/operator-configuration.html)
+reference.
 
 ### S3 Credentials Secret
 
@@ -396,42 +404,41 @@ stringData:
 ## Development
 
 ```bash
-# Install dependencies
-uv sync
+# Run the operator against your kubeconfig
+make dev
 
-# Run tests
-uv run pytest
+# Unit tests and envtest tests (downloads the pinned envtest control plane)
+make test
 
-# Run integration tests (requires k8s cluster + helm)
+# Run the Helm adapter integration test (requires k8s cluster)
 make test-integration
 
 # Run end-to-end tests against the operator deployed on kind
 make e2e-image e2e-deploy test-e2e
 
-# Lint and format
-uv run ruff check src tests
-uv run ruff format src tests
+# Format check, vet and chart lint
+make lint
 
-# Type checking
-uv run pyright src tests
+# Regenerate deepcopy methods and CRDs from api/v1alpha1
+make manifests
 ```
 
 ## Releasing
-CI (`.github/workflows/ci.yml`) runs lint, pyright, unit tests, chart lint, a wheel/image build, the
-adapter integration suite on kind and an end-to-end run of the operator deployed by its chart on
-kind, on every push and pull request.
+CI (`.github/workflows/ci.yml`) runs the format check, `go vet`, chart lint, unit and envtest tests,
+an image build, the Helm adapter integration suite on kind and an end-to-end run of the operator
+deployed by its chart on kind, on every push and pull request.
 
 Releases are driven by [release-please](https://github.com/googleapis/release-please) from the
 conventional commit history, all inside `.github/workflows/release.yml` on pushes to `main`:
 
-1. A release PR is kept up to date that bumps `pyproject.toml` and `Chart.yaml`, refreshes `uv.lock`
-   and updates `CHANGELOG.md`.
-2. Merging that PR creates the `vX.Y.Z` tag and the GitHub release, and the same run publishes the
-   wheel and sdist to PyPI (trusted publishing, no token), pushes the multi-arch image and the Helm
-   chart to ghcr.io, and attaches the artifacts and CRDs to the release.
+1. A release PR is kept up to date that bumps `Chart.yaml` and updates `CHANGELOG.md`.
+2. Merging that PR creates the `vX.Y.Z` tag and the GitHub release, and the same run pushes the
+   multi-arch image and the OCI Helm chart to ghcr.io, and attaches the per-platform binaries and
+   the CRDs to the release.
 
 No secrets are involved beyond the default `GITHUB_TOKEN`; the repository setting *Allow GitHub
 Actions to create and approve pull requests* must be on for the release PR to appear.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

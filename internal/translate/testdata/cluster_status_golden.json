@@ -1,0 +1,98 @@
+{
+  "cases": [
+    {
+      "name": "empty",
+      "out": {
+        "phase": "Pending"
+      },
+      "status": {}
+    },
+    {
+      "name": "phase-only",
+      "out": {
+        "phase": "Running"
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "name": "full",
+      "out": {
+        "appliedHash": "abc123",
+        "conditions": [
+          {
+            "lastTransitionTime": "2026-01-01T10:00:00Z",
+            "message": "pod 2 is restarting",
+            "reason": "RestartingPod",
+            "status": "False",
+            "type": "Ready"
+          },
+          {
+            "lastTransitionTime": "2026-01-01T10:00:00.123456Z",
+            "status": "True",
+            "type": "Available"
+          },
+          {
+            "lastTransitionTime": "2026-01-01T10:00:00Z",
+            "status": "Unknown",
+            "type": "Offset"
+          }
+        ],
+        "currentRevision": "rev-old",
+        "endpoint": "http://qdrant-demo.search.svc:6333",
+        "helmRelease": "qdrant-demo",
+        "observedGeneration": 7,
+        "phase": "Upgrading",
+        "readyReplicas": 2,
+        "replicas": 3,
+        "updateRevision": "rev-new",
+        "updatedReplicas": 1,
+        "version": "v1.15.0"
+      },
+      "status": {
+        "appliedHash": "abc123",
+        "conditions": [
+          {
+            "lastTransitionTime": "2026-01-01T10:00:00Z",
+            "message": "pod 2 is restarting",
+            "reason": "RestartingPod",
+            "status": "False",
+            "type": "Ready"
+          },
+          {
+            "lastTransitionTime": "2026-01-01T10:00:00.123456Z",
+            "status": "True",
+            "type": "Available"
+          },
+          {
+            "lastTransitionTime": "2026-01-01T12:00:00+02:00",
+            "status": "Unknown",
+            "type": "Offset"
+          }
+        ],
+        "currentRevision": "rev-old",
+        "endpoint": "http://qdrant-demo.search.svc:6333",
+        "helmRelease": "qdrant-demo",
+        "observedGeneration": 7,
+        "phase": "Upgrading",
+        "readyReplicas": 2,
+        "replicas": 3,
+        "updateRevision": "rev-new",
+        "updatedReplicas": 1,
+        "version": "v1.15.0"
+      }
+    },
+    {
+      "name": "terminating",
+      "out": {
+        "phase": "Terminating",
+        "replicas": 1
+      },
+      "status": {
+        "phase": "Terminating",
+        "replicas": 1
+      }
+    }
+  ]
+}

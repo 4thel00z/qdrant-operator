@@ -1,0 +1,189 @@
+{
+  "specs": [
+    {"name": "cluster source with mapping", "spec": {"source": {"clusterRef": {"name": "old"}}, "targetClusterRef": {"name": "new", "namespace": "tenant-b"}, "collectionMapping": {"docs": "docs_v2"}}},
+    {"name": "endpoint source strips trailing slashes", "spec": {"source": {"endpoint": {"url": "https://x.cloud.qdrant.io:6333//", "apiKeySecretRef": {"name": "cloud", "key": "api-key"}, "caSecretRef": {"name": "ca", "key": "ca.crt"}}}, "targetClusterRef": {"name": "new"}, "batchSize": 500}},
+    {"name": "every knob", "spec": {"source": {"clusterRef": {"name": "old", "namespace": "legacy"}}, "targetClusterRef": {"name": "new"}, "collections": ["docs", "logs"], "batchSize": 1000, "batchDelayMs": 250, "checkpointBatches": 5, "verifyPasses": 0, "sync": true, "syncMaxPasses": 7, "createMissing": false, "ensurePayloadIndexes": false, "target": {"shardNumber": 6, "replicationFactor": 2, "writeConsistencyFactor": 2, "shardKey": "tier-a"}}},
+    {"name": "numeric shard key", "spec": {"source": {"clusterRef": {"name": "old"}}, "targetClusterRef": {"name": "new"}, "target": {"shardKey": 7}}},
+    {"name": "zero shard key is still a key", "spec": {"source": {"clusterRef": {"name": "old"}}, "targetClusterRef": {"name": "new"}, "target": {"shardKey": 0}}},
+    {"name": "numeric looking string shard key stays text", "spec": {"source": {"clusterRef": {"name": "old"}}, "targetClusterRef": {"name": "new"}, "target": {"shardKey": "7"}}},
+    {"name": "shard key field", "spec": {"source": {"clusterRef": {"name": "old"}}, "targetClusterRef": {"name": "new"}, "target": {"shardKeyField": "tenant"}}},
+    {"name": "source with neither form is invalid", "spec": {"source": {}, "targetClusterRef": {"name": "new"}}},
+    {"name": "source with both forms is invalid", "spec": {"source": {"clusterRef": {"name": "old"}, "endpoint": {"url": "http://q:6333"}}, "targetClusterRef": {"name": "new"}}},
+    {"name": "syncMaxPasses below one is invalid", "spec": {"source": {"clusterRef": {"name": "old"}}, "targetClusterRef": {"name": "new"}, "syncMaxPasses": 0}},
+    {"name": "shardKey and shardKeyField are exclusive", "spec": {"source": {"clusterRef": {"name": "old"}}, "targetClusterRef": {"name": "new"}, "target": {"shardKey": "a", "shardKeyField": "b"}}},
+    {"name": "zero shardKey and shardKeyField are exclusive", "spec": {"source": {"clusterRef": {"name": "old"}}, "targetClusterRef": {"name": "new"}, "target": {"shardKey": 0, "shardKeyField": "b"}}}
+  ],
+  "selection_inputs": [["docs", "logs", "other"], ["logs"], []],
+  "target_name_inputs": ["docs", "logs", "ghost"],
+  "create_bodies": [
+    {
+      "name": "source layout without overrides",
+      "target": {},
+      "config": {
+        "params": {"vectors": {"size": 4, "distance": "Cosine"}, "shard_number": 1, "replication_factor": 1, "write_consistency_factor": 1, "on_disk_payload": true, "sparse_vectors": {"bm25": {"modifier": "idf"}}},
+        "hnsw_config": {"m": 16},
+        "optimizer_config": {"indexing_threshold": 20000},
+        "wal_config": {"wal_capacity_mb": 32},
+        "quantization_config": null,
+        "strict_mode_config": null
+      }
+    },
+    {
+      "name": "overrides replace shard layout",
+      "target": {"shardNumber": 6, "replicationFactor": 2},
+      "config": {"params": {"vectors": {"size": 4, "distance": "Cosine"}, "shard_number": 1}}
+    },
+    {
+      "name": "all overrides and every optional section",
+      "target": {"shardNumber": 3, "replicationFactor": 2, "writeConsistencyFactor": 2, "shardKey": "a"},
+      "config": {
+        "params": {"vectors": {"a": {"size": 4, "distance": "Dot"}}, "sharding_method": "custom", "on_disk_payload": false},
+        "hnsw_config": {"m": 16},
+        "optimizer_config": {"indexing_threshold": 0},
+        "wal_config": {"wal_capacity_mb": 32},
+        "quantization_config": {"scalar": {"type": "int8"}},
+        "strict_mode_config": {"enabled": true}
+      }
+    },
+    {"name": "config without params", "target": {}, "config": {"hnsw_config": {"m": 8}}},
+    {"name": "empty config", "target": {"writeConsistencyFactor": 1}, "config": {}}
+  ],
+  "payload_schemas": [
+    {"name": "params win over data type", "schema": {"city": {"data_type": "keyword", "params": null, "points": 3}, "body": {"data_type": "text", "params": {"type": "text", "tokenizer": "word"}}}},
+    {"name": "empty params fall back to data type", "schema": {"b": {"data_type": "text", "params": {}}, "a": {"data_type": "integer"}}},
+    {"name": "params without data type", "schema": {"d": {"params": {"type": "keyword", "is_tenant": true}}}},
+    {"name": "no indexes", "schema": {}},
+    {"name": "entry without params or data type is invalid", "schema": {"x": {"points": 1}}}
+  ],
+  "vector_layouts": [
+    {"name": "single vector", "config": {"params": {"vectors": {"size": 4, "distance": "Dot", "on_disk": true}}}},
+    {"name": "named vectors", "config": {"params": {"vectors": {"a": {"size": 4, "distance": "Dot", "memory": "cold"}, "b": {"size": 8, "distance": "Cosine"}}}}},
+    {"name": "no vectors", "config": {"params": {}}},
+    {"name": "null vectors", "config": {"params": {"vectors": null}}},
+    {"name": "missing distance is invalid", "config": {"params": {"vectors": {"size": 4}}}},
+    {"name": "named vector without size is invalid", "config": {"params": {"vectors": {"a": {"distance": "Dot"}}}}}
+  ],
+  "routes": [
+    {
+      "name": "keep each source shard key",
+      "target": {},
+      "points": [
+        {"id": 1, "vector": [0.1], "payload": {"a": 1}, "shard_key": "eu"},
+        {"id": 2, "vector": {"text": [0.2]}, "payload": null, "shard_key": "us"},
+        {"id": 3, "vector": [0.3], "shard_key": "eu"},
+        {"id": "9f2c", "vector": [0.4]},
+        {"id": 5, "vector": null, "payload": {}, "shard_key": 7},
+        {"id": 6, "shard_key": null}
+      ]
+    },
+    {"name": "fixed text key", "target": {"shardKey": "tier-a"}, "points": [{"id": 1, "vector": [0.1], "payload": {"tenant": 7}, "shard_key": "eu"}, {"id": 2, "vector": [0.2]}]},
+    {"name": "fixed zero key", "target": {"shardKey": 0}, "points": [{"id": 1, "vector": [0.1]}]},
+    {
+      "name": "route by payload field interleaved",
+      "target": {"shardKeyField": "tenant"},
+      "points": [
+        {"id": 1, "payload": {"tenant": "b"}},
+        {"id": 2, "payload": {"tenant": 7}},
+        {"id": 3, "payload": {"tenant": "b"}},
+        {"id": 4, "payload": {"tenant": 18446744073709551615}},
+        {"id": 5, "payload": {"tenant": ""}},
+        {"id": 6, "payload": {"tenant": "-0"}},
+        {"id": 7, "payload": {"tenant": 7}},
+        {"id": 8, "payload": {"tenant": -0}}
+      ]
+    },
+    {"name": "negative field value is invalid", "target": {"shardKeyField": "tenant"}, "points": [{"id": 2, "payload": {"tenant": -1}}]},
+    {"name": "float field value is invalid", "target": {"shardKeyField": "tenant"}, "points": [{"id": 2, "payload": {"tenant": 7.0}}]},
+    {"name": "boolean field value is invalid", "target": {"shardKeyField": "tenant"}, "points": [{"id": 2, "payload": {"tenant": true}}]},
+    {"name": "null field value is invalid", "target": {"shardKeyField": "tenant"}, "points": [{"id": 2, "payload": {"tenant": null}}]},
+    {"name": "missing field is invalid", "target": {"shardKeyField": "tenant"}, "points": [{"id": 2, "payload": {"other": 1}}]},
+    {"name": "missing payload is invalid", "target": {"shardKeyField": "tenant"}, "points": [{"id": 2}]},
+    {"name": "no points", "target": {}, "points": []}
+  ],
+  "point_orders": [
+    [3, "b0000000-0000-0000-0000-000000000000", 18446744073709551615, 10, "a0000000-0000-0000-0000-000000000000", 2, 9007199254740993, 9007199254740992, "B0000000-0000-0000-0000-000000000000", 100, 99]
+  ],
+  "digests": [
+    {"name": "dense sparse and multi vectors", "point": {"id": 1, "payload": {"a": 1, "b": [1, 2]}, "vector": {"dense": [0.1, 0.2], "sparse": {"indices": [1, 4], "values": [0.5, 0.25]}, "multi": [[0.1, 0.2], [0.3, 0.4]]}}},
+    {"name": "same point with reordered keys and a shard key", "point": {"vector": {"multi": [[0.1, 0.2], [0.3, 0.4]], "sparse": {"values": [0.5, 0.25], "indices": [1, 4]}, "dense": [0.1, 0.2]}, "payload": {"b": [1, 2], "a": 1}, "id": 1, "shard_key": "eu"}},
+    {"name": "shorter multi vector", "point": {"id": 1, "payload": {"a": 1, "b": [1, 2]}, "vector": {"dense": [0.1, 0.2], "sparse": {"indices": [1, 4], "values": [0.5, 0.25]}, "multi": [[0.1, 0.2]]}}},
+    {"name": "changed payload", "point": {"id": 1, "payload": {"a": 2, "b": [1, 2]}, "vector": {"dense": [0.1, 0.2], "sparse": {"indices": [1, 4], "values": [0.5, 0.25]}, "multi": [[0.1, 0.2], [0.3, 0.4]]}}},
+    {"name": "large integer id and number formats", "point": {"id": 18446744073709551615, "payload": {"big": 9007199254740993, "neg": -9007199254740993, "huge": 123456789012345678901234567890, "one": 1.0, "tiny": 1e-7, "edge": 1e16, "below": 1e15, "wide": 1.5e300, "tenth": 0.1, "hundred": 1E2, "fraction": 1.50, "negzero": -0.0, "int negzero": -0, "small": 0.0001, "smaller": 0.00001, "inf": 1e400, "third": 0.30000000000000004, "plus": 1e+22, "exp": 12.5e-3}, "vector": [1.0, 2.5, -0.0]}},
+    {"name": "uuid id with unicode and escapes", "point": {"id": "3f2a9c40-0000-4000-8000-000000000001", "payload": {"text": "héllo 🔑   tab\t quote\" back\\ ctrl\u0001 del\u007f nl\n cr\r bs\b ff\f", "ключ": "значение", "é": 1}, "vector": [0.5]}},
+    {"name": "nested payloads with null bool and empties", "point": {"id": 2, "payload": {"n": null, "t": true, "f": false, "list": [], "obj": {}, "deep": {"b": [{"z": 1, "a": [null, 1.5, "x"]}], "a": {"y": 2}}}, "vector": [0.5]}},
+    {"name": "no payload and no vector", "point": {"id": 3}},
+    {"name": "null payload and null vector", "point": {"id": 3, "payload": null, "vector": null}},
+    {"name": "empty payload and empty vector", "point": {"id": 3, "payload": {}, "vector": []}},
+    {"name": "empty named vector map", "point": {"id": 3, "payload": {"a": 1}, "vector": {}}},
+    {"name": "sparse vector only", "point": {"id": 4, "vector": {"s": {"indices": [10, 20000000000], "values": [1.0, 0.000001]}}}}
+  ],
+  "sync_windows": [
+    {
+      "name": "upsert missing and different, delete extras in id order",
+      "source": [{"id": 1, "payload": {"n": 1}, "vector": [1.0]}, {"id": 2, "payload": {"n": 2}, "vector": [2.0]}, {"id": 3, "payload": {"n": 3}, "vector": [3.0]}],
+      "target": [{"id": 1, "payload": {"n": 1}, "vector": [1.0]}, {"id": 2, "payload": {"n": 99}, "vector": [2.0]}, {"id": "b0000000-0000-0000-0000-000000000000", "payload": {}}, {"id": 9, "payload": {}}]
+    },
+    {
+      "name": "identical windows change nothing",
+      "source": [{"id": 1, "payload": {"a": 1, "b": 2}, "vector": [1.0], "shard_key": "eu"}],
+      "target": [{"id": 1, "vector": [1.0], "payload": {"b": 2, "a": 1}}]
+    },
+    {
+      "name": "vector difference and large ids",
+      "source": [{"id": 18446744073709551615, "payload": {"n": 1}, "vector": [1.0]}, {"id": 9007199254740993, "payload": {"n": 1}, "vector": {"a": [1.0]}}, {"id": "a0000000-0000-0000-0000-000000000000", "vector": [0.5]}],
+      "target": [{"id": 18446744073709551615, "payload": {"n": 1}, "vector": [1.5]}, {"id": 9007199254740993, "payload": {"n": 1}, "vector": {"a": [1.0]}}, {"id": 9007199254740992}, {"id": 18446744073709551614}, {"id": "A0000000-0000-0000-0000-000000000000"}]
+    },
+    {"name": "empty target", "source": [{"id": 1, "payload": {"n": 1}}, {"id": 2}], "target": []},
+    {"name": "empty source", "source": [], "target": [{"id": 5}, {"id": 1}, {"id": "c"}, {"id": "a"}]},
+    {"name": "payload null equals payload empty", "source": [{"id": 1, "payload": null}], "target": [{"id": 1, "payload": {}}]}
+  ],
+  "statuses": [
+    {
+      "name": "running with resume offsets and counts",
+      "status": {
+        "phase": "Running",
+        "startTime": "2026-09-24T20:00:00Z",
+        "source": "tenant-a/old",
+        "collections": [
+          {"name": "a", "targetName": "a", "status": "Completed", "pointsTotal": 100, "pointsCopied": 100, "sourceCount": 100, "targetCount": 100, "verifyPass": 1, "message": "target holds more points"},
+          {"name": "b", "targetName": "b_v2", "status": "Running", "pointsTotal": 300, "pointsCopied": 50, "offset": 41, "pointsUpdated": 3, "pointsDeleted": 2, "syncPasses": 2, "syncOffset": "3f2a9c40-0000-4000-8000-000000000001", "syncPassChanges": 5},
+          {"name": "c", "status": "Failed", "error": "boom", "offset": 18446744073709551615}
+        ],
+        "conditions": [{"type": "Ready", "status": "False", "lastTransitionTime": "2026-09-24T20:00:00Z", "reason": "Running", "message": "copying"}]
+      },
+      "resume_inputs": ["a", "b", "c", "ghost"]
+    },
+    {
+      "name": "completed migration",
+      "status": {"phase": "Completed", "startTime": "2026-09-24T20:00:00Z", "completionTime": "2026-09-24T21:00:00Z", "source": "https://x:6333", "collections": [{"name": "a", "status": "Completed", "pointsTotal": 7, "pointsCopied": 7}]},
+      "resume_inputs": ["a"]
+    },
+    {"name": "empty status", "status": {}, "resume_inputs": ["a"]},
+    {"name": "no collections yet", "status": {"phase": "Pending", "source": "tenant-a/old"}, "resume_inputs": []},
+    {
+      "name": "points copied beyond total clamps to one hundred",
+      "status": {"phase": "Running", "collections": [{"name": "a", "status": "Running", "pointsTotal": 10, "pointsCopied": 25}]},
+      "resume_inputs": []
+    },
+    {
+      "name": "rounding half to even",
+      "status": {"phase": "Running", "collections": [{"name": "a", "status": "Running", "pointsTotal": 8, "pointsCopied": 1}]},
+      "resume_inputs": []
+    },
+    {
+      "name": "rounding half to even upwards",
+      "status": {"phase": "Running", "collections": [{"name": "a", "status": "Running", "pointsTotal": 8, "pointsCopied": 3}]},
+      "resume_inputs": []
+    },
+    {
+      "name": "only empty collections that are unfinished",
+      "status": {"phase": "Running", "collections": [{"name": "a", "status": "Running"}, {"name": "b", "status": "Completed"}]},
+      "resume_inputs": []
+    },
+    {
+      "name": "only empty collections that are finished",
+      "status": {"phase": "Completed", "collections": [{"name": "a", "status": "Completed"}, {"name": "b", "status": "Failed"}]},
+      "resume_inputs": []
+    }
+  ]
+}

@@ -1,0 +1,2582 @@
+{
+  "cases": [
+    {
+      "name": "minimal",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-storage-qdrant-demo-1",
+          "qdrant-storage-qdrant-demo-2",
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": false,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 1,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": []
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "three replicas",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-1.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-2.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": true,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 3,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": [
+            {
+              "labelSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/instance": "qdrant-demo",
+                  "app.kubernetes.io/name": "qdrant"
+                }
+              },
+              "maxSkew": 1,
+              "topologyKey": "kubernetes.io/hostname",
+              "whenUnsatisfiable": "ScheduleAnyway"
+            }
+          ]
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "replicas": 3,
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "image and resources",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-storage-qdrant-demo-1",
+          "qdrant-storage-qdrant-demo-2",
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "Always",
+            "repository": "registry.local/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": false,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 1,
+          "resources": {
+            "limits": {
+              "memory": "2Gi"
+            },
+            "requests": {
+              "cpu": "500m",
+              "memory": "1Gi"
+            }
+          },
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": []
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "image": {
+          "pullPolicy": "Always",
+          "repository": "registry.local/qdrant"
+        },
+        "resources": {
+          "limits": {
+            "memory": "2Gi"
+          },
+          "requests": {
+            "cpu": "500m",
+            "memory": "1Gi"
+          }
+        },
+        "version": "1.12.4"
+      }
+    },
+    {
+      "name": "persistence",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-snapshots": "20Gi",
+          "qdrant-storage": "50Gi"
+        },
+        "departed_claims": [
+          "qdrant-storage-qdrant-demo-1",
+          "qdrant-storage-qdrant-demo-2",
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "50Gi",
+            "storageClassName": "fast"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": false,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 1,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": true,
+            "size": "20Gi",
+            "storageClassName": "slow"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": []
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "persistence": {
+          "accessModes": [
+            "ReadWriteOnce"
+          ],
+          "reclaimPolicy": "Delete",
+          "size": "50Gi",
+          "storageClassName": "fast"
+        },
+        "snapshotPersistence": {
+          "enabled": true,
+          "size": "20Gi",
+          "storageClassName": "slow"
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "single node mode",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-storage-qdrant-demo-1",
+          "qdrant-storage-qdrant-demo-2",
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": false,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": false,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 1,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": []
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "cluster": {
+          "enabled": false
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "p2p port",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-1.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-2.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 7000
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": true,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 3,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": [
+            {
+              "labelSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/instance": "qdrant-demo",
+                  "app.kubernetes.io/name": "qdrant"
+                }
+              },
+              "maxSkew": 1,
+              "topologyKey": "kubernetes.io/hostname",
+              "whenUnsatisfiable": "ScheduleAnyway"
+            }
+          ]
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "cluster": {
+          "p2p": {
+            "port": 7000
+          }
+        },
+        "replicas": 3,
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "tls without p2p tls",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-storage-qdrant-demo-1",
+          "qdrant-storage-qdrant-demo-2",
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "https://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "https://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "additionalVolumeMounts": [
+            {
+              "mountPath": "/qdrant/tls",
+              "name": "tls",
+              "readOnly": true
+            }
+          ],
+          "additionalVolumes": [
+            {
+              "name": "tls",
+              "secret": {
+                "secretName": "qdrant-tls"
+              }
+            }
+          ],
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": true
+            },
+            "tls": {
+              "cert": "/qdrant/tls/tls.crt",
+              "key": "/qdrant/tls/tls.key"
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": false,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 1,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": []
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "tls": {
+          "enabled": true,
+          "secretRef": {
+            "name": "qdrant-tls"
+          }
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "tls with p2p tls and ca key",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "https://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "https://qdrant-demo-1.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "https://qdrant-demo-2.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "https://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "additionalVolumeMounts": [
+            {
+              "mountPath": "/qdrant/tls",
+              "name": "tls",
+              "readOnly": true
+            }
+          ],
+          "additionalVolumes": [
+            {
+              "name": "tls",
+              "secret": {
+                "secretName": "qdrant-tls"
+              }
+            }
+          ],
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": true,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": true
+            },
+            "tls": {
+              "ca_cert": "/qdrant/tls/root.pem",
+              "cert": "/qdrant/tls/tls.crt",
+              "key": "/qdrant/tls/tls.key"
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": true,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 3,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": [
+            {
+              "labelSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/instance": "qdrant-demo",
+                  "app.kubernetes.io/name": "qdrant"
+                }
+              },
+              "maxSkew": 1,
+              "topologyKey": "kubernetes.io/hostname",
+              "whenUnsatisfiable": "ScheduleAnyway"
+            }
+          ]
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "cluster": {
+          "p2p": {
+            "enableTls": true
+          }
+        },
+        "replicas": 3,
+        "tls": {
+          "caKey": "root.pem",
+          "enabled": true,
+          "secretRef": {
+            "name": "qdrant-tls"
+          }
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "tls enabled without secret",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-storage-qdrant-demo-1",
+          "qdrant-storage-qdrant-demo-2",
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "https://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "https://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": true
+            },
+            "tls": {
+              "cert": "/qdrant/tls/tls.crt",
+              "key": "/qdrant/tls/tls.key"
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": false,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 1,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": []
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "tls": {
+          "enabled": true
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "api key from secret with jwt rbac",
+      "outputs": {
+        "api_key_ref": {
+          "key": "admin",
+          "name": "keys",
+          "namespace": "search"
+        },
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-storage-qdrant-demo-1",
+          "qdrant-storage-qdrant-demo-2",
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": {
+            "valueFrom": {
+              "secretKeyRef": {
+                "key": "admin",
+                "name": "keys"
+              }
+            }
+          },
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false,
+              "jwt_rbac": true
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": false,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": {
+            "valueFrom": {
+              "secretKeyRef": {
+                "key": "reader",
+                "name": "keys"
+              }
+            }
+          },
+          "replicaCount": 1,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": []
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "apiKey": {
+          "jwtRbac": true,
+          "secretRef": {
+            "key": "admin",
+            "name": "keys"
+          }
+        },
+        "readOnlyApiKey": {
+          "secretRef": {
+            "key": "reader",
+            "name": "keys"
+          }
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "generated api keys",
+      "outputs": {
+        "api_key_ref": {
+          "key": "api-key",
+          "name": "qdrant-demo-apikey",
+          "namespace": "search"
+        },
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-storage-qdrant-demo-1",
+          "qdrant-storage-qdrant-demo-2",
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [
+          "api-key",
+          "read-only-api-key"
+        ],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": {
+            "valueFrom": {
+              "secretKeyRef": {
+                "key": "api-key",
+                "name": "qdrant-demo-generated-keys"
+              }
+            }
+          },
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": false,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": {
+            "valueFrom": {
+              "secretKeyRef": {
+                "key": "read-only-api-key",
+                "name": "qdrant-demo-generated-keys"
+              }
+            }
+          },
+          "replicaCount": 1,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": []
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "apiKey": {
+          "autoGenerate": true
+        },
+        "readOnlyApiKey": {
+          "autoGenerate": true
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "service and metrics",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-storage-qdrant-demo-1",
+          "qdrant-storage-qdrant-demo-2",
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {
+                "release": "prom"
+              },
+              "enabled": true,
+              "scrapeInterval": "15s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": false,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 1,
+          "resources": {},
+          "service": {
+            "annotations": {
+              "lb": "internal"
+            },
+            "type": "LoadBalancer"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": []
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "metrics": {
+          "enabled": true,
+          "serviceMonitor": {
+            "enabled": true,
+            "interval": "15s",
+            "labels": {
+              "release": "prom"
+            }
+          }
+        },
+        "service": {
+          "annotations": {
+            "lb": "internal"
+          },
+          "type": "LoadBalancer"
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "service monitor without metrics",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-storage-qdrant-demo-1",
+          "qdrant-storage-qdrant-demo-2",
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": false,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 1,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": []
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "metrics": {
+          "serviceMonitor": {
+            "enabled": true
+          }
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "scheduling and pod metadata",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-storage-qdrant-demo-1",
+          "qdrant-storage-qdrant-demo-2",
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {
+            "nodeAffinity": {
+              "requiredDuringSchedulingIgnoredDuringExecution": {
+                "nodeSelectorTerms": [
+                  {
+                    "matchExpressions": [
+                      {
+                        "key": "zone",
+                        "operator": "In",
+                        "values": [
+                          "a",
+                          "b"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {
+            "pool": "qdrant"
+          },
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {
+            "a": "1"
+          },
+          "podDisruptionBudget": {
+            "enabled": false,
+            "maxUnavailable": 1
+          },
+          "podLabels": {
+            "team": "search"
+          },
+          "readOnlyApiKey": false,
+          "replicaCount": 1,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [
+            {
+              "effect": "NoSchedule",
+              "key": "dedicated",
+              "operator": "Equal",
+              "value": "qdrant"
+            },
+            {
+              "key": "spot",
+              "operator": "Exists",
+              "tolerationSeconds": 30
+            }
+          ],
+          "topologySpreadConstraints": []
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "affinity": {
+          "nodeAffinity": {
+            "requiredDuringSchedulingIgnoredDuringExecution": {
+              "nodeSelectorTerms": [
+                {
+                  "matchExpressions": [
+                    {
+                      "key": "zone",
+                      "operator": "In",
+                      "values": [
+                        "a",
+                        "b"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "nodeSelector": {
+          "pool": "qdrant"
+        },
+        "podAnnotations": {
+          "a": "1"
+        },
+        "podLabels": {
+          "team": "search"
+        },
+        "tolerations": [
+          {
+            "effect": "NoSchedule",
+            "key": "dedicated",
+            "operator": "Equal",
+            "value": "qdrant"
+          },
+          {
+            "key": "spot",
+            "operator": "Exists",
+            "tolerationSeconds": 30
+          }
+        ],
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "pdb min available",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-1.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-2.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": true,
+            "maxUnavailable": null,
+            "minAvailable": 2
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 3,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": [
+            {
+              "labelSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/instance": "qdrant-demo",
+                  "app.kubernetes.io/name": "qdrant"
+                }
+              },
+              "maxSkew": 1,
+              "topologyKey": "kubernetes.io/hostname",
+              "whenUnsatisfiable": "ScheduleAnyway"
+            }
+          ]
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "podDisruptionBudget": {
+          "minAvailable": 2
+        },
+        "replicas": 3,
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "pdb max unavailable percent",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-1.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-2.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-3.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-4.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": true,
+            "maxUnavailable": "40%"
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 5,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": [
+            {
+              "labelSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/instance": "qdrant-demo",
+                  "app.kubernetes.io/name": "qdrant"
+                }
+              },
+              "maxSkew": 1,
+              "topologyKey": "kubernetes.io/hostname",
+              "whenUnsatisfiable": "ScheduleAnyway"
+            }
+          ]
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "podDisruptionBudget": {
+          "maxUnavailable": "40%"
+        },
+        "replicas": 5,
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "pdb forced on single replica",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-storage-qdrant-demo-1",
+          "qdrant-storage-qdrant-demo-2",
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": true,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 1,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": []
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "podDisruptionBudget": {
+          "enabled": true
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "pdb disabled",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-1.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-2.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": false,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 3,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": [
+            {
+              "labelSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/instance": "qdrant-demo",
+                  "app.kubernetes.io/name": "qdrant"
+                }
+              },
+              "maxSkew": 1,
+              "topologyKey": "kubernetes.io/hostname",
+              "whenUnsatisfiable": "ScheduleAnyway"
+            }
+          ]
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "podDisruptionBudget": {
+          "enabled": false
+        },
+        "replicas": 3,
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "zone spread",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-1.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-2.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": true,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 3,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": [
+            {
+              "labelSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/instance": "qdrant-demo",
+                  "app.kubernetes.io/name": "qdrant"
+                }
+              },
+              "maxSkew": 2,
+              "topologyKey": "kubernetes.io/hostname",
+              "whenUnsatisfiable": "DoNotSchedule"
+            },
+            {
+              "labelSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/instance": "qdrant-demo",
+                  "app.kubernetes.io/name": "qdrant"
+                }
+              },
+              "maxSkew": 1,
+              "topologyKey": "topology.kubernetes.io/zone",
+              "whenUnsatisfiable": "ScheduleAnyway"
+            }
+          ]
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "replicas": 3,
+        "topologySpread": {
+          "hostname": {
+            "maxSkew": 2,
+            "whenUnsatisfiable": "DoNotSchedule"
+          },
+          "zone": {
+            "enabled": true
+          }
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "hostname spread off",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-1.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-2.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": true,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 3,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": []
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "replicas": 3,
+        "topologySpread": {
+          "hostname": {
+            "enabled": false
+          }
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "explicit constraints",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-1.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-2.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": true,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 3,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": [
+            {
+              "labelSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/instance": "qdrant-demo",
+                  "app.kubernetes.io/name": "qdrant"
+                }
+              },
+              "maxSkew": 1,
+              "topologyKey": "rack",
+              "whenUnsatisfiable": "DoNotSchedule"
+            }
+          ]
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "replicas": 3,
+        "topologySpread": {
+          "constraints": [
+            {
+              "maxSkew": 1,
+              "topologyKey": "rack",
+              "whenUnsatisfiable": "DoNotSchedule"
+            }
+          ]
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "explicit empty constraints",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-1.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-2.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": true,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 3,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": []
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "replicas": 3,
+        "topologySpread": {
+          "constraints": []
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "constraints on one replica",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-storage-qdrant-demo-1",
+          "qdrant-storage-qdrant-demo-2",
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": false,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 1,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": [
+            {
+              "labelSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/instance": "qdrant-demo",
+                  "app.kubernetes.io/name": "qdrant"
+                }
+              },
+              "maxSkew": 1,
+              "topologyKey": "rack",
+              "whenUnsatisfiable": "ScheduleAnyway"
+            }
+          ]
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "topologySpread": {
+          "constraints": [
+            {
+              "maxSkew": 1,
+              "topologyKey": "rack",
+              "whenUnsatisfiable": "ScheduleAnyway"
+            }
+          ]
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "config merges over defaults",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-1.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-2.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "consensus": {
+                "tick_period_ms": 50
+              },
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 9999
+              }
+            },
+            "service": {
+              "enable_tls": false,
+              "max_request_size_mb": 64
+            },
+            "storage": {
+              "performance": {
+                "max_search_threads": 4
+              }
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 10,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": true,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 3,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": [
+            {
+              "labelSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/instance": "qdrant-demo",
+                  "app.kubernetes.io/name": "qdrant"
+                }
+              },
+              "maxSkew": 1,
+              "topologyKey": "kubernetes.io/hostname",
+              "whenUnsatisfiable": "ScheduleAnyway"
+            }
+          ]
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "config": {
+          "cluster": {
+            "consensus": {
+              "tick_period_ms": 50
+            },
+            "p2p": {
+              "port": 9999
+            }
+          },
+          "service": {
+            "max_request_size_mb": 64
+          },
+          "storage": {
+            "performance": {
+              "max_search_threads": 4
+            }
+          }
+        },
+        "minReadySeconds": 10,
+        "replicas": 3,
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "config overrides tls block",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-storage-qdrant-demo-1",
+          "qdrant-storage-qdrant-demo-2",
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "https://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "https://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "additionalVolumeMounts": [
+            {
+              "mountPath": "/qdrant/tls",
+              "name": "tls",
+              "readOnly": true
+            }
+          ],
+          "additionalVolumes": [
+            {
+              "name": "tls",
+              "secret": {
+                "secretName": "qdrant-tls"
+              }
+            }
+          ],
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": true
+            },
+            "tls": {
+              "cert": "/qdrant/tls/tls.crt",
+              "cert_ttl": 3600,
+              "key": "/qdrant/tls/tls.key"
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": false,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 1,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": []
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "config": {
+          "tls": {
+            "cert_ttl": 3600
+          }
+        },
+        "tls": {
+          "enabled": true,
+          "secretRef": {
+            "name": "qdrant-tls"
+          }
+        },
+        "version": "v1.13.0"
+      }
+    },
+    {
+      "name": "rollout and scaling do not render",
+      "outputs": {
+        "api_key_ref": null,
+        "claim_sizes": {
+          "qdrant-storage": "10Gi"
+        },
+        "departed_claims": [
+          "qdrant-storage-qdrant-demo-2",
+          "qdrant-snapshots-qdrant-demo-3"
+        ],
+        "generated_keys": [],
+        "node_urls": [
+          "http://qdrant-demo-0.qdrant-demo-headless.search.svc.cluster.local:6333",
+          "http://qdrant-demo-1.qdrant-demo-headless.search.svc.cluster.local:6333"
+        ],
+        "pod_label_selector": "app.kubernetes.io/name=qdrant,app.kubernetes.io/instance=qdrant-demo",
+        "service_url": "http://qdrant-demo.search.svc.cluster.local:6333",
+        "values": {
+          "affinity": {},
+          "apiKey": false,
+          "config": {
+            "cluster": {
+              "enabled": true,
+              "p2p": {
+                "enable_tls": false,
+                "port": 6335
+              }
+            },
+            "service": {
+              "enable_tls": false
+            }
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "docker.io/qdrant/qdrant"
+          },
+          "metrics": {
+            "serviceMonitor": {
+              "additionalLabels": {},
+              "enabled": false,
+              "scrapeInterval": "30s"
+            }
+          },
+          "minReadySeconds": 0,
+          "nodeSelector": {},
+          "persistence": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "size": "10Gi"
+          },
+          "podAnnotations": {},
+          "podDisruptionBudget": {
+            "enabled": true,
+            "maxUnavailable": 1
+          },
+          "podLabels": {},
+          "readOnlyApiKey": false,
+          "replicaCount": 2,
+          "resources": {},
+          "service": {
+            "annotations": {},
+            "type": "ClusterIP"
+          },
+          "snapshotPersistence": {
+            "enabled": false,
+            "size": "10Gi"
+          },
+          "tolerations": [],
+          "topologySpreadConstraints": [
+            {
+              "labelSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/instance": "qdrant-demo",
+                  "app.kubernetes.io/name": "qdrant"
+                }
+              },
+              "maxSkew": 1,
+              "topologyKey": "kubernetes.io/hostname",
+              "whenUnsatisfiable": "ScheduleAnyway"
+            }
+          ]
+        },
+        "volume_selector": "app.kubernetes.io/instance=qdrant-demo"
+      },
+      "spec": {
+        "replicas": 2,
+        "rollout": {
+          "strategy": "Readiness"
+        },
+        "scaling": {
+          "drainOnScaleDown": true,
+          "rebalance": true,
+          "removeDeadPeers": true
+        },
+        "version": "v1.13.0"
+      }
+    }
+  ],
+  "claim_names": [
+    "qdrant-storage-qdrant-demo-0",
+    "qdrant-storage-qdrant-demo-1",
+    "qdrant-storage-qdrant-demo-2",
+    "qdrant-snapshots-qdrant-demo-3",
+    "qdrant-storage-qdrant-other-5",
+    "qdrant-storage-qdrant-demo-x"
+  ]
+}

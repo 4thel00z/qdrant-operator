@@ -1,6 +1,9 @@
+---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: qdrantbackupschedules.qdrant.io
 spec:
   group: qdrant.io
@@ -8,212 +11,248 @@ spec:
     kind: QdrantBackupSchedule
     listKind: QdrantBackupScheduleList
     plural: qdrantbackupschedules
-    singular: qdrantbackupschedule
     shortNames:
-      - qbs
+    - qbs
+    singular: qdrantbackupschedule
   scope: Namespaced
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      subresources:
-        status: {}
-      additionalPrinterColumns:
-        - name: Schedule
-          type: string
-          jsonPath: .spec.schedule
-        - name: Cluster
-          type: string
-          jsonPath: .spec.clusterRef.name
-        - name: Phase
-          type: string
-          jsonPath: .status.phase
-        - name: Last Backup
-          type: date
-          jsonPath: .status.lastBackupTime
-        - name: Age
-          type: date
-          jsonPath: .metadata.creationTimestamp
-      schema:
-        openAPIV3Schema:
-          type: object
-          required:
-            - spec
-          properties:
-            spec:
-              type: object
-              required:
-                - schedule
-                - clusterRef
-              x-kubernetes-validations:
-                - rule: "self.method == 'volumeSnapshot' || has(self.storage)"
-                  message: "storage.s3 is required when method is s3"
-                - rule: "self.method != 'volumeSnapshot' || has(self.volumeSnapshotClassName)"
-                  message: "volumeSnapshotClassName is required when method is volumeSnapshot"
-              properties:
-                schedule:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.schedule
+      name: Schedule
+      type: string
+    - jsonPath: .spec.clusterRef.name
+      name: Cluster
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.lastBackupTime
+      name: Last Backup
+      type: date
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              clusterRef:
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - name
+                type: object
+              collections:
+                description: List of collections to backup (empty = all)
+                items:
                   type: string
-                  pattern: '^\S+\s+\S+\s+\S+\s+\S+\s+\S+$'
-                  description: Five-field cron expression, UTC (e.g., "0 2 * * *")
-                clusterRef:
-                  type: object
-                  required:
-                    - name
+                type: array
+              concurrencyPolicy:
+                default: Forbid
+                description: How to handle concurrent backup runs
+                enum:
+                - Allow
+                - Forbid
+                - Replace
+                type: string
+              deleteBackupsWithSchedule:
+                default: false
+                description: Delete every backup this schedule created, including
+                  its S3 data, when the schedule is deleted. By default the backups
+                  are kept.
+                type: boolean
+              method:
+                default: s3
+                description: s3 streams node snapshots into a bucket. volumeSnapshot
+                  takes a CSI VolumeSnapshot of every data PVC (crash-consistent,
+                  restorable only into a new cluster of the same name and size in
+                  the same namespace).
+                enum:
+                - s3
+                - volumeSnapshot
+                type: string
+              retentionPolicy:
+                properties:
+                  keepDaily:
+                    description: Keep one backup per day for N days
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  keepLast:
+                    description: Keep the last N backups regardless of age
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  keepMonthly:
+                    description: Keep one backup per month for N months
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  keepWeekly:
+                    description: Keep one backup per week for N weeks
+                    format: int32
+                    minimum: 0
+                    type: integer
+                type: object
+              schedule:
+                description: Five-field cron expression, UTC (e.g., "0 2 * * *")
+                pattern: ^\S+\s+\S+\s+\S+\s+\S+\s+\S+$
+                type: string
+              startingDeadlineSeconds:
+                description: Deadline for starting a missed backup
+                format: int64
+                minimum: 0
+                type: integer
+              storage:
+                properties:
+                  s3:
+                    properties:
+                      bucket:
+                        type: string
+                      credentialsSecretRef:
+                        properties:
+                          accessKeyIdKey:
+                            default: AWS_ACCESS_KEY_ID
+                            type: string
+                          name:
+                            type: string
+                          secretAccessKeyKey:
+                            default: AWS_SECRET_ACCESS_KEY
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      endpoint:
+                        type: string
+                      forcePathStyle:
+                        default: false
+                        type: boolean
+                      prefix:
+                        default: ""
+                        type: string
+                      region:
+                        default: us-east-1
+                        type: string
+                    required:
+                    - bucket
+                    - credentialsSecretRef
+                    type: object
+                required:
+                - s3
+                type: object
+              suspend:
+                default: false
+                description: Suspend scheduled backups
+                type: boolean
+              volumeSnapshotClassName:
+                description: VolumeSnapshotClass to use; required when method is volumeSnapshot
+                type: string
+            required:
+            - clusterRef
+            - schedule
+            type: object
+            x-kubernetes-validations:
+            - message: storage.s3 is required when method is s3
+              rule: self.method == 'volumeSnapshot' || has(self.storage)
+            - message: volumeSnapshotClassName is required when method is volumeSnapshot
+              rule: self.method != 'volumeSnapshot' || has(self.volumeSnapshotClassName)
+          status:
+            properties:
+              activeBackup:
+                description: Name of currently running backup (if any)
+                type: string
+              conditions:
+                items:
                   properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                    reason:
+                      type: string
+                    status:
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastBackupName:
+                type: string
+              lastBackupStatus:
+                enum:
+                - Pending
+                - InProgress
+                - Completed
+                - Failed
+                type: string
+              lastBackupTime:
+                format: date-time
+                type: string
+              lastScheduleTime:
+                description: Cron slot the most recent backup was created for
+                format: date-time
+                type: string
+              nextBackupTime:
+                format: date-time
+                type: string
+              phase:
+                enum:
+                - Active
+                - Suspended
+                type: string
+              recentBackups:
+                items:
+                  properties:
+                    completionTime:
+                      format: date-time
+                      type: string
+                    creationTime:
+                      format: date-time
+                      type: string
                     name:
                       type: string
-                    namespace:
+                    size:
                       type: string
-                method:
-                  type: string
-                  enum: ["s3", "volumeSnapshot"]
-                  default: "s3"
-                  description: >-
-                    s3 streams node snapshots into a bucket. volumeSnapshot takes a CSI
-                    VolumeSnapshot of every data PVC (crash-consistent, restorable only into a
-                    new cluster of the same name and size in the same namespace).
-                volumeSnapshotClassName:
-                  type: string
-                  description: VolumeSnapshotClass to use; required when method is volumeSnapshot
-                storage:
+                    status:
+                      type: string
                   type: object
-                  required:
-                    - s3
-                  properties:
-                    s3:
-                      type: object
-                      required:
-                        - bucket
-                        - credentialsSecretRef
-                      properties:
-                        bucket:
-                          type: string
-                        prefix:
-                          type: string
-                          default: ""
-                        region:
-                          type: string
-                          default: "us-east-1"
-                        endpoint:
-                          type: string
-                        forcePathStyle:
-                          type: boolean
-                          default: false
-                        credentialsSecretRef:
-                          type: object
-                          required:
-                            - name
-                          properties:
-                            name:
-                              type: string
-                            accessKeyIdKey:
-                              type: string
-                              default: "AWS_ACCESS_KEY_ID"
-                            secretAccessKeyKey:
-                              type: string
-                              default: "AWS_SECRET_ACCESS_KEY"
-                collections:
-                  type: array
-                  items:
-                    type: string
-                  description: List of collections to backup (empty = all)
-                retentionPolicy:
-                  type: object
-                  properties:
-                    keepLast:
-                      type: integer
-                      minimum: 1
-                      description: Keep the last N backups regardless of age
-                    keepDaily:
-                      type: integer
-                      minimum: 0
-                      description: Keep one backup per day for N days
-                    keepWeekly:
-                      type: integer
-                      minimum: 0
-                      description: Keep one backup per week for N weeks
-                    keepMonthly:
-                      type: integer
-                      minimum: 0
-                      description: Keep one backup per month for N months
-                suspend:
-                  type: boolean
-                  default: false
-                  description: Suspend scheduled backups
-                deleteBackupsWithSchedule:
-                  type: boolean
-                  default: false
-                  description: >-
-                    Delete every backup this schedule created, including its S3 data, when the
-                    schedule is deleted. By default the backups are kept.
-                concurrencyPolicy:
-                  type: string
-                  enum: ["Allow", "Forbid", "Replace"]
-                  default: "Forbid"
-                  description: How to handle concurrent backup runs
-                startingDeadlineSeconds:
-                  type: integer
-                  minimum: 0
-                  description: Deadline for starting a missed backup
-            status:
-              type: object
-              properties:
-                phase:
-                  type: string
-                  enum: ["Active", "Suspended"]
-                lastScheduleTime:
-                  type: string
-                  format: date-time
-                  description: Cron slot the most recent backup was created for
-                lastBackupTime:
-                  type: string
-                  format: date-time
-                lastBackupName:
-                  type: string
-                lastBackupStatus:
-                  type: string
-                  enum: ["Pending", "InProgress", "Completed", "Failed"]
-                nextBackupTime:
-                  type: string
-                  format: date-time
-                activeBackup:
-                  type: string
-                  description: Name of currently running backup (if any)
-                recentBackups:
-                  type: array
-                  maxItems: 10
-                  items:
-                    type: object
-                    properties:
-                      name:
-                        type: string
-                      creationTime:
-                        type: string
-                        format: date-time
-                      completionTime:
-                        type: string
-                        format: date-time
-                      status:
-                        type: string
-                      size:
-                        type: string
-                conditions:
-                  type: array
-                  items:
-                    type: object
-                    required:
-                      - type
-                      - status
-                    properties:
-                      type:
-                        type: string
-                      status:
-                        type: string
-                        enum: ["True", "False", "Unknown"]
-                      lastTransitionTime:
-                        type: string
-                        format: date-time
-                      reason:
-                        type: string
-                      message:
-                        type: string
+                maxItems: 10
+                type: array
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

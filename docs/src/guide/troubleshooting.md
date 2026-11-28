@@ -6,22 +6,25 @@ there, then the operator log:
 
 ```sh
 kubectl describe qc my-qdrant
+kubectl get events -n <namespace> --field-selector regarding.name=my-qdrant
 kubectl get qb first -o jsonpath='{.status.error}{"\n"}'
 kubectl logs -n qdrant-system deploy/qdrant-operator -f
 ```
 
-Retries show up in the log as kopf `TemporaryError` lines with the reason and
-the thirty-second delay. Permanent failures write the phase `Failed` and the
-error into the status and stop.
+Every phase change is also an Event on the resource: `Warning` for `Failed`,
+`Normal` otherwise, with the status error or message as the note, so
+`kubectl describe` shows it. Retries show up in the log as reconcile errors with
+the reason and the thirty-second delay. Permanent failures write the phase
+`Failed` and the error into the status and stop.
 
 ## QdrantCluster
 
 | Symptom | Meaning | What to do |
 |---|---|---|
 | `Pending` and stays there | The Helm release is applied but pods are not ready | `kubectl get pods -l app.kubernetes.io/instance=qdrant-<name>`, then `describe` the pod that is not ready |
-| No phase and no pods | The first `helm upgrade --install` failed before any status was written; the operator retries | Look for `helm upgrade failed` in the log. Common causes: a chart version that does not exist for that `version`, a `config` key the chart rejects, missing `monitoring.coreos.com` CRDs with a ServiceMonitor enabled |
+| No phase and no pods | The first `helm upgrade --install` failed before any status was written; the operator retries | Look for the Helm error in the log, the `Failed` event and the `Ready` condition message. Common causes: a chart version that does not exist for that `version`, a `config` key the chart rejects, missing `monitoring.coreos.com` CRDs with a ServiceMonitor enabled |
 | Pods `Pending` | No node fits or no volume can be bound | `kubectl describe pod`: check resources, `nodeSelector`, `affinity` and the storage class |
-| Pods `CrashLoopBackOff` | Qdrant rejects its configuration | Container logs; a typo under `config` lands in `production.yaml` verbatim |
+| Pods `CrashLoopBackOff` | Qdrant rejects its configuration | Container logs; a typo under `config` ends up in `production.yaml` verbatim |
 | `Upgrading` for a long time | A rolling update is stuck on one pod | The StatefulSet waits for each pod to be ready before the next; fix that pod |
 
 Only `Pending`, `Upgrading` and `Running` are set by the operator; a Helm
@@ -121,9 +124,9 @@ Deleting a `Failed` backup still removes what was uploaded.
 The pod runs as uid 1000 with a read-only root filesystem and Helm's cache
 directories under an `emptyDir` at `/tmp`. `helm` failures mentioning
 permission denied point at a policy that replaced that volume. The pod
-answers `/healthz` on port 8080; a restart loop there means kopf could not
-start, and the first log lines say why, typically RBAC on the CRDs or
+answers `/healthz` and `/readyz` on port 8080; a restart loop there means the
+manager could not start, and the first log lines say why, typically RBAC on the CRDs or
 missing CRDs.
 
-Turn the log up with `--set operator.logLevel=DEBUG` to see every `helm`
-command line and every Qdrant request the operator makes.
+Turn the log up with `--set operator.logLevel=debug` to see more of what
+the operator does with Helm and Qdrant.

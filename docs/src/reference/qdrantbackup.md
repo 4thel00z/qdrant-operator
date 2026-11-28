@@ -44,7 +44,7 @@ thirty seconds while either is missing, sets `InProgress`, then for each
 collection and each node in ordinal order creates a snapshot, streams it to
 `<prefix>/<name>/<collection>/node-<i>/<snapshot>` and deletes it on the
 node. Writes `manifest.json` under `<prefix>/<name>/` and sets `Completed`,
-or `Failed` when any collection failed. With `retentionDays`, a timer every
+or `Failed` when any collection failed. With `retentionDays`, the operator checks every
 five minutes deletes the resource once `expiresAt` has passed.
 
 On delete: every object under `<prefix>/<name>/` is removed. If the

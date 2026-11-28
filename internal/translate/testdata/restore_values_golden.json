@@ -1,0 +1,1417 @@
+{
+  "available": [
+    "a",
+    "b",
+    "c"
+  ],
+  "selections": [
+    {
+      "available": [
+        "a",
+        "b",
+        "c"
+      ],
+      "name": "nothing requested gives everything",
+      "outputs": {
+        "value": [
+          "a",
+          "b",
+          "c"
+        ]
+      },
+      "requested": [],
+      "source": "backup"
+    },
+    {
+      "available": [
+        "a",
+        "b",
+        "c"
+      ],
+      "name": "requested subset keeps the request order",
+      "outputs": {
+        "value": [
+          "c",
+          "a"
+        ]
+      },
+      "requested": [
+        "c",
+        "a"
+      ],
+      "source": "backup"
+    },
+    {
+      "available": [
+        "a",
+        "b"
+      ],
+      "name": "missing names are listed in request order",
+      "outputs": {
+        "error": "Collections not present in manifest: x, y"
+      },
+      "requested": [
+        "a",
+        "x",
+        "y"
+      ],
+      "source": "manifest"
+    },
+    {
+      "available": [],
+      "name": "nothing available and nothing requested",
+      "outputs": {
+        "value": []
+      },
+      "requested": [],
+      "source": "backup"
+    },
+    {
+      "available": [],
+      "name": "nothing available",
+      "outputs": {
+        "error": "Collections not present in backup: a"
+      },
+      "requested": [
+        "a"
+      ],
+      "source": "backup"
+    }
+  ],
+  "specs": [
+    {
+      "name": "backup ref",
+      "outputs": {
+        "backup_ref": {
+          "name": "bk",
+          "namespace": "ns",
+          "plural": "qdrantbackups"
+        },
+        "indexing_timeout_seconds": 3600.0,
+        "priority": "snapshot",
+        "selection": {
+          "value": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        "source_s3": null,
+        "source_uri": null,
+        "target_cluster_ref": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "target_names": {
+          "a": "a",
+          "b": "b",
+          "c": "c"
+        },
+        "wait_for_indexing": true
+      },
+      "spec": {
+        "backupRef": {
+          "name": "bk"
+        },
+        "targetClusterRef": {
+          "name": "db"
+        }
+      }
+    },
+    {
+      "name": "backup ref in another namespace",
+      "outputs": {
+        "backup_ref": {
+          "name": "bk",
+          "namespace": "backups",
+          "plural": "qdrantbackups"
+        },
+        "indexing_timeout_seconds": 3600.0,
+        "priority": "snapshot",
+        "selection": {
+          "value": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        "source_s3": null,
+        "source_uri": null,
+        "target_cluster_ref": {
+          "name": "db",
+          "namespace": "other"
+        },
+        "target_names": {
+          "a": "a",
+          "b": "b",
+          "c": "c"
+        },
+        "wait_for_indexing": true
+      },
+      "spec": {
+        "backupRef": {
+          "name": "bk",
+          "namespace": "backups"
+        },
+        "targetClusterRef": {
+          "name": "db",
+          "namespace": "other"
+        }
+      }
+    },
+    {
+      "name": "direct s3 source",
+      "outputs": {
+        "backup_ref": null,
+        "indexing_timeout_seconds": 3600.0,
+        "priority": "snapshot",
+        "selection": {
+          "value": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        "source_s3": {
+          "bucket": "b",
+          "credentialsSecretRef": {
+            "accessKeyIdKey": "AWS_ACCESS_KEY_ID",
+            "name": "creds",
+            "secretAccessKeyKey": "SECRET"
+          },
+          "endpoint": "http://minio:9000",
+          "forcePathStyle": true,
+          "prefix": "/nightly//demo/",
+          "region": "eu-west-1"
+        },
+        "source_uri": "s3://b/nightly/demo",
+        "target_cluster_ref": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "target_names": {
+          "a": "a",
+          "b": "b",
+          "c": "c"
+        },
+        "wait_for_indexing": true
+      },
+      "spec": {
+        "source": {
+          "s3": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "name": "creds",
+              "secretAccessKeyKey": "SECRET"
+            },
+            "endpoint": "http://minio:9000",
+            "forcePathStyle": true,
+            "path": "/nightly//demo/",
+            "region": "eu-west-1"
+          }
+        },
+        "targetClusterRef": {
+          "name": "db"
+        }
+      }
+    },
+    {
+      "name": "backup ref wins next to a source",
+      "outputs": {
+        "backup_ref": {
+          "name": "bk",
+          "namespace": "ns",
+          "plural": "qdrantbackups"
+        },
+        "indexing_timeout_seconds": 3600.0,
+        "priority": "snapshot",
+        "selection": {
+          "value": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        "source_s3": {
+          "bucket": "b",
+          "credentialsSecretRef": {
+            "accessKeyIdKey": "AWS_ACCESS_KEY_ID",
+            "name": "creds",
+            "secretAccessKeyKey": "AWS_SECRET_ACCESS_KEY"
+          },
+          "forcePathStyle": false,
+          "prefix": "p",
+          "region": "us-east-1"
+        },
+        "source_uri": "s3://b/p",
+        "target_cluster_ref": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "target_names": {
+          "a": "a",
+          "b": "b",
+          "c": "c"
+        },
+        "wait_for_indexing": true
+      },
+      "spec": {
+        "backupRef": {
+          "name": "bk"
+        },
+        "source": {
+          "s3": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "name": "creds"
+            },
+            "path": "p"
+          }
+        },
+        "targetClusterRef": {
+          "name": "db"
+        }
+      }
+    },
+    {
+      "name": "selection and mapping",
+      "outputs": {
+        "backup_ref": {
+          "name": "bk",
+          "namespace": "ns",
+          "plural": "qdrantbackups"
+        },
+        "indexing_timeout_seconds": 3600.0,
+        "priority": "snapshot",
+        "selection": {
+          "value": [
+            "a"
+          ]
+        },
+        "source_s3": null,
+        "source_uri": null,
+        "target_cluster_ref": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "target_names": {
+          "a": "a2",
+          "b": "b",
+          "c": "c2"
+        },
+        "wait_for_indexing": true
+      },
+      "spec": {
+        "backupRef": {
+          "name": "bk"
+        },
+        "collectionMapping": {
+          "a": "a2",
+          "c": "c2"
+        },
+        "collections": [
+          "a"
+        ],
+        "targetClusterRef": {
+          "name": "db"
+        }
+      }
+    },
+    {
+      "name": "selection of a collection the backup lacks",
+      "outputs": {
+        "backup_ref": {
+          "name": "bk",
+          "namespace": "ns",
+          "plural": "qdrantbackups"
+        },
+        "indexing_timeout_seconds": 3600.0,
+        "priority": "snapshot",
+        "selection": {
+          "error": "Collections not present in backup: zzz, yyy"
+        },
+        "source_s3": null,
+        "source_uri": null,
+        "target_cluster_ref": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "target_names": {
+          "a": "a",
+          "b": "b",
+          "c": "c"
+        },
+        "wait_for_indexing": true
+      },
+      "spec": {
+        "backupRef": {
+          "name": "bk"
+        },
+        "collections": [
+          "a",
+          "zzz",
+          "yyy"
+        ],
+        "targetClusterRef": {
+          "name": "db"
+        }
+      }
+    },
+    {
+      "name": "replica priority without waiting",
+      "outputs": {
+        "backup_ref": {
+          "name": "bk",
+          "namespace": "ns",
+          "plural": "qdrantbackups"
+        },
+        "indexing_timeout_seconds": 120.0,
+        "priority": "replica",
+        "selection": {
+          "value": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        "source_s3": null,
+        "source_uri": null,
+        "target_cluster_ref": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "target_names": {
+          "a": "a",
+          "b": "b",
+          "c": "c"
+        },
+        "wait_for_indexing": false
+      },
+      "spec": {
+        "backupRef": {
+          "name": "bk"
+        },
+        "indexingTimeoutSeconds": 120,
+        "priority": "replica",
+        "targetClusterRef": {
+          "name": "db"
+        },
+        "waitForIndexing": false
+      }
+    },
+    {
+      "name": "no source at all",
+      "outputs": {
+        "error": "QdrantRestore needs either spec.backupRef or spec.source.s3"
+      },
+      "spec": {
+        "targetClusterRef": {
+          "name": "db"
+        }
+      }
+    },
+    {
+      "name": "empty source object",
+      "outputs": {
+        "error": "QdrantRestore needs either spec.backupRef or spec.source.s3"
+      },
+      "spec": {
+        "source": {},
+        "targetClusterRef": {
+          "name": "db"
+        }
+      }
+    }
+  ],
+  "statuses": [
+    {
+      "name": "empty is pending",
+      "outputs": {
+        "api": {
+          "phase": "Pending"
+        },
+        "percentage": 0
+      },
+      "status": {}
+    },
+    {
+      "name": "downloading with no collections",
+      "outputs": {
+        "api": {
+          "phase": "Downloading",
+          "sourceBackup": "bk",
+          "startTime": "2026-09-23T10:00:00Z"
+        },
+        "percentage": 0
+      },
+      "status": {
+        "phase": "Downloading",
+        "sourceBackup": "bk",
+        "startTime": "2026-09-23T10:00:00Z"
+      }
+    },
+    {
+      "name": "progress rounds half to even down",
+      "outputs": {
+        "api": {
+          "phase": "Restoring",
+          "progress": {
+            "collectionsCompleted": 1,
+            "collectionsTotal": 8,
+            "currentCollection": "a",
+            "percentage": 12
+          }
+        },
+        "percentage": 12
+      },
+      "status": {
+        "phase": "Restoring",
+        "progress": {
+          "collectionsCompleted": 1,
+          "collectionsTotal": 8,
+          "currentCollection": "a"
+        }
+      }
+    },
+    {
+      "name": "progress rounds half to even up",
+      "outputs": {
+        "api": {
+          "phase": "Restoring",
+          "progress": {
+            "collectionsCompleted": 3,
+            "collectionsTotal": 8,
+            "currentCollection": "a",
+            "percentage": 38
+          }
+        },
+        "percentage": 38
+      },
+      "status": {
+        "phase": "Restoring",
+        "progress": {
+          "collectionsCompleted": 3,
+          "collectionsTotal": 8,
+          "currentCollection": "a"
+        }
+      }
+    },
+    {
+      "name": "progress five eighths",
+      "outputs": {
+        "api": {
+          "phase": "Restoring",
+          "progress": {
+            "collectionsCompleted": 5,
+            "collectionsTotal": 8,
+            "percentage": 62
+          }
+        },
+        "percentage": 62
+      },
+      "status": {
+        "phase": "Restoring",
+        "progress": {
+          "collectionsCompleted": 5,
+          "collectionsTotal": 8
+        }
+      }
+    },
+    {
+      "name": "progress one third",
+      "outputs": {
+        "api": {
+          "phase": "Indexing",
+          "progress": {
+            "collectionsCompleted": 1,
+            "collectionsTotal": 3,
+            "percentage": 33
+          }
+        },
+        "percentage": 33
+      },
+      "status": {
+        "phase": "Indexing",
+        "progress": {
+          "collectionsCompleted": 1,
+          "collectionsTotal": 3
+        }
+      }
+    },
+    {
+      "name": "progress two thirds",
+      "outputs": {
+        "api": {
+          "phase": "Indexing",
+          "progress": {
+            "collectionsCompleted": 2,
+            "collectionsTotal": 3,
+            "percentage": 67
+          }
+        },
+        "percentage": 67
+      },
+      "status": {
+        "phase": "Indexing",
+        "progress": {
+          "collectionsCompleted": 2,
+          "collectionsTotal": 3
+        }
+      }
+    },
+    {
+      "name": "progress without collections",
+      "outputs": {
+        "api": {
+          "phase": "Restoring"
+        },
+        "percentage": 0
+      },
+      "status": {
+        "phase": "Restoring",
+        "progress": {
+          "collectionsCompleted": 0,
+          "collectionsTotal": 0
+        }
+      }
+    },
+    {
+      "name": "completed with a remapped collection",
+      "outputs": {
+        "api": {
+          "completionTime": "2026-09-23T10:30:00Z",
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-09-23T10:30:00Z",
+              "message": "done",
+              "reason": "Restored",
+              "status": "True",
+              "type": "Ready"
+            }
+          ],
+          "phase": "Completed",
+          "progress": {
+            "collectionsCompleted": 2,
+            "collectionsTotal": 2,
+            "percentage": 100
+          },
+          "restoredCollections": [
+            {
+              "name": "a2",
+              "originalName": "a",
+              "pointsCount": 1200,
+              "size": "1.0GB",
+              "status": "Completed"
+            },
+            {
+              "name": "b",
+              "size": "0.0B",
+              "status": "Completed"
+            }
+          ],
+          "sourceBackup": "s3://b/demo",
+          "startTime": "2026-09-23T10:00:00Z"
+        },
+        "percentage": 100
+      },
+      "status": {
+        "completionTime": "2026-09-23T10:30:00Z",
+        "conditions": [
+          {
+            "lastTransitionTime": "2026-09-23T10:30:00Z",
+            "message": "done",
+            "reason": "Restored",
+            "status": "True",
+            "type": "Ready"
+          }
+        ],
+        "phase": "Completed",
+        "progress": {
+          "collectionsCompleted": 2,
+          "collectionsTotal": 2
+        },
+        "restoredCollections": [
+          {
+            "name": "a2",
+            "originalName": "a",
+            "pointsCount": 1200,
+            "size": "1.0GB",
+            "status": "Completed"
+          },
+          {
+            "name": "b",
+            "pointsCount": 0,
+            "size": "0.0B",
+            "status": "Completed"
+          }
+        ],
+        "sourceBackup": "s3://b/demo",
+        "startTime": "2026-09-23T10:00:00Z"
+      }
+    },
+    {
+      "name": "failed with a failed collection",
+      "outputs": {
+        "api": {
+          "error": "indexing timed out",
+          "phase": "Failed",
+          "progress": {
+            "collectionsTotal": 1,
+            "currentCollection": "a"
+          },
+          "restoredCollections": [
+            {
+              "error": "boom",
+              "name": "a",
+              "status": "Failed"
+            }
+          ]
+        },
+        "percentage": 0
+      },
+      "status": {
+        "error": "indexing timed out",
+        "phase": "Failed",
+        "progress": {
+          "collectionsCompleted": 0,
+          "collectionsTotal": 1,
+          "currentCollection": "a"
+        },
+        "restoredCollections": [
+          {
+            "error": "boom",
+            "name": "a",
+            "status": "Failed"
+          }
+        ]
+      }
+    }
+  ],
+  "timeouts": [
+    {
+      "collection": "a",
+      "info": {
+        "status": "yellow"
+      },
+      "name": "yellow without config",
+      "outputs": {
+        "message": "Collection a did not turn green within 3600s (status yellow)"
+      },
+      "timeout": 3600
+    },
+    {
+      "collection": "a",
+      "info": {
+        "config": {
+          "optimizer_config": {
+            "indexing_threshold": 0,
+            "max_optimization_threads": 4
+          }
+        },
+        "status": "yellow"
+      },
+      "name": "indexing threshold zero",
+      "outputs": {
+        "message": "Collection a did not turn green within 3600s (status yellow); indexing is disabled in the restored config (optimizer_config.indexing_threshold is 0)"
+      },
+      "timeout": 3600
+    },
+    {
+      "collection": "a",
+      "info": {
+        "config": {
+          "optimizer_config": {
+            "indexing_threshold": 0,
+            "max_optimization_threads": 0
+          }
+        },
+        "status": "red"
+      },
+      "name": "both optimizer settings zero",
+      "outputs": {
+        "message": "Collection a did not turn green within 90s (status red); indexing is disabled in the restored config (optimizer_config.indexing_threshold, optimizer_config.max_optimization_threads is 0)"
+      },
+      "timeout": 90
+    },
+    {
+      "collection": "a",
+      "info": {
+        "config": {
+          "optimizer_config": {
+            "indexing_threshold": 20000,
+            "max_optimization_threads": 0.0
+          }
+        },
+        "status": "yellow"
+      },
+      "name": "threads zero as float",
+      "outputs": {
+        "message": "Collection a did not turn green within 3600s (status yellow); indexing is disabled in the restored config (optimizer_config.max_optimization_threads is 0)"
+      },
+      "timeout": 3600
+    },
+    {
+      "collection": "a",
+      "info": {
+        "config": {
+          "optimizer_config": null
+        },
+        "status": "yellow"
+      },
+      "name": "optimizer config null",
+      "outputs": {
+        "message": "Collection a did not turn green within 3600s (status yellow)"
+      },
+      "timeout": 3600
+    },
+    {
+      "collection": "a",
+      "info": {
+        "config": {
+          "optimizer_config": {
+            "indexing_threshold": 20000,
+            "max_optimization_threads": 2
+          }
+        },
+        "status": "yellow"
+      },
+      "name": "optimizer settings present and non zero",
+      "outputs": {
+        "message": "Collection a did not turn green within 3600s (status yellow)"
+      },
+      "timeout": 3600
+    },
+    {
+      "collection": "a",
+      "info": {
+        "config": {
+          "params": {}
+        },
+        "status": "yellow"
+      },
+      "name": "config without optimizer config",
+      "outputs": {
+        "message": "Collection a did not turn green within 3600s (status yellow)"
+      },
+      "timeout": 3600
+    },
+    {
+      "collection": "big",
+      "info": {
+        "status": "yellow"
+      },
+      "name": "large timeout uses six significant digits",
+      "outputs": {
+        "message": "Collection big did not turn green within 1.23457e+06s (status yellow)"
+      },
+      "timeout": 1234567
+    }
+  ],
+  "volume_plans": [
+    {
+      "deployed": false,
+      "existing_claims": [],
+      "name": "claims named like the statefulset",
+      "nodes": {
+        "1": "node-b"
+      },
+      "outputs": {
+        "value": [
+          {
+            "apiVersion": "v1",
+            "kind": "PersistentVolumeClaim",
+            "metadata": {
+              "labels": {
+                "app": "qdrant",
+                "app.kubernetes.io/instance": "qdrant-db",
+                "app.kubernetes.io/name": "qdrant"
+              },
+              "name": "qdrant-storage-qdrant-db-0",
+              "namespace": "ns"
+            },
+            "spec": {
+              "accessModes": [
+                "ReadWriteOnce"
+              ],
+              "dataSource": {
+                "apiGroup": "snapshot.storage.k8s.io",
+                "kind": "VolumeSnapshot",
+                "name": "nightly-node-0"
+              },
+              "resources": {
+                "requests": {
+                  "storage": "10Gi"
+                }
+              }
+            }
+          },
+          {
+            "apiVersion": "v1",
+            "kind": "PersistentVolumeClaim",
+            "metadata": {
+              "annotations": {
+                "volume.kubernetes.io/selected-node": "node-b"
+              },
+              "labels": {
+                "app": "qdrant",
+                "app.kubernetes.io/instance": "qdrant-db",
+                "app.kubernetes.io/name": "qdrant"
+              },
+              "name": "qdrant-storage-qdrant-db-1",
+              "namespace": "ns"
+            },
+            "spec": {
+              "accessModes": [
+                "ReadWriteOnce"
+              ],
+              "dataSource": {
+                "apiGroup": "snapshot.storage.k8s.io",
+                "kind": "VolumeSnapshot",
+                "name": "nightly-node-1"
+              },
+              "resources": {
+                "requests": {
+                  "storage": "10Gi"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "records": [
+        {
+          "claimName": "qdrant-storage-qdrant-db-0",
+          "nodeIndex": 0,
+          "size": "10Gi",
+          "snapshotName": "nightly-node-0"
+        },
+        {
+          "claimName": "qdrant-storage-qdrant-db-1",
+          "nodeIndex": 1,
+          "size": "10Gi",
+          "snapshotName": "nightly-node-1"
+        }
+      ],
+      "restore": {
+        "backupRef": {
+          "name": "nightly"
+        },
+        "targetClusterRef": {
+          "name": "db"
+        }
+      },
+      "source": {
+        "clusterRef": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "method": "volumeSnapshot",
+        "volumeSnapshotClassName": "csi"
+      },
+      "target_replicas": 2
+    },
+    {
+      "deployed": false,
+      "existing_claims": [
+        "unrelated"
+      ],
+      "name": "storage class and access modes carry over",
+      "nodes": {
+        "0": "node-a",
+        "2": "node-c"
+      },
+      "outputs": {
+        "value": [
+          {
+            "apiVersion": "v1",
+            "kind": "PersistentVolumeClaim",
+            "metadata": {
+              "annotations": {
+                "volume.kubernetes.io/selected-node": "node-a"
+              },
+              "labels": {
+                "app": "qdrant",
+                "app.kubernetes.io/instance": "qdrant-db",
+                "app.kubernetes.io/name": "qdrant"
+              },
+              "name": "qdrant-storage-qdrant-db-0",
+              "namespace": "ns"
+            },
+            "spec": {
+              "accessModes": [
+                "ReadWriteOnce",
+                "ReadWriteMany"
+              ],
+              "dataSource": {
+                "apiGroup": "snapshot.storage.k8s.io",
+                "kind": "VolumeSnapshot",
+                "name": "s0"
+              },
+              "resources": {
+                "requests": {
+                  "storage": "5Gi"
+                }
+              },
+              "storageClassName": "fast"
+            }
+          },
+          {
+            "apiVersion": "v1",
+            "kind": "PersistentVolumeClaim",
+            "metadata": {
+              "labels": {
+                "app": "qdrant",
+                "app.kubernetes.io/instance": "qdrant-db",
+                "app.kubernetes.io/name": "qdrant"
+              },
+              "name": "qdrant-storage-qdrant-db-1",
+              "namespace": "ns"
+            },
+            "spec": {
+              "accessModes": [
+                "ReadWriteOnce"
+              ],
+              "dataSource": {
+                "apiGroup": "snapshot.storage.k8s.io",
+                "kind": "VolumeSnapshot",
+                "name": "s1"
+              },
+              "resources": {
+                "requests": {
+                  "storage": "5Gi"
+                }
+              },
+              "storageClassName": "fast"
+            }
+          },
+          {
+            "apiVersion": "v1",
+            "kind": "PersistentVolumeClaim",
+            "metadata": {
+              "annotations": {
+                "volume.kubernetes.io/selected-node": "node-c"
+              },
+              "labels": {
+                "app": "qdrant",
+                "app.kubernetes.io/instance": "qdrant-db",
+                "app.kubernetes.io/name": "qdrant"
+              },
+              "name": "qdrant-storage-qdrant-db-2",
+              "namespace": "ns"
+            },
+            "spec": {
+              "accessModes": [
+                "ReadWriteOnce"
+              ],
+              "dataSource": {
+                "apiGroup": "snapshot.storage.k8s.io",
+                "kind": "VolumeSnapshot",
+                "name": "s2"
+              },
+              "resources": {
+                "requests": {
+                  "storage": "5Gi"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "records": [
+        {
+          "accessModes": [
+            "ReadWriteOnce",
+            "ReadWriteMany"
+          ],
+          "claimName": "c0",
+          "nodeIndex": 0,
+          "size": "5Gi",
+          "snapshotName": "s0",
+          "storageClassName": "fast",
+          "zone": "eu01-2",
+          "zoneLabel": "topology.cinder.csi.openstack.org/zone"
+        },
+        {
+          "claimName": "c1",
+          "nodeIndex": 1,
+          "size": "5Gi",
+          "snapshotName": "s1",
+          "storageClassName": "fast"
+        },
+        {
+          "claimName": "c2",
+          "nodeIndex": 2,
+          "size": "5Gi",
+          "snapshotName": "s2"
+        }
+      ],
+      "restore": {
+        "backupRef": {
+          "name": "nightly"
+        },
+        "targetClusterRef": {
+          "name": "db"
+        }
+      },
+      "source": {
+        "clusterRef": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "method": "volumeSnapshot",
+        "volumeSnapshotClassName": "csi"
+      },
+      "target_replicas": 3
+    },
+    {
+      "deployed": false,
+      "existing_claims": [],
+      "name": "unknown replica count is accepted",
+      "nodes": {},
+      "outputs": {
+        "value": [
+          {
+            "apiVersion": "v1",
+            "kind": "PersistentVolumeClaim",
+            "metadata": {
+              "labels": {
+                "app": "qdrant",
+                "app.kubernetes.io/instance": "qdrant-db",
+                "app.kubernetes.io/name": "qdrant"
+              },
+              "name": "qdrant-storage-qdrant-db-0",
+              "namespace": "ns"
+            },
+            "spec": {
+              "accessModes": [
+                "ReadWriteOnce"
+              ],
+              "dataSource": {
+                "apiGroup": "snapshot.storage.k8s.io",
+                "kind": "VolumeSnapshot",
+                "name": "s0"
+              },
+              "resources": {
+                "requests": {
+                  "storage": "1Gi"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "records": [
+        {
+          "claimName": "c0",
+          "nodeIndex": 0,
+          "size": "1Gi",
+          "snapshotName": "s0"
+        }
+      ],
+      "restore": {
+        "backupRef": {
+          "name": "nightly"
+        },
+        "targetClusterRef": {
+          "name": "db"
+        }
+      },
+      "source": {
+        "clusterRef": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "method": "volumeSnapshot",
+        "volumeSnapshotClassName": "csi"
+      },
+      "target_replicas": null
+    },
+    {
+      "deployed": false,
+      "existing_claims": [],
+      "name": "target of another name",
+      "nodes": {},
+      "outputs": {
+        "error": "Target cluster must be named db like the source: pod and claim names carry the cluster name and the volumes hold its peer ids"
+      },
+      "records": [
+        {
+          "claimName": "c0",
+          "nodeIndex": 0,
+          "size": "1Gi",
+          "snapshotName": "s0"
+        }
+      ],
+      "restore": {
+        "backupRef": {
+          "name": "nightly"
+        },
+        "targetClusterRef": {
+          "name": "other"
+        }
+      },
+      "source": {
+        "clusterRef": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "method": "volumeSnapshot",
+        "volumeSnapshotClassName": "csi"
+      },
+      "target_replicas": null
+    },
+    {
+      "deployed": false,
+      "existing_claims": [],
+      "name": "target in another namespace",
+      "nodes": {},
+      "outputs": {
+        "error": "VolumeSnapshots live in namespace ns; target cluster is in elsewhere"
+      },
+      "records": [
+        {
+          "claimName": "c0",
+          "nodeIndex": 0,
+          "size": "1Gi",
+          "snapshotName": "s0"
+        }
+      ],
+      "restore": {
+        "backupRef": {
+          "name": "nightly"
+        },
+        "targetClusterRef": {
+          "name": "db",
+          "namespace": "elsewhere"
+        }
+      },
+      "source": {
+        "clusterRef": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "method": "volumeSnapshot",
+        "volumeSnapshotClassName": "csi"
+      },
+      "target_replicas": null
+    },
+    {
+      "deployed": false,
+      "existing_claims": [],
+      "name": "replica count differs",
+      "nodes": {},
+      "outputs": {
+        "error": "Backup holds 2 volumes but target cluster has 3 replicas; sizes must match"
+      },
+      "records": [
+        {
+          "claimName": "c0",
+          "nodeIndex": 0,
+          "size": "1Gi",
+          "snapshotName": "s0"
+        },
+        {
+          "claimName": "c1",
+          "nodeIndex": 1,
+          "size": "1Gi",
+          "snapshotName": "s1"
+        }
+      ],
+      "restore": {
+        "backupRef": {
+          "name": "nightly"
+        },
+        "targetClusterRef": {
+          "name": "db"
+        }
+      },
+      "source": {
+        "clusterRef": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "method": "volumeSnapshot",
+        "volumeSnapshotClassName": "csi"
+      },
+      "target_replicas": 3
+    },
+    {
+      "deployed": true,
+      "existing_claims": [],
+      "name": "cluster already deployed",
+      "nodes": {},
+      "outputs": {
+        "error": "Cluster db is already deployed; restore into a new cluster, after deleting the old one and its volume claims"
+      },
+      "records": [
+        {
+          "claimName": "c0",
+          "nodeIndex": 0,
+          "size": "1Gi",
+          "snapshotName": "s0"
+        }
+      ],
+      "restore": {
+        "backupRef": {
+          "name": "nightly"
+        },
+        "targetClusterRef": {
+          "name": "db"
+        }
+      },
+      "source": {
+        "clusterRef": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "method": "volumeSnapshot",
+        "volumeSnapshotClassName": "csi"
+      },
+      "target_replicas": 1
+    },
+    {
+      "deployed": false,
+      "existing_claims": [
+        "qdrant-storage-qdrant-db-1",
+        "qdrant-storage-qdrant-db-0"
+      ],
+      "name": "claims already exist in sorted order",
+      "nodes": {},
+      "outputs": {
+        "error": "Volume claims already exist: qdrant-storage-qdrant-db-0, qdrant-storage-qdrant-db-1"
+      },
+      "records": [
+        {
+          "claimName": "c0",
+          "nodeIndex": 0,
+          "size": "1Gi",
+          "snapshotName": "s0"
+        },
+        {
+          "claimName": "c1",
+          "nodeIndex": 1,
+          "size": "1Gi",
+          "snapshotName": "s1"
+        }
+      ],
+      "restore": {
+        "backupRef": {
+          "name": "nightly"
+        },
+        "targetClusterRef": {
+          "name": "db"
+        }
+      },
+      "source": {
+        "clusterRef": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "method": "volumeSnapshot",
+        "volumeSnapshotClassName": "csi"
+      },
+      "target_replicas": 2
+    },
+    {
+      "deployed": false,
+      "existing_claims": [],
+      "name": "collection mapping is refused",
+      "nodes": {},
+      "outputs": {
+        "error": "volumeSnapshot backups restore whole volumes; drop collections and collectionMapping"
+      },
+      "records": [
+        {
+          "claimName": "c0",
+          "nodeIndex": 0,
+          "size": "1Gi",
+          "snapshotName": "s0"
+        }
+      ],
+      "restore": {
+        "backupRef": {
+          "name": "nightly"
+        },
+        "collectionMapping": {
+          "a": "b"
+        },
+        "targetClusterRef": {
+          "name": "db"
+        }
+      },
+      "source": {
+        "clusterRef": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "method": "volumeSnapshot",
+        "volumeSnapshotClassName": "csi"
+      },
+      "target_replicas": null
+    },
+    {
+      "deployed": false,
+      "existing_claims": [],
+      "name": "collections are refused",
+      "nodes": {},
+      "outputs": {
+        "error": "volumeSnapshot backups restore whole volumes; drop collections and collectionMapping"
+      },
+      "records": [
+        {
+          "claimName": "c0",
+          "nodeIndex": 0,
+          "size": "1Gi",
+          "snapshotName": "s0"
+        }
+      ],
+      "restore": {
+        "backupRef": {
+          "name": "nightly"
+        },
+        "collections": [
+          "a"
+        ],
+        "targetClusterRef": {
+          "name": "db"
+        }
+      },
+      "source": {
+        "clusterRef": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "method": "volumeSnapshot",
+        "volumeSnapshotClassName": "csi"
+      },
+      "target_replicas": null
+    },
+    {
+      "deployed": false,
+      "existing_claims": [],
+      "name": "no recorded snapshots",
+      "nodes": {},
+      "outputs": {
+        "error": "QdrantBackup nightly recorded no volume snapshots"
+      },
+      "records": [],
+      "restore": {
+        "backupRef": {
+          "name": "nightly"
+        },
+        "targetClusterRef": {
+          "name": "db"
+        }
+      },
+      "source": {
+        "clusterRef": {
+          "name": "db",
+          "namespace": "ns"
+        },
+        "method": "volumeSnapshot",
+        "volumeSnapshotClassName": "csi"
+      },
+      "target_replicas": null
+    }
+  ]
+}

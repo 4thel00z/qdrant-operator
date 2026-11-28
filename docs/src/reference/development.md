@@ -1,89 +1,98 @@
 # Development
 
-The operator is Python 3.12 on [kopf](https://kopf.readthedocs.io), managed
-with `uv`. The package is `qdrant_operator`.
+The operator is Go on [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime),
+with Helm run in-process through the Helm v4 Go SDK. The module is
+`github.com/4thel00z/qdrant-operator`.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `src/qdrant_operator/domain.py` | Frozen dataclasses for every spec and status, `from_dict`/`to_dict`, Helm value derivation, cron and retention rules. No I/O, no framework imports |
-| `src/qdrant_operator/ports.py` | `typing.Protocol` interfaces: `HelmPort`, `QdrantPort`, `StoragePort`, `KubernetesPort`, `TokenPort` |
-| `src/qdrant_operator/usecases.py` | One dataclass per operation: `ReconcileCluster`, `ObserveCluster`, `DeleteCluster`, `ExecuteBackup`, `DeleteBackupData`, `ExpireBackup`, `ExecuteRestore`, `ProcessSchedule`, `ReconcileCollection`, `DeleteCollection`, `IssueAccessKey`, `ExecuteMigration` |
-| `src/qdrant_operator/handlers.py` | kopf handlers: event to dataclasses to use case to `patch.status` |
-| `src/qdrant_operator/*_adapter.py` | Helm CLI, Qdrant REST over httpx, S3 over aioboto3, Kubernetes over kubernetes-asyncio, JWT signing over PyJWT |
-| `src/qdrant_operator/container.py` | Wires adapters into use cases |
-| `src/qdrant_operator/main.py` | Entry point, loguru setup, `kopf run` |
-| `manifests/crds/` | The CRDs; `charts/qdrant-operator/crds/` must be an identical copy |
+| `cmd/operator` | Entry point: a cobra command run through fang, settings read by viper |
+| `api/v1alpha1` | CRD Go types with kubebuilder markers |
+| `internal/domain` | Pure rules: Helm value derivation, cron and retention, conditions. Standard library only |
+| `internal/translate` | Conversion between the API types and the domain types |
+| `internal/ports` | Interfaces: Helm, Qdrant, Storage, Kubernetes, Token |
+| `internal/adapters/{helm,qdrant,s3,jwt,kubernetes,cron}` | Helm v4 Go SDK, Qdrant REST, S3, HS256 JWT signing, client-go, cron parsing |
+| `internal/fakes` | In-memory implementations of the ports for tests |
+| `internal/usecases` | One type per operation: cluster reconcile, observe and delete, backup, restore, schedule, collection, access key, migration |
+| `internal/controller` | One reconciler per kind, requeue `Timing`, finalizers, status patching, events, metrics |
+| `internal/app` | Wiring and the manager |
+| `internal/settings` | Flags and `QDRANT_OPERATOR_*` variables |
+| `manifests/crds/` | The generated CRDs; `charts/qdrant-operator/crds/` must be an identical copy |
 | `charts/qdrant-operator/` | The operator's own chart |
-| `tests/` | Unit tests with in-memory fakes, CRD sync check, integration suite |
+| `test/admission`, `test/chart`, `test/e2e` | CEL rule tests on envtest, chart rendering tests, kind end-to-end tests |
 | `docs/` | This book |
 
-Rules the code follows: handlers call use cases only, use cases see ports
-only, adapters implement ports structurally. Status goes through
-`patch.status.update`. Transient problems raise `kopf.TemporaryError`,
-everything else writes `Failed` and raises `kopf.PermanentError`. Adapters
-keep no connection state and build a client per call. No temp files:
-snapshots stream node to bucket and bucket to node, Helm values go over
-stdin.
+Rules the code follows: reconcilers call use cases only, use cases see ports
+only, adapters implement ports. Status is written as one whole-status JSON
+patch. Phase changes become Events: `Warning` for `Failed`, `Normal`
+otherwise. Transient problems requeue; everything else writes `Failed`.
+Adapters keep no connection state and build a client per call. No temp files:
+snapshots stream node to bucket and bucket to node.
 
 ## Make targets
 
 ```sh
 make dev                # run against the current kubeconfig, text logs
-make lint               # ruff check, ruff format --check, pyright --strict, helm lint
+make build              # binary in bin/qdrant-operator
+make lint               # gofmt check, go vet (also with the integration and e2e tags), helm lint
 make format
-make test               # unit tests
-make test-integration   # QDRANT_OPERATOR_INTEGRATION=1, needs a cluster and helm
+make test               # unit tests and envtest tests, with the pinned envtest control plane
+make test-integration   # Helm adapter against the current kubeconfig
 make e2e-image          # build qdrant-operator:e2e
 make e2e-deploy         # kind load the image and install the chart (KIND_CLUSTER=kind)
-make test-e2e           # QDRANT_OPERATOR_E2E=1, needs the deployed operator and helm
+make test-e2e           # needs the deployed operator
+make image              # docker image
+make manifests          # regenerate deepcopy methods and CRDs from api/v1alpha1, then crds-sync
 make crds-sync          # copy manifests/crds into the chart
-make build              # docker image
 ```
+
+The CRDs are generated by `hack/gen-crds.sh` from the types in
+`api/v1alpha1`; edit the types and their kubebuilder markers, run
+`make manifests`, and commit the result.
 
 ## Tests
 
-`tests/fakes.py` holds `FakeHelm`, `FakeQdrant`, `FakeStorage` and
-`FakeKubernetes`, in-memory implementations of the ports that record calls;
-there is no `mock.patch`. `test_domain.py` and `test_usecases.py` run
-against those in well under a second and cover value derivation, cron and
-retention arithmetic, the backup and restore flows, schedule concurrency,
-collection reconciliation, token claims and renewal, and the migration copy
-loop. `test_crds.py` fails when the chart's CRDs differ
-from `manifests/crds`.
+`go test ./...` runs the unit tests and the envtest tests. `make test` does the
+same with the pinned envtest control plane (`ENVTEST_K8S_VERSION`) downloaded
+first. `internal/fakes` holds in-memory fakes of the ports that record calls;
+there is no mocking library. The use case tests run against them and cover
+value derivation, cron and retention arithmetic, the backup and restore flows,
+schedule concurrency, collection reconciliation, token claims and renewal, and
+the migration copy loop. The tests in `internal/controller` run the
+reconcilers against an envtest API server, including finalizers, status
+patches and Events. `test/admission` applies invalid objects to envtest and
+expects the CEL rule messages. `test/chart` renders the chart and checks the
+objects and RBAC it produces.
 
-`test_integration.py` runs against a real cluster with `helm` on the path and
-the CRDs applied: it installs a one-node cluster through `ReconcileCluster`,
-waits for `Running`, port-forwards and queries Qdrant, uninstalls, and checks
-that the API server enforces the admission rules. It runs the use cases in
-the test process with the admin kubeconfig.
+`make test-integration` (build tag `integration`) runs the Helm adapter against
+a real cluster: it installs a one-node cluster, waits for it and uninstalls it.
 
-`test_e2e.py` runs against the operator itself: the image built from the
+`test/e2e` (build tag `e2e`) runs against the operator itself: the image built from the
 checkout, installed by its chart and running under the chart's
 ServiceAccount. It applies a `QdrantCluster`, a `QdrantCollection`, a
 `QdrantAccessKey`, a `QdrantBackup` into a RustFS bucket and a
 `QdrantRestore`, waits for each phase, checks the result in Qdrant and the
-bucket, deletes them again and fails if the operator pod restarted or logged
-a handler that failed permanently. Missing RBAC verbs, Helm or S3 problems
-inside the pod and status patches the API server rejects all fail here and
-not in the integration suite.
+bucket, deletes them again and fails if the operator pod restarted. Missing
+RBAC verbs, Helm or S3 problems inside the pod and status patches the API
+server rejects all fail here and not in the integration suite.
 
 ```sh
 kind create cluster
 make e2e-image e2e-deploy test-e2e
 ```
 
-CI runs both suites on separate kind clusters on every push and pull
+CI runs the integration and end-to-end suites on separate kind clusters on every push and pull
 request.
 
 ## Releasing
 
 Releases are cut by release-please from the conventional commit history. A
-release PR keeps `pyproject.toml`, `Chart.yaml`, `uv.lock` and
-`CHANGELOG.md` current; merging it tags `vX.Y.Z`, publishes the wheel and
-sdist to PyPI, pushes the multi-arch image and the Helm chart to
-`ghcr.io/4thel00z`, and attaches the CRDs to the GitHub release.
+release PR keeps `Chart.yaml` and `CHANGELOG.md` current; merging it tags
+`vX.Y.Z`, pushes the multi-arch image and the OCI Helm chart to
+`ghcr.io/4thel00z`, and attaches the per-platform binaries and the CRDs to the
+GitHub release.
 
 ## Documentation
 
