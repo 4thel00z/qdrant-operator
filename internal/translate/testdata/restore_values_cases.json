@@ -1,0 +1,55 @@
+{
+  "specs": [
+    {"name": "backup ref", "spec": {"targetClusterRef": {"name": "db"}, "backupRef": {"name": "bk"}}},
+    {"name": "backup ref in another namespace", "spec": {"targetClusterRef": {"name": "db", "namespace": "other"}, "backupRef": {"name": "bk", "namespace": "backups"}}},
+    {"name": "direct s3 source", "spec": {"targetClusterRef": {"name": "db"}, "source": {"s3": {"bucket": "b", "path": "/nightly//demo/", "region": "eu-west-1", "endpoint": "http://minio:9000", "forcePathStyle": true, "credentialsSecretRef": {"name": "creds", "secretAccessKeyKey": "SECRET"}}}}},
+    {"name": "backup ref wins next to a source", "spec": {"targetClusterRef": {"name": "db"}, "backupRef": {"name": "bk"}, "source": {"s3": {"bucket": "b", "path": "p", "credentialsSecretRef": {"name": "creds"}}}}},
+    {"name": "selection and mapping", "spec": {"targetClusterRef": {"name": "db"}, "backupRef": {"name": "bk"}, "collections": ["a"], "collectionMapping": {"a": "a2", "c": "c2"}}},
+    {"name": "selection of a collection the backup lacks", "spec": {"targetClusterRef": {"name": "db"}, "backupRef": {"name": "bk"}, "collections": ["a", "zzz", "yyy"]}},
+    {"name": "replica priority without waiting", "spec": {"targetClusterRef": {"name": "db"}, "backupRef": {"name": "bk"}, "priority": "replica", "waitForIndexing": false, "indexingTimeoutSeconds": 120}},
+    {"name": "no source at all", "spec": {"targetClusterRef": {"name": "db"}}},
+    {"name": "empty source object", "spec": {"targetClusterRef": {"name": "db"}, "source": {}}}
+  ],
+  "selections": [
+    {"name": "nothing requested gives everything", "requested": [], "available": ["a", "b", "c"], "source": "backup"},
+    {"name": "requested subset keeps the request order", "requested": ["c", "a"], "available": ["a", "b", "c"], "source": "backup"},
+    {"name": "missing names are listed in request order", "requested": ["a", "x", "y"], "available": ["a", "b"], "source": "manifest"},
+    {"name": "nothing available and nothing requested", "requested": [], "available": [], "source": "backup"},
+    {"name": "nothing available", "requested": ["a"], "available": [], "source": "backup"}
+  ],
+  "timeouts": [
+    {"name": "yellow without config", "timeout": 3600, "collection": "a", "info": {"status": "yellow"}},
+    {"name": "indexing threshold zero", "timeout": 3600, "collection": "a", "info": {"status": "yellow", "config": {"optimizer_config": {"indexing_threshold": 0, "max_optimization_threads": 4}}}},
+    {"name": "both optimizer settings zero", "timeout": 90, "collection": "a", "info": {"status": "red", "config": {"optimizer_config": {"indexing_threshold": 0, "max_optimization_threads": 0}}}},
+    {"name": "threads zero as float", "timeout": 3600, "collection": "a", "info": {"status": "yellow", "config": {"optimizer_config": {"indexing_threshold": 20000, "max_optimization_threads": 0.0}}}},
+    {"name": "optimizer config null", "timeout": 3600, "collection": "a", "info": {"status": "yellow", "config": {"optimizer_config": null}}},
+    {"name": "optimizer settings present and non zero", "timeout": 3600, "collection": "a", "info": {"status": "yellow", "config": {"optimizer_config": {"indexing_threshold": 20000, "max_optimization_threads": 2}}}},
+    {"name": "config without optimizer config", "timeout": 3600, "collection": "a", "info": {"status": "yellow", "config": {"params": {}}}},
+    {"name": "large timeout uses six significant digits", "timeout": 1234567, "collection": "big", "info": {"status": "yellow"}}
+  ],
+  "volume_plans": [
+    {"name": "claims named like the statefulset", "restore": {"targetClusterRef": {"name": "db"}, "backupRef": {"name": "nightly"}}, "source": {"clusterRef": {"name": "db", "namespace": "ns"}, "method": "volumeSnapshot", "volumeSnapshotClassName": "csi"}, "records": [{"nodeIndex": 0, "claimName": "qdrant-storage-qdrant-db-0", "snapshotName": "nightly-node-0", "size": "10Gi"}, {"nodeIndex": 1, "claimName": "qdrant-storage-qdrant-db-1", "snapshotName": "nightly-node-1", "size": "10Gi"}], "target_replicas": 2, "deployed": false, "existing_claims": [], "nodes": {"1": "node-b"}},
+    {"name": "storage class and access modes carry over", "restore": {"targetClusterRef": {"name": "db"}, "backupRef": {"name": "nightly"}}, "source": {"clusterRef": {"name": "db", "namespace": "ns"}, "method": "volumeSnapshot", "volumeSnapshotClassName": "csi"}, "records": [{"nodeIndex": 0, "claimName": "c0", "snapshotName": "s0", "size": "5Gi", "storageClassName": "fast", "accessModes": ["ReadWriteOnce", "ReadWriteMany"], "zone": "eu01-2", "zoneLabel": "topology.cinder.csi.openstack.org/zone"}, {"nodeIndex": 1, "claimName": "c1", "snapshotName": "s1", "size": "5Gi", "storageClassName": "fast"}, {"nodeIndex": 2, "claimName": "c2", "snapshotName": "s2", "size": "5Gi"}], "target_replicas": 3, "deployed": false, "existing_claims": ["unrelated"], "nodes": {"0": "node-a", "2": "node-c"}},
+    {"name": "unknown replica count is accepted", "restore": {"targetClusterRef": {"name": "db"}, "backupRef": {"name": "nightly"}}, "source": {"clusterRef": {"name": "db", "namespace": "ns"}, "method": "volumeSnapshot", "volumeSnapshotClassName": "csi"}, "records": [{"nodeIndex": 0, "claimName": "c0", "snapshotName": "s0", "size": "1Gi"}], "target_replicas": null, "deployed": false, "existing_claims": [], "nodes": {}},
+    {"name": "target of another name", "restore": {"targetClusterRef": {"name": "other"}, "backupRef": {"name": "nightly"}}, "source": {"clusterRef": {"name": "db", "namespace": "ns"}, "method": "volumeSnapshot", "volumeSnapshotClassName": "csi"}, "records": [{"nodeIndex": 0, "claimName": "c0", "snapshotName": "s0", "size": "1Gi"}], "target_replicas": null, "deployed": false, "existing_claims": [], "nodes": {}},
+    {"name": "target in another namespace", "restore": {"targetClusterRef": {"name": "db", "namespace": "elsewhere"}, "backupRef": {"name": "nightly"}}, "source": {"clusterRef": {"name": "db", "namespace": "ns"}, "method": "volumeSnapshot", "volumeSnapshotClassName": "csi"}, "records": [{"nodeIndex": 0, "claimName": "c0", "snapshotName": "s0", "size": "1Gi"}], "target_replicas": null, "deployed": false, "existing_claims": [], "nodes": {}},
+    {"name": "replica count differs", "restore": {"targetClusterRef": {"name": "db"}, "backupRef": {"name": "nightly"}}, "source": {"clusterRef": {"name": "db", "namespace": "ns"}, "method": "volumeSnapshot", "volumeSnapshotClassName": "csi"}, "records": [{"nodeIndex": 0, "claimName": "c0", "snapshotName": "s0", "size": "1Gi"}, {"nodeIndex": 1, "claimName": "c1", "snapshotName": "s1", "size": "1Gi"}], "target_replicas": 3, "deployed": false, "existing_claims": [], "nodes": {}},
+    {"name": "cluster already deployed", "restore": {"targetClusterRef": {"name": "db"}, "backupRef": {"name": "nightly"}}, "source": {"clusterRef": {"name": "db", "namespace": "ns"}, "method": "volumeSnapshot", "volumeSnapshotClassName": "csi"}, "records": [{"nodeIndex": 0, "claimName": "c0", "snapshotName": "s0", "size": "1Gi"}], "target_replicas": 1, "deployed": true, "existing_claims": [], "nodes": {}},
+    {"name": "claims already exist in sorted order", "restore": {"targetClusterRef": {"name": "db"}, "backupRef": {"name": "nightly"}}, "source": {"clusterRef": {"name": "db", "namespace": "ns"}, "method": "volumeSnapshot", "volumeSnapshotClassName": "csi"}, "records": [{"nodeIndex": 0, "claimName": "c0", "snapshotName": "s0", "size": "1Gi"}, {"nodeIndex": 1, "claimName": "c1", "snapshotName": "s1", "size": "1Gi"}], "target_replicas": 2, "deployed": false, "existing_claims": ["qdrant-storage-qdrant-db-1", "qdrant-storage-qdrant-db-0"], "nodes": {}},
+    {"name": "collection mapping is refused", "restore": {"targetClusterRef": {"name": "db"}, "backupRef": {"name": "nightly"}, "collectionMapping": {"a": "b"}}, "source": {"clusterRef": {"name": "db", "namespace": "ns"}, "method": "volumeSnapshot", "volumeSnapshotClassName": "csi"}, "records": [{"nodeIndex": 0, "claimName": "c0", "snapshotName": "s0", "size": "1Gi"}], "target_replicas": null, "deployed": false, "existing_claims": [], "nodes": {}},
+    {"name": "collections are refused", "restore": {"targetClusterRef": {"name": "db"}, "backupRef": {"name": "nightly"}, "collections": ["a"]}, "source": {"clusterRef": {"name": "db", "namespace": "ns"}, "method": "volumeSnapshot", "volumeSnapshotClassName": "csi"}, "records": [{"nodeIndex": 0, "claimName": "c0", "snapshotName": "s0", "size": "1Gi"}], "target_replicas": null, "deployed": false, "existing_claims": [], "nodes": {}},
+    {"name": "no recorded snapshots", "restore": {"targetClusterRef": {"name": "db"}, "backupRef": {"name": "nightly"}}, "source": {"clusterRef": {"name": "db", "namespace": "ns"}, "method": "volumeSnapshot", "volumeSnapshotClassName": "csi"}, "records": [], "target_replicas": null, "deployed": false, "existing_claims": [], "nodes": {}}
+  ],
+  "statuses": [
+    {"name": "empty is pending", "status": {}},
+    {"name": "downloading with no collections", "status": {"phase": "Downloading", "startTime": "2026-09-23T10:00:00Z", "sourceBackup": "bk"}},
+    {"name": "progress rounds half to even down", "status": {"phase": "Restoring", "progress": {"collectionsTotal": 8, "collectionsCompleted": 1, "currentCollection": "a"}}},
+    {"name": "progress rounds half to even up", "status": {"phase": "Restoring", "progress": {"collectionsTotal": 8, "collectionsCompleted": 3, "currentCollection": "a"}}},
+    {"name": "progress five eighths", "status": {"phase": "Restoring", "progress": {"collectionsTotal": 8, "collectionsCompleted": 5}}},
+    {"name": "progress one third", "status": {"phase": "Indexing", "progress": {"collectionsTotal": 3, "collectionsCompleted": 1}}},
+    {"name": "progress two thirds", "status": {"phase": "Indexing", "progress": {"collectionsTotal": 3, "collectionsCompleted": 2}}},
+    {"name": "progress without collections", "status": {"phase": "Restoring", "progress": {"collectionsTotal": 0, "collectionsCompleted": 0}}},
+    {"name": "completed with a remapped collection", "status": {"phase": "Completed", "startTime": "2026-09-23T10:00:00Z", "completionTime": "2026-09-23T10:30:00Z", "sourceBackup": "s3://b/demo", "restoredCollections": [{"name": "a2", "originalName": "a", "status": "Completed", "size": "1.0GB", "pointsCount": 1200}, {"name": "b", "status": "Completed", "size": "0.0B", "pointsCount": 0}], "progress": {"collectionsTotal": 2, "collectionsCompleted": 2}, "conditions": [{"type": "Ready", "status": "True", "lastTransitionTime": "2026-09-23T10:30:00Z", "reason": "Restored", "message": "done"}]}},
+    {"name": "failed with a failed collection", "status": {"phase": "Failed", "error": "indexing timed out", "restoredCollections": [{"name": "a", "status": "Failed", "error": "boom"}], "progress": {"collectionsTotal": 1, "collectionsCompleted": 0, "currentCollection": "a"}}}
+  ]
+}

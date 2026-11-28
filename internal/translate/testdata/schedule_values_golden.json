@@ -1,0 +1,1069 @@
+{
+  "owner": {
+    "apiVersion": "qdrant.io/v1alpha1",
+    "kind": "QdrantBackupSchedule",
+    "name": "demo",
+    "uid": "u1"
+  },
+  "specs": [
+    {
+      "backup_at": "2026-09-23T02:00:00Z",
+      "baselines": [
+        null,
+        "2026-09-23T02:00:00Z",
+        "2026-09-22T02:00:00Z",
+        "2026-09-23T03:00:00Z",
+        "2026-09-20T00:00:00Z"
+      ],
+      "name": "daily defaults",
+      "now": "2026-09-23T12:00:00Z",
+      "outputs": {
+        "backup_name": "demo-20260923-020000",
+        "backup_resource": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "kind": "QdrantBackup",
+          "metadata": {
+            "labels": {
+              "qdrant.io/schedule": "demo"
+            },
+            "name": "demo-20260923-020000",
+            "namespace": "tenant-a"
+          },
+          "spec": {
+            "clusterRef": {
+              "name": "db",
+              "namespace": "tenant-a"
+            },
+            "method": "s3",
+            "storage": {
+              "s3": {
+                "bucket": "b",
+                "credentialsSecretRef": {
+                  "accessKeyIdKey": "AWS_ACCESS_KEY_ID",
+                  "name": "c",
+                  "secretAccessKeyKey": "AWS_SECRET_ACCESS_KEY"
+                },
+                "forcePathStyle": false,
+                "prefix": "",
+                "region": "us-east-1"
+              }
+            }
+          }
+        },
+        "collections": [],
+        "concurrency_policy": "Forbid",
+        "delete_backups_with_schedule": false,
+        "due": [
+          "2026-09-23T02:00:00Z",
+          null,
+          "2026-09-23T02:00:00Z",
+          null,
+          "2026-09-23T02:00:00Z"
+        ],
+        "label_selector": "qdrant.io/schedule=demo",
+        "method": "s3",
+        "next_slot": "2026-09-24T02:00:00Z",
+        "owner_reference": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "QdrantBackupSchedule",
+          "name": "demo",
+          "uid": "u1"
+        },
+        "previous_slot": "2026-09-23T02:00:00Z",
+        "retention_configured": false,
+        "starting_deadline_seconds": null,
+        "suspend": false
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "schedule": "0 2 * * *",
+        "storage": {
+          "s3": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "name": "c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "backup_at": "2026-09-23T02:00:00Z",
+      "baselines": [
+        null,
+        "2026-09-22T02:00:00Z"
+      ],
+      "name": "now exactly on the slot",
+      "now": "2026-09-23T02:00:00Z",
+      "outputs": {
+        "backup_name": "demo-20260923-020000",
+        "backup_resource": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "kind": "QdrantBackup",
+          "metadata": {
+            "labels": {
+              "qdrant.io/schedule": "demo"
+            },
+            "name": "demo-20260923-020000",
+            "namespace": "tenant-a"
+          },
+          "spec": {
+            "clusterRef": {
+              "name": "db",
+              "namespace": "tenant-a"
+            },
+            "method": "s3",
+            "storage": {
+              "s3": {
+                "bucket": "b",
+                "credentialsSecretRef": {
+                  "accessKeyIdKey": "AWS_ACCESS_KEY_ID",
+                  "name": "c",
+                  "secretAccessKeyKey": "AWS_SECRET_ACCESS_KEY"
+                },
+                "forcePathStyle": false,
+                "prefix": "",
+                "region": "us-east-1"
+              }
+            }
+          }
+        },
+        "collections": [],
+        "concurrency_policy": "Forbid",
+        "delete_backups_with_schedule": false,
+        "due": [
+          "2026-09-22T02:00:00Z",
+          null
+        ],
+        "label_selector": "qdrant.io/schedule=demo",
+        "method": "s3",
+        "next_slot": "2026-09-24T02:00:00Z",
+        "owner_reference": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "QdrantBackupSchedule",
+          "name": "demo",
+          "uid": "u1"
+        },
+        "previous_slot": "2026-09-22T02:00:00Z",
+        "retention_configured": false,
+        "starting_deadline_seconds": null,
+        "suspend": false
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "schedule": "0 2 * * *",
+        "storage": {
+          "s3": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "name": "c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "backup_at": "2026-09-23T02:00:00Z",
+      "baselines": [
+        null,
+        "2026-09-22T02:00:00Z"
+      ],
+      "name": "deadline of one minute",
+      "now": "2026-09-23T12:00:00Z",
+      "outputs": {
+        "backup_name": "demo-20260923-020000",
+        "backup_resource": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "kind": "QdrantBackup",
+          "metadata": {
+            "labels": {
+              "qdrant.io/schedule": "demo"
+            },
+            "name": "demo-20260923-020000",
+            "namespace": "tenant-a"
+          },
+          "spec": {
+            "clusterRef": {
+              "name": "db",
+              "namespace": "tenant-a"
+            },
+            "method": "s3",
+            "storage": {
+              "s3": {
+                "bucket": "b",
+                "credentialsSecretRef": {
+                  "accessKeyIdKey": "AWS_ACCESS_KEY_ID",
+                  "name": "c",
+                  "secretAccessKeyKey": "AWS_SECRET_ACCESS_KEY"
+                },
+                "forcePathStyle": false,
+                "prefix": "",
+                "region": "us-east-1"
+              }
+            }
+          }
+        },
+        "collections": [],
+        "concurrency_policy": "Forbid",
+        "delete_backups_with_schedule": false,
+        "due": [
+          null,
+          null
+        ],
+        "label_selector": "qdrant.io/schedule=demo",
+        "method": "s3",
+        "next_slot": "2026-09-24T02:00:00Z",
+        "owner_reference": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "QdrantBackupSchedule",
+          "name": "demo",
+          "uid": "u1"
+        },
+        "previous_slot": "2026-09-23T02:00:00Z",
+        "retention_configured": false,
+        "starting_deadline_seconds": 60,
+        "suspend": false
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "schedule": "0 2 * * *",
+        "startingDeadlineSeconds": 60,
+        "storage": {
+          "s3": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "name": "c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "backup_at": "2026-09-23T02:00:00Z",
+      "baselines": [
+        null
+      ],
+      "name": "deadline of one hour",
+      "now": "2026-09-23T02:59:59Z",
+      "outputs": {
+        "backup_name": "demo-20260923-020000",
+        "backup_resource": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "kind": "QdrantBackup",
+          "metadata": {
+            "labels": {
+              "qdrant.io/schedule": "demo"
+            },
+            "name": "demo-20260923-020000",
+            "namespace": "tenant-a"
+          },
+          "spec": {
+            "clusterRef": {
+              "name": "db",
+              "namespace": "tenant-a"
+            },
+            "method": "s3",
+            "storage": {
+              "s3": {
+                "bucket": "b",
+                "credentialsSecretRef": {
+                  "accessKeyIdKey": "AWS_ACCESS_KEY_ID",
+                  "name": "c",
+                  "secretAccessKeyKey": "AWS_SECRET_ACCESS_KEY"
+                },
+                "forcePathStyle": false,
+                "prefix": "",
+                "region": "us-east-1"
+              }
+            }
+          }
+        },
+        "collections": [],
+        "concurrency_policy": "Forbid",
+        "delete_backups_with_schedule": false,
+        "due": [
+          "2026-09-23T02:00:00Z"
+        ],
+        "label_selector": "qdrant.io/schedule=demo",
+        "method": "s3",
+        "next_slot": "2026-09-24T02:00:00Z",
+        "owner_reference": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "QdrantBackupSchedule",
+          "name": "demo",
+          "uid": "u1"
+        },
+        "previous_slot": "2026-09-23T02:00:00Z",
+        "retention_configured": false,
+        "starting_deadline_seconds": 3600,
+        "suspend": false
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "schedule": "0 2 * * *",
+        "startingDeadlineSeconds": 3600,
+        "storage": {
+          "s3": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "name": "c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "backup_at": "2026-09-23T02:00:00Z",
+      "baselines": [
+        null
+      ],
+      "name": "deadline of zero",
+      "now": "2026-09-23T02:00:01Z",
+      "outputs": {
+        "backup_name": "demo-20260923-020000",
+        "backup_resource": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "kind": "QdrantBackup",
+          "metadata": {
+            "labels": {
+              "qdrant.io/schedule": "demo"
+            },
+            "name": "demo-20260923-020000",
+            "namespace": "tenant-a"
+          },
+          "spec": {
+            "clusterRef": {
+              "name": "db",
+              "namespace": "tenant-a"
+            },
+            "method": "s3",
+            "storage": {
+              "s3": {
+                "bucket": "b",
+                "credentialsSecretRef": {
+                  "accessKeyIdKey": "AWS_ACCESS_KEY_ID",
+                  "name": "c",
+                  "secretAccessKeyKey": "AWS_SECRET_ACCESS_KEY"
+                },
+                "forcePathStyle": false,
+                "prefix": "",
+                "region": "us-east-1"
+              }
+            }
+          }
+        },
+        "collections": [],
+        "concurrency_policy": "Forbid",
+        "delete_backups_with_schedule": false,
+        "due": [
+          null
+        ],
+        "label_selector": "qdrant.io/schedule=demo",
+        "method": "s3",
+        "next_slot": "2026-09-24T02:00:00Z",
+        "owner_reference": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "QdrantBackupSchedule",
+          "name": "demo",
+          "uid": "u1"
+        },
+        "previous_slot": "2026-09-23T02:00:00Z",
+        "retention_configured": false,
+        "starting_deadline_seconds": 0,
+        "suspend": false
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "schedule": "0 2 * * *",
+        "startingDeadlineSeconds": 0,
+        "storage": {
+          "s3": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "name": "c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "backup_at": "2026-09-23T12:00:00Z",
+      "baselines": [
+        null,
+        "2026-09-23T11:45:00Z",
+        "2026-09-23T12:00:00Z"
+      ],
+      "name": "every fifteen minutes within the deadline",
+      "now": "2026-09-23T12:07:30Z",
+      "outputs": {
+        "backup_name": "demo-20260923-120000",
+        "backup_resource": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "kind": "QdrantBackup",
+          "metadata": {
+            "labels": {
+              "qdrant.io/schedule": "demo"
+            },
+            "name": "demo-20260923-120000",
+            "namespace": "tenant-a"
+          },
+          "spec": {
+            "clusterRef": {
+              "name": "db",
+              "namespace": "tenant-a"
+            },
+            "method": "s3",
+            "storage": {
+              "s3": {
+                "bucket": "b",
+                "credentialsSecretRef": {
+                  "accessKeyIdKey": "AWS_ACCESS_KEY_ID",
+                  "name": "c",
+                  "secretAccessKeyKey": "AWS_SECRET_ACCESS_KEY"
+                },
+                "forcePathStyle": false,
+                "prefix": "",
+                "region": "us-east-1"
+              }
+            }
+          }
+        },
+        "collections": [],
+        "concurrency_policy": "Forbid",
+        "delete_backups_with_schedule": false,
+        "due": [
+          "2026-09-23T12:00:00Z",
+          "2026-09-23T12:00:00Z",
+          null
+        ],
+        "label_selector": "qdrant.io/schedule=demo",
+        "method": "s3",
+        "next_slot": "2026-09-23T12:15:00Z",
+        "owner_reference": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "QdrantBackupSchedule",
+          "name": "demo",
+          "uid": "u1"
+        },
+        "previous_slot": "2026-09-23T12:00:00Z",
+        "retention_configured": false,
+        "starting_deadline_seconds": 600,
+        "suspend": false
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "schedule": "*/15 * * * *",
+        "startingDeadlineSeconds": 600,
+        "storage": {
+          "s3": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "name": "c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "backup_at": "2026-09-23T12:00:00Z",
+      "baselines": [
+        null
+      ],
+      "name": "every fifteen minutes past the deadline",
+      "now": "2026-09-23T12:14:00Z",
+      "outputs": {
+        "backup_name": "demo-20260923-120000",
+        "backup_resource": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "kind": "QdrantBackup",
+          "metadata": {
+            "labels": {
+              "qdrant.io/schedule": "demo"
+            },
+            "name": "demo-20260923-120000",
+            "namespace": "tenant-a"
+          },
+          "spec": {
+            "clusterRef": {
+              "name": "db",
+              "namespace": "tenant-a"
+            },
+            "method": "s3",
+            "storage": {
+              "s3": {
+                "bucket": "b",
+                "credentialsSecretRef": {
+                  "accessKeyIdKey": "AWS_ACCESS_KEY_ID",
+                  "name": "c",
+                  "secretAccessKeyKey": "AWS_SECRET_ACCESS_KEY"
+                },
+                "forcePathStyle": false,
+                "prefix": "",
+                "region": "us-east-1"
+              }
+            }
+          }
+        },
+        "collections": [],
+        "concurrency_policy": "Forbid",
+        "delete_backups_with_schedule": false,
+        "due": [
+          null
+        ],
+        "label_selector": "qdrant.io/schedule=demo",
+        "method": "s3",
+        "next_slot": "2026-09-23T12:15:00Z",
+        "owner_reference": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "QdrantBackupSchedule",
+          "name": "demo",
+          "uid": "u1"
+        },
+        "previous_slot": "2026-09-23T12:00:00Z",
+        "retention_configured": false,
+        "starting_deadline_seconds": 600,
+        "suspend": false
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "schedule": "*/15 * * * *",
+        "startingDeadlineSeconds": 600,
+        "storage": {
+          "s3": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "name": "c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "backup_at": "2026-12-01T00:00:00Z",
+      "baselines": [
+        null,
+        "2026-12-01T00:00:00Z"
+      ],
+      "name": "monthly",
+      "now": "2026-12-31T23:59:59Z",
+      "outputs": {
+        "backup_name": "demo-20261201-000000",
+        "backup_resource": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "kind": "QdrantBackup",
+          "metadata": {
+            "labels": {
+              "qdrant.io/schedule": "demo"
+            },
+            "name": "demo-20261201-000000",
+            "namespace": "tenant-a"
+          },
+          "spec": {
+            "clusterRef": {
+              "name": "db",
+              "namespace": "tenant-a"
+            },
+            "method": "s3",
+            "storage": {
+              "s3": {
+                "bucket": "b",
+                "credentialsSecretRef": {
+                  "accessKeyIdKey": "AWS_ACCESS_KEY_ID",
+                  "name": "c",
+                  "secretAccessKeyKey": "AWS_SECRET_ACCESS_KEY"
+                },
+                "forcePathStyle": false,
+                "prefix": "",
+                "region": "us-east-1"
+              }
+            }
+          }
+        },
+        "collections": [],
+        "concurrency_policy": "Forbid",
+        "delete_backups_with_schedule": false,
+        "due": [
+          "2026-12-01T00:00:00Z",
+          null
+        ],
+        "label_selector": "qdrant.io/schedule=demo",
+        "method": "s3",
+        "next_slot": "2027-01-01T00:00:00Z",
+        "owner_reference": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "QdrantBackupSchedule",
+          "name": "demo",
+          "uid": "u1"
+        },
+        "previous_slot": "2026-12-01T00:00:00Z",
+        "retention_configured": false,
+        "starting_deadline_seconds": null,
+        "suspend": false
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "schedule": "0 0 1 * *",
+        "storage": {
+          "s3": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "name": "c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "backup_at": "2026-09-20T04:30:00Z",
+      "baselines": [
+        null,
+        "2026-09-20T04:30:00Z"
+      ],
+      "name": "weekly on sunday",
+      "now": "2026-09-23T12:00:00Z",
+      "outputs": {
+        "backup_name": "demo-20260920-043000",
+        "backup_resource": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "kind": "QdrantBackup",
+          "metadata": {
+            "labels": {
+              "qdrant.io/schedule": "demo"
+            },
+            "name": "demo-20260920-043000",
+            "namespace": "tenant-a"
+          },
+          "spec": {
+            "clusterRef": {
+              "name": "db",
+              "namespace": "tenant-a"
+            },
+            "method": "s3",
+            "storage": {
+              "s3": {
+                "bucket": "b",
+                "credentialsSecretRef": {
+                  "accessKeyIdKey": "AWS_ACCESS_KEY_ID",
+                  "name": "c",
+                  "secretAccessKeyKey": "AWS_SECRET_ACCESS_KEY"
+                },
+                "forcePathStyle": false,
+                "prefix": "",
+                "region": "us-east-1"
+              }
+            }
+          }
+        },
+        "collections": [],
+        "concurrency_policy": "Forbid",
+        "delete_backups_with_schedule": false,
+        "due": [
+          "2026-09-20T04:30:00Z",
+          null
+        ],
+        "label_selector": "qdrant.io/schedule=demo",
+        "method": "s3",
+        "next_slot": "2026-09-27T04:30:00Z",
+        "owner_reference": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "QdrantBackupSchedule",
+          "name": "demo",
+          "uid": "u1"
+        },
+        "previous_slot": "2026-09-20T04:30:00Z",
+        "retention_configured": false,
+        "starting_deadline_seconds": null,
+        "suspend": false
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "schedule": "30 4 * * 0",
+        "storage": {
+          "s3": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "name": "c"
+            }
+          }
+        }
+      }
+    },
+    {
+      "backup_at": "2026-09-23T02:00:00Z",
+      "baselines": [
+        null
+      ],
+      "name": "owned backups with collections",
+      "now": "2026-09-23T12:00:00Z",
+      "outputs": {
+        "backup_name": "demo-20260923-020000",
+        "backup_resource": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "kind": "QdrantBackup",
+          "metadata": {
+            "labels": {
+              "qdrant.io/schedule": "demo"
+            },
+            "name": "demo-20260923-020000",
+            "namespace": "tenant-a",
+            "ownerReferences": [
+              {
+                "apiVersion": "qdrant.io/v1alpha1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "QdrantBackupSchedule",
+                "name": "demo",
+                "uid": "u1"
+              }
+            ]
+          },
+          "spec": {
+            "clusterRef": {
+              "name": "db",
+              "namespace": "other"
+            },
+            "collections": [
+              "a",
+              "b"
+            ],
+            "method": "s3",
+            "storage": {
+              "s3": {
+                "bucket": "b",
+                "credentialsSecretRef": {
+                  "accessKeyIdKey": "ID",
+                  "name": "c",
+                  "secretAccessKeyKey": "AWS_SECRET_ACCESS_KEY"
+                },
+                "endpoint": "http://minio:9000",
+                "forcePathStyle": true,
+                "prefix": "nightly",
+                "region": "eu-central-1"
+              }
+            }
+          }
+        },
+        "collections": [
+          "a",
+          "b"
+        ],
+        "concurrency_policy": "Forbid",
+        "delete_backups_with_schedule": true,
+        "due": [
+          "2026-09-23T02:00:00Z"
+        ],
+        "label_selector": "qdrant.io/schedule=demo",
+        "method": "s3",
+        "next_slot": "2026-09-24T02:00:00Z",
+        "owner_reference": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "QdrantBackupSchedule",
+          "name": "demo",
+          "uid": "u1"
+        },
+        "previous_slot": "2026-09-23T02:00:00Z",
+        "retention_configured": false,
+        "starting_deadline_seconds": null,
+        "suspend": false
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db",
+          "namespace": "other"
+        },
+        "collections": [
+          "a",
+          "b"
+        ],
+        "deleteBackupsWithSchedule": true,
+        "schedule": "0 2 * * *",
+        "storage": {
+          "s3": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "accessKeyIdKey": "ID",
+              "name": "c"
+            },
+            "endpoint": "http://minio:9000",
+            "forcePathStyle": true,
+            "prefix": "nightly",
+            "region": "eu-central-1"
+          }
+        }
+      }
+    },
+    {
+      "backup_at": "2026-09-23T02:00:00Z",
+      "baselines": [
+        null
+      ],
+      "name": "volume snapshot schedule",
+      "now": "2026-09-23T12:00:00Z",
+      "outputs": {
+        "backup_name": "demo-20260923-020000",
+        "backup_resource": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "kind": "QdrantBackup",
+          "metadata": {
+            "labels": {
+              "qdrant.io/schedule": "demo"
+            },
+            "name": "demo-20260923-020000",
+            "namespace": "tenant-a"
+          },
+          "spec": {
+            "clusterRef": {
+              "name": "db",
+              "namespace": "tenant-a"
+            },
+            "method": "volumeSnapshot",
+            "volumeSnapshotClassName": "csi-snapshots"
+          }
+        },
+        "collections": [],
+        "concurrency_policy": "Forbid",
+        "delete_backups_with_schedule": false,
+        "due": [
+          "2026-09-23T02:00:00Z"
+        ],
+        "label_selector": "qdrant.io/schedule=demo",
+        "method": "volumeSnapshot",
+        "next_slot": "2026-09-24T02:00:00Z",
+        "owner_reference": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "QdrantBackupSchedule",
+          "name": "demo",
+          "uid": "u1"
+        },
+        "previous_slot": "2026-09-23T02:00:00Z",
+        "retention_configured": false,
+        "starting_deadline_seconds": null,
+        "suspend": false
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "method": "volumeSnapshot",
+        "schedule": "0 2 * * *",
+        "volumeSnapshotClassName": "csi-snapshots"
+      }
+    },
+    {
+      "backup_at": "2026-09-23T02:00:00Z",
+      "baselines": [
+        null
+      ],
+      "name": "suspended with policies",
+      "now": "2026-09-23T12:00:00Z",
+      "outputs": {
+        "backup_name": "demo-20260923-020000",
+        "backup_resource": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "kind": "QdrantBackup",
+          "metadata": {
+            "labels": {
+              "qdrant.io/schedule": "demo"
+            },
+            "name": "demo-20260923-020000",
+            "namespace": "tenant-a"
+          },
+          "spec": {
+            "clusterRef": {
+              "name": "db",
+              "namespace": "tenant-a"
+            },
+            "method": "s3",
+            "storage": {
+              "s3": {
+                "bucket": "b",
+                "credentialsSecretRef": {
+                  "accessKeyIdKey": "AWS_ACCESS_KEY_ID",
+                  "name": "c",
+                  "secretAccessKeyKey": "AWS_SECRET_ACCESS_KEY"
+                },
+                "forcePathStyle": false,
+                "prefix": "",
+                "region": "us-east-1"
+              }
+            }
+          }
+        },
+        "collections": [],
+        "concurrency_policy": "Replace",
+        "delete_backups_with_schedule": false,
+        "due": [
+          "2026-09-23T02:00:00Z"
+        ],
+        "label_selector": "qdrant.io/schedule=demo",
+        "method": "s3",
+        "next_slot": "2026-09-24T02:00:00Z",
+        "owner_reference": {
+          "apiVersion": "qdrant.io/v1alpha1",
+          "blockOwnerDeletion": true,
+          "controller": true,
+          "kind": "QdrantBackupSchedule",
+          "name": "demo",
+          "uid": "u1"
+        },
+        "previous_slot": "2026-09-23T02:00:00Z",
+        "retention_configured": true,
+        "starting_deadline_seconds": null,
+        "suspend": true
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "concurrencyPolicy": "Replace",
+        "retentionPolicy": {
+          "keepLast": 3,
+          "keepWeekly": 0
+        },
+        "schedule": "0 2 * * *",
+        "storage": {
+          "s3": {
+            "bucket": "b",
+            "credentialsSecretRef": {
+              "name": "c"
+            }
+          }
+        },
+        "suspend": true
+      }
+    }
+  ],
+  "statuses": [
+    {
+      "name": "empty is active",
+      "outputs": {
+        "api": {
+          "phase": "Active"
+        }
+      },
+      "status": {}
+    },
+    {
+      "name": "suspended",
+      "outputs": {
+        "api": {
+          "nextBackupTime": "2026-09-24T02:00:00Z",
+          "phase": "Suspended"
+        }
+      },
+      "status": {
+        "nextBackupTime": "2026-09-24T02:00:00Z",
+        "phase": "Suspended"
+      }
+    },
+    {
+      "name": "after a run",
+      "outputs": {
+        "api": {
+          "activeBackup": "demo-20260924-020000",
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-09-23T02:05:00Z",
+              "message": "ok",
+              "reason": "Scheduled",
+              "status": "True",
+              "type": "Ready"
+            }
+          ],
+          "lastBackupName": "demo-20260923-020000",
+          "lastBackupStatus": "Completed",
+          "lastBackupTime": "2026-09-23T02:05:00Z",
+          "lastScheduleTime": "2026-09-23T02:00:00Z",
+          "nextBackupTime": "2026-09-24T02:00:00Z",
+          "phase": "Active",
+          "recentBackups": [
+            {
+              "completionTime": "2026-09-23T02:05:00Z",
+              "creationTime": "2026-09-23T02:00:00Z",
+              "name": "demo-20260923-020000",
+              "size": "1.5GB",
+              "status": "Completed"
+            },
+            {
+              "creationTime": "2026-09-22T02:00:00Z",
+              "name": "demo-20260922-020000",
+              "status": "Failed"
+            }
+          ]
+        }
+      },
+      "recent": [
+        {
+          "completionTime": "2026-09-23T02:05:00Z",
+          "creationTime": "2026-09-23T02:00:00Z",
+          "name": "demo-20260923-020000",
+          "phase": "Completed",
+          "size": "1.5GB"
+        },
+        {
+          "creationTime": "2026-09-22T02:00:00Z",
+          "name": "demo-20260922-020000",
+          "phase": "Failed"
+        }
+      ],
+      "status": {
+        "activeBackup": "demo-20260924-020000",
+        "conditions": [
+          {
+            "lastTransitionTime": "2026-09-23T02:05:00Z",
+            "message": "ok",
+            "reason": "Scheduled",
+            "status": "True",
+            "type": "Ready"
+          }
+        ],
+        "lastBackupName": "demo-20260923-020000",
+        "lastBackupStatus": "Completed",
+        "lastBackupTime": "2026-09-23T02:05:00Z",
+        "lastScheduleTime": "2026-09-23T02:00:00Z",
+        "nextBackupTime": "2026-09-24T02:00:00Z",
+        "phase": "Active"
+      }
+    }
+  ]
+}
