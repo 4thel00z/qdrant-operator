@@ -99,3 +99,45 @@ func TestAPIKeyRefPrefersTheUserSecret(t *testing.T) {
 		t.Errorf("user secret should generate nothing: %v", keys)
 	}
 }
+
+func TestSetConditionKeepsTransitionTimeWhenStatusIsUnchanged(t *testing.T) {
+	first := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	later := first.Add(time.Hour)
+	conditions := []domain.Condition{
+		{Type: "Ready", Status: domain.ConditionTrue, LastTransitionTime: first},
+		{Type: "Degraded", Status: domain.ConditionFalse, LastTransitionTime: first},
+	}
+	kept := domain.SetCondition(conditions, domain.Condition{Type: "Ready", Status: domain.ConditionTrue, LastTransitionTime: later, Reason: "Again"})
+	ready := domain.FindCondition(kept, "Ready")
+	if ready == nil || !ready.LastTransitionTime.Equal(first) || ready.Reason != "Again" {
+		t.Errorf("unchanged status: %+v", ready)
+	}
+	flipped := domain.SetCondition(conditions, domain.Condition{Type: "Ready", Status: domain.ConditionFalse, LastTransitionTime: later})
+	if ready := domain.FindCondition(flipped, "Ready"); ready == nil || !ready.LastTransitionTime.Equal(later) {
+		t.Errorf("changed status: %+v", ready)
+	}
+	if len(flipped) != 2 {
+		t.Errorf("conditions: %+v", flipped)
+	}
+}
+
+func TestValuesDigestIgnoresKeyOrder(t *testing.T) {
+	first, err := domain.ValuesDigest("1.15.0", domain.JSON{"a": 1, "b": domain.JSON{"c": true, "d": "x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := domain.ValuesDigest("1.15.0", domain.JSON{"b": domain.JSON{"d": "x", "c": true}, "a": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Error("digests differ for equal values")
+	}
+	other, err := domain.ValuesDigest("1.16.0", domain.JSON{"a": 1, "b": domain.JSON{"c": true, "d": "x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other == first {
+		t.Error("chart version is not part of the digest")
+	}
+}
