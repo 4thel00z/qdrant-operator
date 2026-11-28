@@ -5,6 +5,7 @@ go 1.26.4
 tool sigs.k8s.io/controller-tools/cmd/controller-gen
 
 require (
+	github.com/adhocore/gronx v1.20.11
 	github.com/aws/aws-sdk-go-v2 v1.48.1
 	github.com/aws/aws-sdk-go-v2/credentials v1.21.4
 	github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager v0.5.13
