@@ -34,7 +34,7 @@ func (r *ScheduleReconciler) SetupWithManager(manager ctrl.Manager, concurrency 
 
 func (r *ScheduleReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
 	object := &qdrantv1alpha1.QdrantBackupSchedule{}
-	if err := r.Client.Get(ctx, request.NamespacedName, object); err != nil {
+	if err := r.Live.Get(ctx, request.NamespacedName, object); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !object.DeletionTimestamp.IsZero() {

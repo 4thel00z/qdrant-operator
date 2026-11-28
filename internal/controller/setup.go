@@ -15,6 +15,15 @@ func Setup(manager ctrl.Manager, deps Dependencies, concurrency Concurrency) err
 		{"QdrantCluster", func() error {
 			return (&ClusterReconciler{Dependencies: deps}).SetupWithManager(manager, concurrency.Levels)
 		}},
+		{"QdrantBackup", func() error {
+			return (&BackupReconciler{Dependencies: deps}).SetupWithManager(manager, concurrency.OneShots)
+		}},
+		{"QdrantRestore", func() error {
+			return (&RestoreReconciler{Dependencies: deps}).SetupWithManager(manager, concurrency.OneShots)
+		}},
+		{"QdrantBackupSchedule", func() error {
+			return (&ScheduleReconciler{Dependencies: deps}).SetupWithManager(manager, concurrency.Levels)
+		}},
 		{"QdrantCollection", func() error {
 			return (&CollectionReconciler{Dependencies: deps}).SetupWithManager(manager, concurrency.Levels)
 		}},
