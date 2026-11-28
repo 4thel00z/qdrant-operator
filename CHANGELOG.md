@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.1](https://github.com/4thel00z/qdrant-operator/compare/v0.7.0...v0.7.1) (2026-11-28)
+
+
+### Build
+
+* **docker:** cross-compile instead of emulating the target platform ([e5eb21e](https://github.com/4thel00z/qdrant-operator/commit/e5eb21eb9d28167fd25408d932d5028b28d2ca6b))
+
+
+### CI
+
+* **release:** download only the binaries and the chart for the release assets ([7fa75be](https://github.com/4thel00z/qdrant-operator/commit/7fa75be5036d1813108f69821b300186b8764ace))
+
 ## [0.7.0](https://github.com/4thel00z/qdrant-operator/compare/v0.6.2...v0.7.0) (2026-11-28)
 
 
