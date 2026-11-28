@@ -1,36 +1,45 @@
-.PHONY: help dev lint format test test-integration e2e-image e2e-deploy test-e2e dist logo build push install uninstall crds-sync manifests clean parity parity-report
+.PHONY: help dev build lint format test envtest test-integration e2e-image e2e-deploy test-e2e logo image image-multiarch push push-multiarch helm-lint helm-template helm-package install uninstall manifests crds-sync crds-install crds-uninstall clean
 
-# Variables
 IMAGE_REPO ?= ghcr.io/4thel00z/qdrant-operator
 IMAGE_TAG ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+VERSION ?= $(IMAGE_TAG)
 NAMESPACE ?= qdrant-system
 HELM_RELEASE ?= qdrant-operator
 KIND_CLUSTER ?= kind
 E2E_IMAGE_REPO ?= qdrant-operator
 E2E_IMAGE_TAG ?= e2e
 
+ENVTEST_K8S_VERSION ?= 1.37.0
+SETUP_ENVTEST ?= go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.3
+
+export CGO_ENABLED := 0
+
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-# Development
-dev: ## Run operator locally against the current kubeconfig
-	LOG_FORMAT=text uv run qdrant-operator
+dev: ## Run the operator locally against the current kubeconfig
+	go run ./cmd/operator --logging-format text
 
-lint: ## Run linters
-	uv run ruff check src tests
-	uv run ruff format --check src tests
-	uv run pyright src tests
+build: ## Build the operator binary into bin/
+	go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o bin/qdrant-operator ./cmd/operator
+
+lint: ## Check formatting, vet and lint the chart
+	@test -z "$$(gofmt -l .)" || { gofmt -l .; exit 1; }
+	go vet ./...
+	go vet -tags integration,e2e ./...
 	helm lint charts/qdrant-operator
 
-format: ## Format code
-	uv run ruff format src tests
-	uv run ruff check --fix src tests
+format: ## Format Go code
+	gofmt -w .
 
-test: ## Run unit tests
-	uv run pytest -v
+envtest: ## Download the pinned envtest control plane and print its path
+	@$(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path
 
-test-integration: ## Run integration tests against the current kubeconfig
-	QDRANT_OPERATOR_INTEGRATION=1 uv run pytest -v -m integration
+test: ## Run unit and envtest tests
+	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test ./... -count=1
+
+test-integration: ## Run the Helm adapter integration test against the current kubeconfig
+	go test -tags integration ./internal/adapters/... -count=1 -v
 
 e2e-image: ## Build the operator image for the kind end-to-end tests
 	docker build -t $(E2E_IMAGE_REPO):$(E2E_IMAGE_TAG) .
@@ -49,53 +58,43 @@ e2e-deploy: ## Load the e2e image into kind and install the chart from this chec
 	kubectl rollout status deployment -n $(NAMESPACE) -l app.kubernetes.io/instance=$(HELM_RELEASE) --timeout 5m
 
 test-e2e: ## Run the end-to-end tests against the operator deployed by e2e-deploy
-	QDRANT_OPERATOR_E2E=1 uv run pytest -v -x -m e2e
-
-test-cov: ## Run tests with coverage
-	uv run pytest --cov=src --cov-report=term-missing
-
-# Packaging
-dist: ## Build wheel and sdist into dist/
-	uv build
+	go test -tags e2e ./test/e2e/... -count=1 -v -timeout 60m
 
 logo: ## Render PNG logos from assets/logo.svg
 	rsvg-convert -w 512 -h 512 assets/logo.svg -o assets/logo.png
 	rsvg-convert -w 128 -h 128 assets/logo.svg -o assets/logo-128.png
 
-# Docker
-build: ## Build Docker image
-	docker build -t $(IMAGE_REPO):$(IMAGE_TAG) .
+image: ## Build the container image
+	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO):$(IMAGE_TAG) .
 
-build-multiarch: ## Build multi-arch Docker image
-	docker buildx build --platform linux/amd64,linux/arm64 -t $(IMAGE_REPO):$(IMAGE_TAG) .
+image-multiarch: ## Build the multi-arch container image
+	docker buildx build --platform linux/amd64,linux/arm64 --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO):$(IMAGE_TAG) .
 
-push: ## Push Docker image
+push: ## Push the container image
 	docker push $(IMAGE_REPO):$(IMAGE_TAG)
 
-push-multiarch: ## Build and push multi-arch Docker image
-	docker buildx build --platform linux/amd64,linux/arm64 -t $(IMAGE_REPO):$(IMAGE_TAG) --push .
+push-multiarch: ## Build and push the multi-arch container image
+	docker buildx build --platform linux/amd64,linux/arm64 --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO):$(IMAGE_TAG) --push .
 
-# Helm
-helm-lint: ## Lint Helm chart
+helm-lint: ## Lint the Helm chart
 	helm lint charts/qdrant-operator
 
-helm-template: ## Template Helm chart
+helm-template: ## Render the Helm chart
 	helm template $(HELM_RELEASE) charts/qdrant-operator
 
-helm-package: ## Package Helm chart
+helm-package: ## Package the Helm chart
 	helm package charts/qdrant-operator
 
-install: ## Install operator via Helm
+install: ## Install the operator via Helm
 	helm upgrade --install $(HELM_RELEASE) charts/qdrant-operator \
 		--namespace $(NAMESPACE) \
 		--create-namespace \
 		--set image.repository=$(IMAGE_REPO) \
 		--set image.tag=$(IMAGE_TAG)
 
-uninstall: ## Uninstall operator
+uninstall: ## Uninstall the operator
 	helm uninstall $(HELM_RELEASE) --namespace $(NAMESPACE)
 
-# CRDs
 manifests: ## Generate deepcopy methods and CRDs from api/v1alpha1 into manifests/crds and the chart
 	hack/gen-crds.sh manifests/crds
 	$(MAKE) crds-sync
@@ -109,17 +108,5 @@ crds-install: ## Install CRDs only
 crds-uninstall: ## Uninstall CRDs (WARNING: deletes all CR instances)
 	kubectl delete -f manifests/crds/
 
-# Cleanup
-clean: ## Clean build artifacts
-	rm -rf dist/ build/ *.egg-info .pytest_cache .mypy_cache .ruff_cache
-	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-
-# Parity between the Python and Go operators
-PARITY_OUT ?= parity-out
-PARITY_IMPLS ?= python go
-
-parity: ## Run the black-box e2e suite against the Python and Go operator images on the current kind cluster
-	PARITY_OUT=$(PARITY_OUT) KIND_CLUSTER=$(KIND_CLUSTER) NAMESPACE=$(NAMESPACE) HELM_RELEASE=$(HELM_RELEASE) hack/parity.sh $(PARITY_IMPLS)
-
-parity-report: ## Print the markdown parity table from the last parity run
-	go run ./hack/parityreport $(foreach impl,$(PARITY_IMPLS),$(impl)=$(PARITY_OUT)/$(impl).json)
+clean: ## Remove build artifacts
+	rm -rf bin/ dist/ docs/book/

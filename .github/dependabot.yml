@@ -1,12 +1,14 @@
 version: 2
 updates:
-  - package-ecosystem: uv
+  - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
     groups:
-      python:
-        patterns: ["*"]
+      kubernetes:
+        patterns: ["k8s.io/*", "sigs.k8s.io/*"]
+      helm:
+        patterns: ["helm.sh/*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:

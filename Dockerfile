@@ -1,38 +1,18 @@
-FROM python:3.14-slim
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Helm 3 (multi-arch support)
-ARG HELM_VERSION=v3.16.4
+FROM golang:1.26 AS build
+ARG TARGETOS=linux
 ARG TARGETARCH
-RUN ARCH=${TARGETARCH:-amd64} && \
-    curl -fsSL https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz | tar xz && \
-    mv linux-${ARCH}/helm /usr/local/bin/helm && \
-    rm -rf linux-${ARCH} && \
-    helm version
+ARG VERSION=dev
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY api/ api/
+COPY cmd/ cmd/
+COPY internal/ internal/
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
+    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/qdrant-operator ./cmd/operator
 
-# Install uv for fast dependency management
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-
-# Set working directory
-WORKDIR /app
-
-# Copy project files
-COPY pyproject.toml uv.lock README.md LICENSE ./
-COPY src/ ./src/
-
-# Install dependencies
-RUN uv sync --frozen --no-dev
-
-# Create non-root user
-RUN groupadd -g 1000 qdrant && useradd -m -u 1000 -g qdrant qdrant
-USER qdrant
-
-ENV PATH="/app/.venv/bin:${PATH}"
-
-EXPOSE 8080
-ENTRYPOINT ["/app/.venv/bin/qdrant-operator"]
+FROM gcr.io/distroless/static:nonroot
+COPY --from=build /out/qdrant-operator /qdrant-operator
+EXPOSE 8080 9090
+USER 65532:65532
+ENTRYPOINT ["/qdrant-operator"]
