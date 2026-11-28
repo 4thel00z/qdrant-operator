@@ -12,6 +12,7 @@ require (
 	github.com/charmbracelet/fang v1.0.0
 	github.com/go-logr/logr v1.4.3
 	github.com/go-viper/mapstructure/v2 v2.5.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/johannesboyne/gofakes3 v1.3.0
 	github.com/minio/minio-go/v7 v7.0.90
 	github.com/spf13/cobra v1.10.2
