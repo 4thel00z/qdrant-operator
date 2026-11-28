@@ -61,7 +61,9 @@ def test_default_is_one_cluster_role_without_wildcards() -> None:
     assert "kopf.dev/kopfpeerings" not in granted
     assert "/namespaces" not in granted
     assert "networking.k8s.io/ingresses" not in granted
-    assert granted["/secrets"] == {"get", "list", "create", "update", "patch", "delete"}
+    assert granted["/secrets"] == {"get", "list", "watch", "create", "update", "patch", "delete"}
+    assert {"list", "watch"} <= granted["/serviceaccounts"]
+    assert {"list", "watch"} <= granted["apps/statefulsets"]
     assert granted["qdrant.io/qdrantbackups"] == {
         "get",
         "list",
