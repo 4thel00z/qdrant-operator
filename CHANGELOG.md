@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/4thel00z/qdrant-operator/compare/v0.7.1...v0.8.0) (2026-11-28)
+
+
+### Features
+
+* **cluster:** check Pending and Upgrading clusters every 5s ([05393b8](https://github.com/4thel00z/qdrant-operator/commit/05393b8efa3f7038c347a03843dd53c25dcac154))
+
 ## [0.7.1](https://github.com/4thel00z/qdrant-operator/compare/v0.7.0...v0.7.1) (2026-11-28)
 
 
