@@ -165,3 +165,6 @@ cython_debug/
 
 # mdBook output
 docs/book/
+
+# parity harness output
+parity-out/

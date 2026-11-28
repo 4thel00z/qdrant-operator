@@ -1,4 +1,4 @@
-.PHONY: help dev lint format test test-integration e2e-image e2e-deploy test-e2e dist logo build push install uninstall crds-sync manifests clean
+.PHONY: help dev lint format test test-integration e2e-image e2e-deploy test-e2e dist logo build push install uninstall crds-sync manifests clean parity parity-report
 
 # Variables
 IMAGE_REPO ?= ghcr.io/4thel00z/qdrant-operator
@@ -113,3 +113,13 @@ crds-uninstall: ## Uninstall CRDs (WARNING: deletes all CR instances)
 clean: ## Clean build artifacts
 	rm -rf dist/ build/ *.egg-info .pytest_cache .mypy_cache .ruff_cache
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+
+# Parity between the Python and Go operators
+PARITY_OUT ?= parity-out
+PARITY_IMPLS ?= python go
+
+parity: ## Run the black-box e2e suite against the Python and Go operator images on the current kind cluster
+	PARITY_OUT=$(PARITY_OUT) KIND_CLUSTER=$(KIND_CLUSTER) NAMESPACE=$(NAMESPACE) HELM_RELEASE=$(HELM_RELEASE) hack/parity.sh $(PARITY_IMPLS)
+
+parity-report: ## Print the markdown parity table from the last parity run
+	go run ./hack/parityreport $(foreach impl,$(PARITY_IMPLS),$(impl)=$(PARITY_OUT)/$(impl).json)
