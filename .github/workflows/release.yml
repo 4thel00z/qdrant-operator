@@ -147,8 +147,13 @@ jobs:
           ref: ${{ needs.release-please.outputs.tag }}
       - uses: actions/download-artifact@v8
         with:
+          pattern: binary-*
           path: artifacts
           merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: chart
+          path: artifacts
       - run: |
           (cd artifacts && sha256sum *.tar.gz *.tgz > checksums.txt)
           gh release upload "${{ needs.release-please.outputs.tag }}" artifacts/* manifests/crds/*.yaml --clobber
