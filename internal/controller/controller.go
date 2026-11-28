@@ -21,28 +21,30 @@ const (
 
 // Timing holds the requeue intervals, the kopf timer intervals and retry delays of the Python operator.
 type Timing struct {
-	ClusterObserve      time.Duration
-	ScheduleTick        time.Duration
-	CollectionReconcile time.Duration
-	AccessKeyRenew      time.Duration
-	BackupExpiry        time.Duration
-	PeerRecovery        time.Duration
-	Retry               time.Duration
-	ScaleDownPoll       time.Duration
-	HelmRetry           time.Duration
+	ClusterObserve        time.Duration
+	ClusterPendingObserve time.Duration
+	ScheduleTick          time.Duration
+	CollectionReconcile   time.Duration
+	AccessKeyRenew        time.Duration
+	BackupExpiry          time.Duration
+	PeerRecovery          time.Duration
+	Retry                 time.Duration
+	ScaleDownPoll         time.Duration
+	HelmRetry             time.Duration
 }
 
 func DefaultTiming() Timing {
 	return Timing{
-		ClusterObserve:      30 * time.Second,
-		ScheduleTick:        time.Minute,
-		CollectionReconcile: time.Minute,
-		AccessKeyRenew:      time.Minute,
-		BackupExpiry:        5 * time.Minute,
-		PeerRecovery:        time.Minute,
-		Retry:               30 * time.Second,
-		ScaleDownPoll:       15 * time.Second,
-		HelmRetry:           time.Minute,
+		ClusterObserve:        30 * time.Second,
+		ClusterPendingObserve: 5 * time.Second,
+		ScheduleTick:          time.Minute,
+		CollectionReconcile:   time.Minute,
+		AccessKeyRenew:        time.Minute,
+		BackupExpiry:          5 * time.Minute,
+		PeerRecovery:          time.Minute,
+		Retry:                 30 * time.Second,
+		ScaleDownPoll:         15 * time.Second,
+		HelmRetry:             time.Minute,
 	}
 }
 

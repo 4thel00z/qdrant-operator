@@ -10,6 +10,11 @@ const (
 	PhaseTerminating ClusterPhase = "Terminating"
 )
 
+// Settled reports whether a cluster in this phase has finished starting or rolling out.
+func (p ClusterPhase) Settled() bool {
+	return p != PhasePending && p != PhaseUpgrading
+}
+
 // ClusterStatus is what the operator reports for a QdrantCluster. Empty strings and zero numbers mean absent.
 type ClusterStatus struct {
 	Phase              ClusterPhase
