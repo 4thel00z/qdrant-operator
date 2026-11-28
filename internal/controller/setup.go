@@ -12,8 +12,17 @@ func Setup(manager ctrl.Manager, deps Dependencies, concurrency Concurrency) err
 		kind  string
 		setup func() error
 	}{
+		{"QdrantCluster", func() error {
+			return (&ClusterReconciler{Dependencies: deps}).SetupWithManager(manager, concurrency.Levels)
+		}},
 		{"QdrantCollection", func() error {
 			return (&CollectionReconciler{Dependencies: deps}).SetupWithManager(manager, concurrency.Levels)
+		}},
+		{"QdrantAccessKey", func() error {
+			return (&AccessKeyReconciler{Dependencies: deps}).SetupWithManager(manager, concurrency.Levels)
+		}},
+		{"QdrantMigration", func() error {
+			return (&MigrationReconciler{Dependencies: deps}).SetupWithManager(manager, concurrency.OneShots)
 		}},
 	}
 	for _, registration := range registrations {
