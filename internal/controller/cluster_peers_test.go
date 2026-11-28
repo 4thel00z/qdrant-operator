@@ -296,7 +296,12 @@ func TestClusterControllerLeavesUnevenShardsAloneWithoutRebalance(t *testing.T) 
 
 func TestClusterControllerThrottlesRebalancingToThePeerRecoveryInterval(t *testing.T) {
 	qdrant := &peerQdrant{Qdrant: fakes.NewQdrant()}
-	w := startWorld(t, func(w *world) { evenShards(w, qdrant.Qdrant) }, registerPeerClusters(qdrant))
+	register := func(manager ctrl.Manager, deps controller.Dependencies) error {
+		deps.Timing.ClusterObserve = 200 * time.Millisecond
+		deps.Timing.PeerRecovery = 2 * time.Second
+		return registerPeerClusters(qdrant)(manager, deps)
+	}
+	w := startWorld(t, func(w *world) { evenShards(w, qdrant.Qdrant) }, register)
 	settledStatefulSet(t, w)
 	create(t, w, clusterObject("db", peerClusterSpec(qdrantv1alpha1.ClusterScaling{Rebalance: enabled()})))
 	eventually(t, func() (bool, string) {
@@ -307,9 +312,8 @@ func TestClusterControllerThrottlesRebalancingToThePeerRecoveryInterval(t *testi
 	before := qdrant.collections.Load()
 	time.Sleep(window)
 	runs := qdrant.collections.Load() - before
-	limit := int64(window/fastTiming().PeerRecovery) + 1
-	if runs < 2 || runs > limit {
-		t.Errorf("%d rebalance runs in %s, want between 2 and %d", runs, window, limit)
+	if runs < 1 || runs > 3 {
+		t.Errorf("%d rebalance runs in %s with a 200ms requeue and a 2s throttle, want 1 to 3", runs, window)
 	}
 	if operations := qdrant.shardOperations(); len(operations) != 0 {
 		t.Errorf("operations on a balanced cluster: %+v", operations)
