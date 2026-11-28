@@ -31,6 +31,14 @@ def of_kind(manifests: list[Manifest], kind: str) -> list[Manifest]:
     return [m for m in manifests if m["kind"] == kind]
 
 
+LEADER_ELECTION = "qdrant-operator-leader-election"
+
+
+def watch_rbac(manifests: list[Manifest], kind: str) -> list[Manifest]:
+    """Roles or RoleBindings of watched namespaces, without the leader election pair."""
+    return [m for m in of_kind(manifests, kind) if m["metadata"]["name"] != LEADER_ELECTION]
+
+
 def grants(rules: list[Rule]) -> dict[str, set[str]]:
     granted: dict[str, set[str]] = {}
     for rule in rules:
@@ -45,8 +53,8 @@ def test_default_is_one_cluster_role_without_wildcards() -> None:
     (role,) = of_kind(manifests, "ClusterRole")
     granted = grants(role["rules"])
 
-    assert not of_kind(manifests, "Role")
-    assert not of_kind(manifests, "RoleBinding")
+    assert not watch_rbac(manifests, "Role")
+    assert not watch_rbac(manifests, "RoleBinding")
     assert all("*" not in verbs for verbs in granted.values())
     assert granted["apiextensions.k8s.io/customresourcedefinitions"] == {"list", "watch"}
     assert "kopf.dev/clusterkopfpeerings" in granted
@@ -79,8 +87,8 @@ def test_watch_namespaces_moves_rules_into_roles() -> None:
     manifests = render("watchNamespaces={team-a,team-b}")
     (cluster_role,) = of_kind(manifests, "ClusterRole")
     default_rules = grants(cast(list[Rule], of_kind(render(), "ClusterRole")[0]["rules"]))
-    roles = of_kind(manifests, "Role")
-    bindings = of_kind(manifests, "RoleBinding")
+    roles = watch_rbac(manifests, "Role")
+    bindings = watch_rbac(manifests, "RoleBinding")
 
     cluster_scoped = {
         "apiextensions.k8s.io/customresourcedefinitions": {"list", "watch"},
@@ -164,5 +172,26 @@ def test_peering_follows_watch_namespaces() -> None:
     ]
     assert kopf_crds(manifests) == ["kopfpeerings.kopf.dev"]
     assert not of_kind(manifests, "ClusterKopfPeering")
-    for role in of_kind(manifests, "Role"):
+    for role in watch_rbac(manifests, "Role"):
         assert "kopf.dev/kopfpeerings" in grants(role["rules"])
+
+
+def test_leader_election_role_lives_in_the_release_namespace() -> None:
+    manifests = render("watchNamespaces={team-a}")
+    (role,) = [r for r in of_kind(manifests, "Role") if r["metadata"]["name"] == LEADER_ELECTION]
+
+    assert role["metadata"]["namespace"] == "qdrant-system"
+    assert grants(role["rules"])["coordination.k8s.io/leases"] == {"get", "create", "update"}
+
+
+def test_go_operator_settings_follow_the_values() -> None:
+    variables = env(
+        render(
+            "watchNamespaces={a,b}", "ha.enabled=true", "replicaCount=2", "metrics.enabled=false"
+        )
+    )
+
+    assert variables["QDRANT_OPERATOR_MANAGER_NAMESPACES"] == "a,b"
+    assert variables["QDRANT_OPERATOR_MANAGER_LEADER_ELECTION"] == "true"
+    assert variables["QDRANT_OPERATOR_METRICS_ADDRESS"] == "0"
+    assert variables["QDRANT_OPERATOR_LOGGING_LEVEL"] == "info"

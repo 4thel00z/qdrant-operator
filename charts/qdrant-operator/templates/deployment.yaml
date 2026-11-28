@@ -60,6 +60,24 @@ spec:
             {{- end }}
             - name: METRICS_PORT
               value: {{ ternary .Values.metrics.port 0 .Values.metrics.enabled | quote }}
+            - name: QDRANT_OPERATOR_LOGGING_LEVEL
+              value: {{ .Values.operator.logLevel | lower | quote }}
+            - name: QDRANT_OPERATOR_LOGGING_FORMAT
+              value: {{ .Values.operator.logFormat | quote }}
+            - name: QDRANT_OPERATOR_MANAGER_NAMESPACES
+              value: {{ join "," .Values.watchNamespaces | quote }}
+            - name: QDRANT_OPERATOR_MANAGER_LEADER_ELECTION
+              value: {{ .Values.ha.enabled | quote }}
+            - name: QDRANT_OPERATOR_MANAGER_LEADER_ELECTION_ID
+              value: {{ include "qdrant-operator.peeringName" . | quote }}
+            - name: QDRANT_OPERATOR_METRICS_ADDRESS
+              value: {{ ternary (printf ":%v" .Values.metrics.port) "0" .Values.metrics.enabled | quote }}
+            {{- with .Values.operator.chartRepo }}
+            - name: QDRANT_OPERATOR_HELM_REPO
+              value: {{ . | quote }}
+            {{- end }}
+            - name: QDRANT_OPERATOR_HELM_CACHE_DIR
+              value: /tmp/helm/charts
             - name: HELM_CACHE_HOME
               value: /tmp/helm/cache
             - name: HELM_CONFIG_HOME

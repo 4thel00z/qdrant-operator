@@ -76,7 +76,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{ include "qdrant-operator.peeringRules" . }}
 - apiGroups: [""]
   resources: ["events"]
-  verbs: ["create"]
+  verbs: ["create", "patch"]
 - apiGroups: [""]
   resources: ["secrets"]
   verbs: ["get", "list", "create", "update", "patch", "delete"]
