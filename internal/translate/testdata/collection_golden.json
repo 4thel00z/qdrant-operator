@@ -1,0 +1,3797 @@
+{
+  "default_cases": [
+    {
+      "default": 0.2,
+      "live": 0.2,
+      "name": "equal-float",
+      "want": true
+    },
+    {
+      "default": 5.0,
+      "live": 5,
+      "name": "int-vs-float",
+      "want": true
+    },
+    {
+      "default": 5,
+      "live": 6,
+      "name": "different",
+      "want": false
+    },
+    {
+      "default": null,
+      "live": null,
+      "name": "null-default-null-live",
+      "want": true
+    },
+    {
+      "default": null,
+      "live": 4,
+      "name": "null-default-set-live",
+      "want": false
+    },
+    {
+      "default": false,
+      "live": null,
+      "name": "false-default-null-live",
+      "want": true
+    },
+    {
+      "default": false,
+      "live": false,
+      "name": "false-default-false-live",
+      "want": true
+    },
+    {
+      "default": false,
+      "live": true,
+      "name": "false-default-true-live",
+      "want": false
+    },
+    {
+      "default": false,
+      "live": 0,
+      "name": "false-default-zero-live",
+      "want": true
+    },
+    {
+      "default": true,
+      "live": null,
+      "name": "true-default-null-live",
+      "want": false
+    },
+    {
+      "default": true,
+      "live": true,
+      "name": "true-default-true-live",
+      "want": true
+    },
+    {
+      "default": "auto",
+      "live": "auto",
+      "name": "string-default",
+      "want": true
+    }
+  ],
+  "optimizer_cases": [
+    {
+      "config": {
+        "optimizer_config": {
+          "indexing_threshold": 1,
+          "max_optimization_threads": null
+        }
+      },
+      "name": "null-threads-become-auto",
+      "want": {
+        "indexing_threshold": 1,
+        "max_optimization_threads": "auto"
+      }
+    },
+    {
+      "config": {
+        "optimizer_config": {
+          "indexing_threshold": 1
+        }
+      },
+      "name": "absent-threads-become-auto",
+      "want": {
+        "indexing_threshold": 1,
+        "max_optimization_threads": "auto"
+      }
+    },
+    {
+      "config": {
+        "optimizer_config": {
+          "max_optimization_threads": 4
+        }
+      },
+      "name": "set-threads-kept",
+      "want": {
+        "max_optimization_threads": 4
+      }
+    },
+    {
+      "config": {
+        "optimizer_config": {
+          "max_optimization_threads": 0
+        }
+      },
+      "name": "zero-threads-kept",
+      "want": {
+        "max_optimization_threads": 0
+      }
+    },
+    {
+      "config": {
+        "optimizer_config": {}
+      },
+      "name": "empty-optimizers-untouched",
+      "want": {}
+    },
+    {
+      "config": {
+        "optimizer_config": null
+      },
+      "name": "null-optimizers",
+      "want": null
+    },
+    {
+      "config": {},
+      "name": "no-optimizers",
+      "want": null
+    }
+  ],
+  "reset_groups": {
+    "hnsw": {
+      "defaults": {
+        "ef_construct": [
+          100,
+          100
+        ],
+        "full_scan_threshold": [
+          10000,
+          10000
+        ],
+        "m": [
+          16,
+          16
+        ],
+        "max_indexing_threads": [
+          0,
+          0
+        ],
+        "on_disk": [
+          false,
+          false
+        ]
+      },
+      "live_key": "hnsw_config",
+      "patch_key": "hnsw_config"
+    },
+    "optimizers": {
+      "defaults": {
+        "default_segment_number": [
+          0,
+          0
+        ],
+        "deleted_threshold": [
+          0.2,
+          0.2
+        ],
+        "flush_interval_sec": [
+          5,
+          5
+        ],
+        "indexing_threshold": [
+          10000,
+          10000
+        ],
+        "max_optimization_threads": [
+          "auto",
+          null
+        ],
+        "vacuum_min_vector_number": [
+          1000,
+          1000
+        ]
+      },
+      "live_key": "optimizer_config",
+      "patch_key": "optimizers_config"
+    },
+    "params": {
+      "defaults": {
+        "on_disk_payload": [
+          true,
+          true
+        ],
+        "replication_factor": [
+          1,
+          1
+        ],
+        "write_consistency_factor": [
+          1,
+          1
+        ]
+      },
+      "live_key": "params",
+      "patch_key": "params"
+    },
+    "quantization": {
+      "defaults": {
+        "quantization": [
+          "Disabled",
+          null
+        ]
+      },
+      "live_key": "quantization_config",
+      "patch_key": "quantization_config"
+    },
+    "strict_mode": {
+      "defaults": {
+        "enabled": [
+          false,
+          false
+        ]
+      },
+      "live_key": "strict_mode_config",
+      "patch_key": "strict_mode_config"
+    }
+  },
+  "spec_cases": [
+    {
+      "config": {
+        "params": {
+          "vectors": {
+            "distance": "Cosine",
+            "size": 768
+          }
+        }
+      },
+      "name": "single-unnamed-vector",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "vectors": {
+            "distance": "Cosine",
+            "on_disk": true,
+            "size": 768
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Cosine\",\"on_disk\":true,\"size\":768}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Cosine",
+              "size": 768
+            }
+          }
+        },
+        "immutable_ok": true,
+        "index_schemas": {},
+        "mutable_config": {
+          "params": {
+            "vectors": {
+              "on_disk": true
+            }
+          }
+        },
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {
+          "vectors": {
+            "": {
+              "on_disk": true
+            }
+          }
+        },
+        "update_body_exact": "{\"vectors\":{\"\":{\"on_disk\":true}}}",
+        "update_body_with_resets": {
+          "vectors": {
+            "": {
+              "on_disk": true
+            }
+          }
+        },
+        "update_body_with_resets_exact": "{\"vectors\":{\"\":{\"on_disk\":true}}}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "vectors": [
+          {
+            "distance": "Cosine",
+            "onDisk": true,
+            "size": 768
+          }
+        ]
+      }
+    },
+    {
+      "config": {
+        "params": {
+          "vectors": {
+            "on_disk": true
+          }
+        }
+      },
+      "name": "single-unnamed-vector-satisfied",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "vectors": {
+            "distance": "Cosine",
+            "on_disk": true,
+            "size": 768
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Cosine\",\"on_disk\":true,\"size\":768}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Cosine",
+              "size": 768
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {
+          "params": {
+            "vectors": {
+              "on_disk": true
+            }
+          }
+        },
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {},
+        "update_body_exact": "{}",
+        "update_body_with_resets": {},
+        "update_body_with_resets_exact": "{}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "vectors": [
+          {
+            "distance": "Cosine",
+            "onDisk": true,
+            "size": 768
+          }
+        ]
+      }
+    },
+    {
+      "config": {
+        "optimizer_config": {
+          "indexing_threshold": 10000
+        },
+        "params": {
+          "on_disk_payload": true,
+          "replication_factor": 1,
+          "vectors": {
+            "text": {
+              "distance": "Dot",
+              "size": 384
+            }
+          }
+        }
+      },
+      "name": "named-vectors-and-tuning",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "Docs_v2",
+        "create_body": {
+          "on_disk_payload": false,
+          "optimizers_config": {
+            "indexing_threshold": 10000
+          },
+          "quantization_config": {
+            "scalar": {
+              "type": "int8"
+            }
+          },
+          "replication_factor": 2,
+          "shard_number": 6,
+          "sparse_vectors": {
+            "bm25": {
+              "index": {
+                "on_disk": true
+              },
+              "modifier": "idf"
+            }
+          },
+          "strict_mode_config": {
+            "enabled": true,
+            "max_query_limit": 100
+          },
+          "vectors": {
+            "image": {
+              "datatype": "float16",
+              "distance": "Euclid",
+              "size": 512
+            },
+            "text": {
+              "distance": "Dot",
+              "hnsw_config": {
+                "m": 32
+              },
+              "size": 384
+            }
+          },
+          "wal_config": {
+            "wal_capacity_mb": 64
+          }
+        },
+        "create_body_exact": "{\"on_disk_payload\":false,\"optimizers_config\":{\"indexing_threshold\":10000},\"quantization_config\":{\"scalar\":{\"type\":\"int8\"}},\"replication_factor\":2,\"shard_number\":6,\"sparse_vectors\":{\"bm25\":{\"index\":{\"on_disk\":true},\"modifier\":\"idf\"}},\"strict_mode_config\":{\"enabled\":true,\"max_query_limit\":100},\"vectors\":{\"image\":{\"datatype\":\"float16\",\"distance\":\"Euclid\",\"size\":512},\"text\":{\"distance\":\"Dot\",\"hnsw_config\":{\"m\":32},\"size\":384}},\"wal_config\":{\"wal_capacity_mb\":64}}",
+        "declared_fields": {
+          "optimizers": [
+            "indexing_threshold"
+          ],
+          "params": [
+            "on_disk_payload",
+            "replication_factor"
+          ],
+          "quantization": [
+            "quantization"
+          ],
+          "strict_mode": [
+            "enabled",
+            "max_query_limit"
+          ]
+        },
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "shard_number": 6,
+            "vectors": {
+              "image": {
+                "datatype": "float16",
+                "distance": "Euclid",
+                "size": 512
+              },
+              "text": {
+                "distance": "Dot",
+                "size": 384
+              }
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {
+          "optimizer_config": {
+            "indexing_threshold": 10000
+          },
+          "params": {
+            "on_disk_payload": false,
+            "replication_factor": 2,
+            "sparse_vectors": {
+              "bm25": {
+                "index": {
+                  "on_disk": true
+                },
+                "modifier": "idf"
+              }
+            },
+            "vectors": {
+              "text": {
+                "hnsw_config": {
+                  "m": 32
+                }
+              }
+            }
+          },
+          "quantization_config": {
+            "scalar": {
+              "type": "int8"
+            }
+          },
+          "strict_mode_config": {
+            "enabled": true,
+            "max_query_limit": 100
+          }
+        },
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [],
+        "single_unnamed": false,
+        "update_body": {
+          "params": {
+            "on_disk_payload": false,
+            "replication_factor": 2
+          },
+          "quantization_config": {
+            "scalar": {
+              "type": "int8"
+            }
+          },
+          "sparse_vectors": {
+            "bm25": {
+              "index": {
+                "on_disk": true
+              },
+              "modifier": "idf"
+            }
+          },
+          "strict_mode_config": {
+            "enabled": true,
+            "max_query_limit": 100
+          },
+          "vectors": {
+            "text": {
+              "hnsw_config": {
+                "m": 32
+              }
+            }
+          }
+        },
+        "update_body_exact": "{\"params\":{\"on_disk_payload\":false,\"replication_factor\":2},\"quantization_config\":{\"scalar\":{\"type\":\"int8\"}},\"sparse_vectors\":{\"bm25\":{\"index\":{\"on_disk\":true},\"modifier\":\"idf\"}},\"strict_mode_config\":{\"enabled\":true,\"max_query_limit\":100},\"vectors\":{\"text\":{\"hnsw_config\":{\"m\":32}}}}",
+        "update_body_with_resets": {
+          "params": {
+            "on_disk_payload": false,
+            "replication_factor": 2
+          },
+          "quantization_config": {
+            "scalar": {
+              "type": "int8"
+            }
+          },
+          "sparse_vectors": {
+            "bm25": {
+              "index": {
+                "on_disk": true
+              },
+              "modifier": "idf"
+            }
+          },
+          "strict_mode_config": {
+            "enabled": true,
+            "max_query_limit": 100
+          },
+          "vectors": {
+            "text": {
+              "hnsw_config": {
+                "m": 32
+              }
+            }
+          }
+        },
+        "update_body_with_resets_exact": "{\"params\":{\"on_disk_payload\":false,\"replication_factor\":2},\"quantization_config\":{\"scalar\":{\"type\":\"int8\"}},\"sparse_vectors\":{\"bm25\":{\"index\":{\"on_disk\":true},\"modifier\":\"idf\"}},\"strict_mode_config\":{\"enabled\":true,\"max_query_limit\":100},\"vectors\":{\"text\":{\"hnsw_config\":{\"m\":32}}}}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "collectionName": "Docs_v2",
+        "onDiskPayload": false,
+        "optimizers": {
+          "indexing_threshold": 10000
+        },
+        "quantization": {
+          "scalar": {
+            "type": "int8"
+          }
+        },
+        "replicationFactor": 2,
+        "shardNumber": 6,
+        "sparseVectors": [
+          {
+            "index": {
+              "on_disk": true
+            },
+            "modifier": "idf",
+            "name": "bm25"
+          }
+        ],
+        "strictMode": {
+          "enabled": true,
+          "max_query_limit": 100
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "hnsw": {
+              "m": 32
+            },
+            "name": "text",
+            "size": 384
+          },
+          {
+            "datatype": "float16",
+            "distance": "Euclid",
+            "name": "image",
+            "size": 512
+          }
+        ],
+        "wal": {
+          "wal_capacity_mb": 64
+        }
+      }
+    },
+    {
+      "config": {
+        "params": {
+          "vectors": {
+            "distance": "Dot",
+            "memory": "cold",
+            "size": 4
+          }
+        }
+      },
+      "existing_shard_keys": [
+        "eu"
+      ],
+      "name": "memory-tiers-metadata-shard-keys",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "metadata": {
+            "owner": "search-team"
+          },
+          "payload": {
+            "memory": "cached"
+          },
+          "read_fan_out_delay_ms": 50,
+          "read_fan_out_factor": 0,
+          "shard_number": 1,
+          "sharding_method": "custom",
+          "vectors": {
+            "datatype": "turbo4",
+            "distance": "Dot",
+            "memory": "cold",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"metadata\":{\"owner\":\"search-team\"},\"payload\":{\"memory\":\"cached\"},\"read_fan_out_delay_ms\":50,\"read_fan_out_factor\":0,\"shard_number\":1,\"sharding_method\":\"custom\",\"vectors\":{\"datatype\":\"turbo4\",\"distance\":\"Dot\",\"memory\":\"cold\",\"size\":4}}",
+        "declared_fields": {
+          "params": [
+            "payload",
+            "read_fan_out_delay_ms",
+            "read_fan_out_factor"
+          ]
+        },
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "shard_number": 1,
+            "sharding_method": "custom",
+            "vectors": {
+              "datatype": "turbo4",
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {
+          "metadata": {
+            "owner": "search-team"
+          },
+          "params": {
+            "payload": {
+              "memory": "cached"
+            },
+            "read_fan_out_delay_ms": 50,
+            "read_fan_out_factor": 0,
+            "vectors": {
+              "memory": "cold"
+            }
+          }
+        },
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [
+          {
+            "replication_factor": 2,
+            "shard_key": "eu"
+          },
+          {
+            "shard_key": 7
+          },
+          {
+            "shard_key": "us",
+            "shards_number": 3
+          }
+        ],
+        "shard_key_plan": {
+          "create": [
+            {
+              "shard_key": 7
+            },
+            {
+              "shard_key": "us",
+              "shards_number": 3
+            }
+          ],
+          "keys": [
+            "eu",
+            7,
+            "us"
+          ],
+          "manages": true
+        },
+        "single_unnamed": true,
+        "update_body": {
+          "metadata": {
+            "owner": "search-team"
+          },
+          "params": {
+            "payload": {
+              "memory": "cached"
+            },
+            "read_fan_out_delay_ms": 50,
+            "read_fan_out_factor": 0
+          }
+        },
+        "update_body_exact": "{\"metadata\":{\"owner\":\"search-team\"},\"params\":{\"payload\":{\"memory\":\"cached\"},\"read_fan_out_delay_ms\":50,\"read_fan_out_factor\":0}}",
+        "update_body_with_resets": {
+          "metadata": {
+            "owner": "search-team"
+          },
+          "params": {
+            "payload": {
+              "memory": "cached"
+            },
+            "read_fan_out_delay_ms": 50,
+            "read_fan_out_factor": 0
+          }
+        },
+        "update_body_with_resets_exact": "{\"metadata\":{\"owner\":\"search-team\"},\"params\":{\"payload\":{\"memory\":\"cached\"},\"read_fan_out_delay_ms\":50,\"read_fan_out_factor\":0}}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "metadata": {
+          "owner": "search-team"
+        },
+        "payloadMemory": "cached",
+        "readFanOutDelayMs": 50,
+        "readFanOutFactor": 0,
+        "shardKeys": [
+          {
+            "key": "eu",
+            "replicationFactor": 2
+          },
+          {
+            "key": 7
+          },
+          {
+            "key": "us",
+            "shardsNumber": 3
+          }
+        ],
+        "shardNumber": 1,
+        "shardingMethod": "custom",
+        "vectors": [
+          {
+            "datatype": "turbo4",
+            "distance": "Dot",
+            "memory": "cold",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "config": {
+        "params": {
+          "vectors": {
+            "colbert": {
+              "distance": "Cosine",
+              "multivector_config": {
+                "comparator": "max_sim"
+              },
+              "on_disk": null,
+              "size": 128
+            }
+          }
+        }
+      },
+      "name": "multivector-with-vector-level-tuning",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "infra"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "vectors": {
+            "colbert": {
+              "distance": "Cosine",
+              "hnsw_config": {
+                "m": 0
+              },
+              "multivector_config": {
+                "comparator": "max_sim"
+              },
+              "on_disk": false,
+              "quantization_config": {
+                "binary": {
+                  "always_ram": true
+                }
+              },
+              "size": 128
+            }
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"colbert\":{\"distance\":\"Cosine\",\"hnsw_config\":{\"m\":0},\"multivector_config\":{\"comparator\":\"max_sim\"},\"on_disk\":false,\"quantization_config\":{\"binary\":{\"always_ram\":true}},\"size\":128}}}",
+        "declared_fields": {},
+        "deletion_policy": "Delete",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "colbert": {
+                "distance": "Cosine",
+                "multivector_config": {
+                  "comparator": "max_sim"
+                },
+                "size": 128
+              }
+            }
+          }
+        },
+        "immutable_ok": true,
+        "index_schemas": {},
+        "mutable_config": {
+          "params": {
+            "vectors": {
+              "colbert": {
+                "hnsw_config": {
+                  "m": 0
+                },
+                "on_disk": false,
+                "quantization_config": {
+                  "binary": {
+                    "always_ram": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [],
+        "single_unnamed": false,
+        "update_body": {
+          "vectors": {
+            "colbert": {
+              "hnsw_config": {
+                "m": 0
+              },
+              "on_disk": false,
+              "quantization_config": {
+                "binary": {
+                  "always_ram": true
+                }
+              }
+            }
+          }
+        },
+        "update_body_exact": "{\"vectors\":{\"colbert\":{\"hnsw_config\":{\"m\":0},\"on_disk\":false,\"quantization_config\":{\"binary\":{\"always_ram\":true}}}}}",
+        "update_body_with_resets": {
+          "vectors": {
+            "colbert": {
+              "hnsw_config": {
+                "m": 0
+              },
+              "on_disk": false,
+              "quantization_config": {
+                "binary": {
+                  "always_ram": true
+                }
+              }
+            }
+          }
+        },
+        "update_body_with_resets_exact": "{\"vectors\":{\"colbert\":{\"hnsw_config\":{\"m\":0},\"on_disk\":false,\"quantization_config\":{\"binary\":{\"always_ram\":true}}}}}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db",
+          "namespace": "infra"
+        },
+        "deletionPolicy": "Delete",
+        "vectors": [
+          {
+            "distance": "Cosine",
+            "hnsw": {
+              "m": 0
+            },
+            "multivector": {
+              "comparator": "max_sim"
+            },
+            "name": "colbert",
+            "onDisk": false,
+            "quantization": {
+              "binary": {
+                "always_ram": true
+              }
+            },
+            "size": 128
+          }
+        ]
+      }
+    },
+    {
+      "config": {
+        "params": {
+          "sparse_vectors": {
+            "bm25": {},
+            "splade": {
+              "index": {
+                "full_scan_threshold": 1000,
+                "on_disk": false
+              }
+            }
+          },
+          "vectors": {}
+        }
+      },
+      "name": "sparse-only",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "sparse_vectors": {
+            "bm25": {},
+            "splade": {
+              "index": {
+                "full_scan_threshold": 1000
+              }
+            }
+          }
+        },
+        "create_body_exact": "{\"sparse_vectors\":{\"bm25\":{},\"splade\":{\"index\":{\"full_scan_threshold\":1000}}}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {}
+        },
+        "immutable_ok": true,
+        "index_schemas": {},
+        "mutable_config": {
+          "params": {
+            "sparse_vectors": {
+              "bm25": {},
+              "splade": {
+                "index": {
+                  "full_scan_threshold": 1000
+                }
+              }
+            }
+          }
+        },
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [],
+        "single_unnamed": false,
+        "update_body": {},
+        "update_body_exact": "{}",
+        "update_body_with_resets": {},
+        "update_body_with_resets_exact": "{}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "sparseVectors": [
+          {
+            "name": "bm25"
+          },
+          {
+            "index": {
+              "full_scan_threshold": 1000
+            },
+            "name": "splade"
+          }
+        ]
+      }
+    },
+    {
+      "config": {},
+      "name": "dense-and-sparse-config-missing-keys",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "hnsw_config": {
+            "ef_construct": 200
+          },
+          "sparse_vectors": {
+            "s": {
+              "modifier": "none"
+            }
+          },
+          "vectors": {
+            "distance": "Manhattan",
+            "size": 3
+          }
+        },
+        "create_body_exact": "{\"hnsw_config\":{\"ef_construct\":200},\"sparse_vectors\":{\"s\":{\"modifier\":\"none\"}},\"vectors\":{\"distance\":\"Manhattan\",\"size\":3}}",
+        "declared_fields": {
+          "hnsw": [
+            "ef_construct"
+          ]
+        },
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Manhattan",
+              "size": 3
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {
+          "hnsw_config": {
+            "ef_construct": 200
+          },
+          "params": {
+            "sparse_vectors": {
+              "s": {
+                "modifier": "none"
+              }
+            }
+          }
+        },
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {
+          "hnsw_config": {
+            "ef_construct": 200
+          },
+          "sparse_vectors": {
+            "s": {
+              "modifier": "none"
+            }
+          }
+        },
+        "update_body_exact": "{\"hnsw_config\":{\"ef_construct\":200},\"sparse_vectors\":{\"s\":{\"modifier\":\"none\"}}}",
+        "update_body_with_resets": {
+          "hnsw_config": {
+            "ef_construct": 200
+          },
+          "sparse_vectors": {
+            "s": {
+              "modifier": "none"
+            }
+          }
+        },
+        "update_body_with_resets_exact": "{\"hnsw_config\":{\"ef_construct\":200},\"sparse_vectors\":{\"s\":{\"modifier\":\"none\"}}}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "hnsw": {
+          "ef_construct": 200
+        },
+        "sparseVectors": [
+          {
+            "modifier": "none",
+            "name": "s"
+          }
+        ],
+        "vectors": [
+          {
+            "distance": "Manhattan",
+            "size": 3
+          }
+        ]
+      }
+    },
+    {
+      "name": "error-no-vectors",
+      "outputs": {
+        "error": true
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        }
+      }
+    },
+    {
+      "name": "error-mixed-unnamed-vector",
+      "outputs": {
+        "error": true
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          },
+          {
+            "distance": "Dot",
+            "name": "b",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "name": "error-unknown-deletion-policy",
+      "outputs": {
+        "error": true
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "deletionPolicy": "Bogus",
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "config": {
+        "params": {
+          "shard_number": 2,
+          "sharding_method": "auto",
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        }
+      },
+      "name": "immutable-mismatch",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "shard_number": 2,
+          "sharding_method": "auto",
+          "vectors": {
+            "distance": "Dot",
+            "size": 8
+          }
+        },
+        "create_body_exact": "{\"shard_number\":2,\"sharding_method\":\"auto\",\"vectors\":{\"distance\":\"Dot\",\"size\":8}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "shard_number": 2,
+            "sharding_method": "auto",
+            "vectors": {
+              "distance": "Dot",
+              "size": 8
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {},
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {},
+        "update_body_exact": "{}",
+        "update_body_with_resets": {},
+        "update_body_with_resets_exact": "{}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "shardNumber": 2,
+        "shardingMethod": "auto",
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 8
+          }
+        ]
+      }
+    },
+    {
+      "config": {
+        "params": {
+          "shard_number": 2,
+          "sharding_method": "auto",
+          "vectors": {
+            "distance": "Dot",
+            "on_disk": true,
+            "size": 4
+          }
+        }
+      },
+      "name": "immutable-matches-with-extra-live-keys",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "shard_number": 2,
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"shard_number\":2,\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "shard_number": 2,
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "immutable_ok": true,
+        "index_schemas": {},
+        "mutable_config": {},
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {},
+        "update_body_exact": "{}",
+        "update_body_with_resets": {},
+        "update_body_with_resets_exact": "{}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "shardNumber": 2,
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "applied": {
+        "optimizers": [
+          "deleted_threshold",
+          "flush_interval_sec",
+          "indexing_threshold",
+          "max_optimization_threads",
+          "unknown_field"
+        ]
+      },
+      "config": {
+        "optimizer_config": {
+          "deleted_threshold": 0.3,
+          "flush_interval_sec": 5,
+          "indexing_threshold": 5000,
+          "max_optimization_threads": null
+        }
+      },
+      "name": "resets-optimizers",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "optimizers_config": {
+            "indexing_threshold": 5000
+          },
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"optimizers_config\":{\"indexing_threshold\":5000},\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {
+          "optimizers": [
+            "indexing_threshold"
+          ]
+        },
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {
+          "optimizer_config": {
+            "indexing_threshold": 5000
+          }
+        },
+        "reset_names": [
+          "optimizers_config.deleted_threshold"
+        ],
+        "resets": {
+          "optimizers_config": {
+            "deleted_threshold": 0.2
+          }
+        },
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {},
+        "update_body_exact": "{}",
+        "update_body_with_resets": {
+          "optimizers_config": {
+            "deleted_threshold": 0.2
+          }
+        },
+        "update_body_with_resets_exact": "{\"optimizers_config\":{\"deleted_threshold\":0.2}}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "optimizers": {
+          "indexing_threshold": 5000
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "applied": {
+        "optimizers": [
+          "default_segment_number",
+          "max_optimization_threads",
+          "vacuum_min_vector_number"
+        ]
+      },
+      "config": {
+        "optimizer_config": {
+          "default_segment_number": 0,
+          "max_optimization_threads": 4,
+          "vacuum_min_vector_number": 2000
+        }
+      },
+      "name": "resets-threads-live-value",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {},
+        "reset_names": [
+          "optimizers_config.max_optimization_threads",
+          "optimizers_config.vacuum_min_vector_number"
+        ],
+        "resets": {
+          "optimizers_config": {
+            "max_optimization_threads": "auto",
+            "vacuum_min_vector_number": 1000
+          }
+        },
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {},
+        "update_body_exact": "{}",
+        "update_body_with_resets": {
+          "optimizers_config": {
+            "max_optimization_threads": "auto",
+            "vacuum_min_vector_number": 1000
+          }
+        },
+        "update_body_with_resets_exact": "{\"optimizers_config\":{\"max_optimization_threads\":\"auto\",\"vacuum_min_vector_number\":1000}}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "applied": {
+        "hnsw": [
+          "ef_construct",
+          "full_scan_threshold",
+          "m",
+          "max_indexing_threads",
+          "on_disk"
+        ],
+        "params": [
+          "on_disk_payload",
+          "read_fan_out_factor",
+          "replication_factor",
+          "write_consistency_factor"
+        ]
+      },
+      "config": {
+        "hnsw_config": {
+          "ef_construct": 100,
+          "m": 32,
+          "max_indexing_threads": 2,
+          "on_disk": true
+        },
+        "params": {
+          "on_disk_payload": false,
+          "read_fan_out_factor": 2,
+          "replication_factor": 3,
+          "write_consistency_factor": 2
+        }
+      },
+      "name": "resets-hnsw-and-params",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          },
+          "write_consistency_factor": 2
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Dot\",\"size\":4},\"write_consistency_factor\":2}",
+        "declared_fields": {
+          "params": [
+            "write_consistency_factor"
+          ]
+        },
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {
+          "params": {
+            "write_consistency_factor": 2
+          }
+        },
+        "reset_names": [
+          "hnsw_config.full_scan_threshold",
+          "hnsw_config.m",
+          "hnsw_config.max_indexing_threads",
+          "hnsw_config.on_disk",
+          "params.on_disk_payload",
+          "params.replication_factor"
+        ],
+        "resets": {
+          "hnsw_config": {
+            "full_scan_threshold": 10000,
+            "m": 16,
+            "max_indexing_threads": 0,
+            "on_disk": false
+          },
+          "params": {
+            "on_disk_payload": true,
+            "replication_factor": 1
+          }
+        },
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {},
+        "update_body_exact": "{}",
+        "update_body_with_resets": {
+          "hnsw_config": {
+            "full_scan_threshold": 10000,
+            "m": 16,
+            "max_indexing_threads": 0,
+            "on_disk": false
+          },
+          "params": {
+            "on_disk_payload": true,
+            "replication_factor": 1
+          }
+        },
+        "update_body_with_resets_exact": "{\"hnsw_config\":{\"full_scan_threshold\":10000,\"m\":16,\"max_indexing_threads\":0,\"on_disk\":false},\"params\":{\"on_disk_payload\":true,\"replication_factor\":1}}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ],
+        "writeConsistencyFactor": 2
+      }
+    },
+    {
+      "applied": {
+        "hnsw": [
+          "on_disk"
+        ],
+        "strict_mode": [
+          "enabled"
+        ]
+      },
+      "config": {
+        "hnsw_config": {
+          "on_disk": null
+        },
+        "strict_mode_config": {
+          "enabled": false
+        }
+      },
+      "name": "resets-hnsw-bool-null-is-default",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {},
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {},
+        "update_body_exact": "{}",
+        "update_body_with_resets": {},
+        "update_body_with_resets_exact": "{}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "applied": {
+        "quantization": [
+          "quantization"
+        ]
+      },
+      "config": {
+        "quantization_config": {
+          "scalar": {
+            "type": "int8"
+          }
+        }
+      },
+      "name": "resets-quantization",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {},
+        "reset_names": [
+          "quantization_config.quantization"
+        ],
+        "resets": {
+          "quantization_config": {
+            "quantization": "Disabled"
+          }
+        },
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {},
+        "update_body_exact": "{}",
+        "update_body_with_resets": {
+          "quantization_config": "Disabled"
+        },
+        "update_body_with_resets_exact": "{\"quantization_config\":\"Disabled\"}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "applied": {
+        "quantization": [
+          "quantization"
+        ]
+      },
+      "config": {
+        "quantization_config": null
+      },
+      "name": "resets-quantization-already-off",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {},
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {},
+        "update_body_exact": "{}",
+        "update_body_with_resets": {},
+        "update_body_with_resets_exact": "{}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "applied": {
+        "quantization": [
+          "quantization"
+        ]
+      },
+      "config": {
+        "quantization_config": {
+          "scalar": {
+            "type": "int8"
+          }
+        }
+      },
+      "name": "resets-quantization-still-declared",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "quantization_config": {
+            "scalar": {
+              "type": "int8"
+            }
+          },
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"quantization_config\":{\"scalar\":{\"type\":\"int8\"}},\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {
+          "quantization": [
+            "quantization"
+          ]
+        },
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {
+          "quantization_config": {
+            "scalar": {
+              "type": "int8"
+            }
+          }
+        },
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {},
+        "update_body_exact": "{}",
+        "update_body_with_resets": {},
+        "update_body_with_resets_exact": "{}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "quantization": {
+          "scalar": {
+            "type": "int8"
+          }
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "applied": {
+        "strict_mode": [
+          "enabled",
+          "max_query_limit"
+        ]
+      },
+      "config": {
+        "strict_mode_config": {
+          "enabled": true,
+          "max_query_limit": 50
+        }
+      },
+      "name": "resets-strict-mode-merged-with-declared",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "strict_mode_config": {
+            "max_query_limit": 100
+          },
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"strict_mode_config\":{\"max_query_limit\":100},\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {
+          "strict_mode": [
+            "max_query_limit"
+          ]
+        },
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {
+          "strict_mode_config": {
+            "max_query_limit": 100
+          }
+        },
+        "reset_names": [
+          "strict_mode_config.enabled"
+        ],
+        "resets": {
+          "strict_mode_config": {
+            "enabled": false
+          }
+        },
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {
+          "strict_mode_config": {
+            "max_query_limit": 100
+          }
+        },
+        "update_body_exact": "{\"strict_mode_config\":{\"max_query_limit\":100}}",
+        "update_body_with_resets": {
+          "strict_mode_config": {
+            "enabled": false,
+            "max_query_limit": 100
+          }
+        },
+        "update_body_with_resets_exact": "{\"strict_mode_config\":{\"enabled\":false,\"max_query_limit\":100}}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "strictMode": {
+          "max_query_limit": 100
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "config": {
+        "optimizer_config": {
+          "indexing_threshold": 20000,
+          "max_optimization_threads": null
+        }
+      },
+      "name": "optimizer-null-threads-reads-as-auto",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "optimizers_config": {
+            "indexing_threshold": 20000,
+            "max_optimization_threads": "auto"
+          },
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"optimizers_config\":{\"indexing_threshold\":20000,\"max_optimization_threads\":\"auto\"},\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {
+          "optimizers": [
+            "indexing_threshold",
+            "max_optimization_threads"
+          ]
+        },
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {
+          "optimizer_config": {
+            "indexing_threshold": 20000,
+            "max_optimization_threads": "auto"
+          }
+        },
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {},
+        "update_body_exact": "{}",
+        "update_body_with_resets": {},
+        "update_body_with_resets_exact": "{}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "optimizers": {
+          "indexing_threshold": 20000,
+          "max_optimization_threads": "auto"
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "config": {
+        "optimizer_config": {
+          "deleted_threshold": 0.2,
+          "max_optimization_threads": null
+        }
+      },
+      "name": "optimizer-threads-change-needs-patch",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "optimizers_config": {
+            "deleted_threshold": 0.25,
+            "max_optimization_threads": 2
+          },
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"optimizers_config\":{\"deleted_threshold\":0.25,\"max_optimization_threads\":2},\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {
+          "optimizers": [
+            "deleted_threshold",
+            "max_optimization_threads"
+          ]
+        },
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {
+          "optimizer_config": {
+            "deleted_threshold": 0.25,
+            "max_optimization_threads": 2
+          }
+        },
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {
+          "optimizers_config": {
+            "deleted_threshold": 0.25,
+            "max_optimization_threads": 2
+          }
+        },
+        "update_body_exact": "{\"optimizers_config\":{\"deleted_threshold\":0.25,\"max_optimization_threads\":2}}",
+        "update_body_with_resets": {
+          "optimizers_config": {
+            "deleted_threshold": 0.25,
+            "max_optimization_threads": 2
+          }
+        },
+        "update_body_with_resets_exact": "{\"optimizers_config\":{\"deleted_threshold\":0.25,\"max_optimization_threads\":2}}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "optimizers": {
+          "deleted_threshold": 0.25,
+          "max_optimization_threads": 2
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "config": {
+        "metadata": {
+          "a": {
+            "b": 1,
+            "c": 2
+          }
+        },
+        "strict_mode_config": {
+          "enabled": null
+        }
+      },
+      "name": "strict-mode-false-matches-null",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "metadata": {
+            "a": {
+              "b": 1
+            }
+          },
+          "strict_mode_config": {
+            "enabled": false
+          },
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"metadata\":{\"a\":{\"b\":1}},\"strict_mode_config\":{\"enabled\":false},\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {
+          "strict_mode": [
+            "enabled"
+          ]
+        },
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {
+          "metadata": {
+            "a": {
+              "b": 1
+            }
+          },
+          "strict_mode_config": {
+            "enabled": false
+          }
+        },
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {},
+        "update_body_exact": "{}",
+        "update_body_with_resets": {},
+        "update_body_with_resets_exact": "{}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "metadata": {
+          "a": {
+            "b": 1
+          }
+        },
+        "strictMode": {
+          "enabled": false
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "config": {
+        "metadata": {
+          "a": {
+            "b": 1
+          }
+        },
+        "params": {
+          "on_disk_payload": true,
+          "payload": {
+            "memory": "cold"
+          }
+        }
+      },
+      "name": "metadata-and-payload-memory-drift",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "metadata": {
+            "a": {
+              "b": 2
+            }
+          },
+          "on_disk_payload": true,
+          "payload": {
+            "memory": "cached"
+          },
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"metadata\":{\"a\":{\"b\":2}},\"on_disk_payload\":true,\"payload\":{\"memory\":\"cached\"},\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {
+          "params": [
+            "on_disk_payload",
+            "payload"
+          ]
+        },
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "immutable_ok": false,
+        "index_schemas": {},
+        "mutable_config": {
+          "metadata": {
+            "a": {
+              "b": 2
+            }
+          },
+          "params": {
+            "on_disk_payload": true,
+            "payload": {
+              "memory": "cached"
+            }
+          }
+        },
+        "reset_names": [],
+        "resets": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true,
+        "update_body": {
+          "metadata": {
+            "a": {
+              "b": 2
+            }
+          },
+          "params": {
+            "on_disk_payload": true,
+            "payload": {
+              "memory": "cached"
+            }
+          }
+        },
+        "update_body_exact": "{\"metadata\":{\"a\":{\"b\":2}},\"params\":{\"on_disk_payload\":true,\"payload\":{\"memory\":\"cached\"}}}",
+        "update_body_with_resets": {
+          "metadata": {
+            "a": {
+              "b": 2
+            }
+          },
+          "params": {
+            "on_disk_payload": true,
+            "payload": {
+              "memory": "cached"
+            }
+          }
+        },
+        "update_body_with_resets_exact": "{\"metadata\":{\"a\":{\"b\":2}},\"params\":{\"on_disk_payload\":true,\"payload\":{\"memory\":\"cached\"}}}"
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "metadata": {
+          "a": {
+            "b": 2
+          }
+        },
+        "onDiskPayload": true,
+        "payloadMemory": "cached",
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "managed_indexes": [
+        "city",
+        "legacy",
+        "gone",
+        "created"
+      ],
+      "name": "payload-indexes-plan",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "index_plan": {
+          "managed": [
+            "age",
+            "body",
+            "city",
+            "created",
+            "ident",
+            "new"
+          ],
+          "operations": [
+            {
+              "field": "body",
+              "op": "delete"
+            },
+            {
+              "field": "body",
+              "op": "create",
+              "schema": {
+                "lowercase": true,
+                "tokenizer": "word",
+                "type": "text"
+              }
+            },
+            {
+              "field": "created",
+              "op": "delete"
+            },
+            {
+              "field": "created",
+              "op": "create",
+              "schema": "datetime"
+            },
+            {
+              "field": "new",
+              "op": "create",
+              "schema": "bool"
+            },
+            {
+              "field": "ident",
+              "op": "delete"
+            },
+            {
+              "field": "ident",
+              "op": "create",
+              "schema": {
+                "is_tenant": true,
+                "type": "uuid"
+              }
+            },
+            {
+              "field": "legacy",
+              "op": "delete"
+            }
+          ]
+        },
+        "index_satisfied": {
+          "age": true,
+          "body": false,
+          "city": true,
+          "created": false,
+          "ident": false
+        },
+        "index_schemas": {
+          "age": {
+            "lookup": true,
+            "range": false,
+            "type": "integer"
+          },
+          "body": {
+            "lowercase": true,
+            "tokenizer": "word",
+            "type": "text"
+          },
+          "city": "keyword",
+          "created": "datetime",
+          "ident": {
+            "is_tenant": true,
+            "type": "uuid"
+          },
+          "new": "bool"
+        },
+        "mutable_config": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true
+      },
+      "payload_schema": {
+        "age": {
+          "data_type": "integer",
+          "params": {
+            "lookup": true,
+            "range": null,
+            "type": "integer"
+          },
+          "points": 2
+        },
+        "body": {
+          "data_type": "text",
+          "params": {
+            "tokenizer": "prefix",
+            "type": "text"
+          },
+          "points": 4
+        },
+        "city": {
+          "data_type": "keyword",
+          "params": null,
+          "points": 3
+        },
+        "created": {
+          "data_type": "keyword",
+          "params": null,
+          "points": 1
+        },
+        "ident": {
+          "data_type": "uuid",
+          "params": {
+            "is_tenant": false,
+            "type": "uuid"
+          },
+          "points": 0
+        },
+        "legacy": {
+          "data_type": "keyword",
+          "params": null,
+          "points": 1
+        },
+        "manual": {
+          "data_type": "keyword",
+          "params": null,
+          "points": 1
+        }
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "payloadIndexes": [
+          {
+            "field": "city",
+            "type": "keyword"
+          },
+          {
+            "field": "age",
+            "params": {
+              "lookup": true,
+              "range": false
+            },
+            "type": "integer"
+          },
+          {
+            "field": "body",
+            "params": {
+              "lowercase": true,
+              "tokenizer": "word"
+            },
+            "type": "text"
+          },
+          {
+            "field": "created",
+            "type": "datetime"
+          },
+          {
+            "field": "new",
+            "type": "bool"
+          },
+          {
+            "field": "ident",
+            "params": {
+              "is_tenant": true
+            },
+            "type": "uuid"
+          }
+        ],
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "managed_indexes": [
+        "a",
+        "b"
+      ],
+      "name": "payload-indexes-none-declared",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "index_plan": {
+          "managed": [],
+          "operations": [
+            {
+              "field": "a",
+              "op": "delete"
+            }
+          ]
+        },
+        "index_satisfied": {},
+        "index_schemas": {},
+        "mutable_config": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true
+      },
+      "payload_schema": {
+        "a": {
+          "data_type": "keyword",
+          "params": null,
+          "points": 1
+        }
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "name": "payload-indexes-duplicate-field-last-wins",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "index_plan": {
+          "managed": [
+            "x",
+            "y"
+          ],
+          "operations": [
+            {
+              "field": "x",
+              "op": "delete"
+            },
+            {
+              "field": "x",
+              "op": "create",
+              "schema": "text"
+            },
+            {
+              "field": "y",
+              "op": "create",
+              "schema": "integer"
+            }
+          ]
+        },
+        "index_satisfied": {
+          "x": false
+        },
+        "index_schemas": {
+          "x": "text",
+          "y": "integer"
+        },
+        "mutable_config": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true
+      },
+      "payload_schema": {
+        "x": {
+          "data_type": "keyword",
+          "params": null,
+          "points": 1
+        }
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "payloadIndexes": [
+          {
+            "field": "x",
+            "type": "keyword"
+          },
+          {
+            "field": "y",
+            "type": "integer"
+          },
+          {
+            "field": "x",
+            "type": "text"
+          }
+        ],
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "actual_aliases": {
+        "foreign": "other",
+        "kept": "articles",
+        "live": "articles",
+        "moved": "other",
+        "stale": "articles"
+      },
+      "managed_aliases": [
+        "kept",
+        "stale",
+        "foreign",
+        "missing",
+        "live"
+      ],
+      "name": "aliases-plan",
+      "outputs": {
+        "alias_names": [
+          "kept",
+          "live",
+          "moved",
+          "zeta"
+        ],
+        "alias_plan": {
+          "actions": [
+            {
+              "create_alias": {
+                "alias_name": "zeta",
+                "collection_name": "articles"
+              }
+            },
+            {
+              "create_alias": {
+                "alias_name": "moved",
+                "collection_name": "articles"
+              }
+            },
+            {
+              "delete_alias": {
+                "alias_name": "stale"
+              }
+            }
+          ],
+          "managed": [
+            "kept",
+            "live",
+            "moved",
+            "zeta"
+          ]
+        },
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "articles",
+        "create_body": {
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "index_schemas": {},
+        "mutable_config": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true
+      },
+      "spec": {
+        "aliases": [
+          "zeta",
+          "live",
+          "kept",
+          "moved"
+        ],
+        "clusterRef": {
+          "name": "db"
+        },
+        "collectionName": "articles",
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "actual_aliases": {
+        "a": "docs",
+        "b": "docs"
+      },
+      "managed_aliases": [
+        "a"
+      ],
+      "name": "aliases-none-declared",
+      "outputs": {
+        "alias_names": [],
+        "alias_plan": {
+          "actions": [
+            {
+              "delete_alias": {
+                "alias_name": "a"
+              }
+            }
+          ],
+          "managed": []
+        },
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "index_schemas": {},
+        "mutable_config": {},
+        "shard_key_bodies": [],
+        "single_unnamed": true
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "existing_shard_keys": [
+        "eu",
+        7,
+        "manual"
+      ],
+      "name": "shard-keys-custom-creates-missing",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "sharding_method": "custom",
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"sharding_method\":\"custom\",\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "sharding_method": "custom",
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "index_schemas": {},
+        "mutable_config": {},
+        "shard_key_bodies": [
+          {
+            "shard_key": "eu"
+          },
+          {
+            "shard_key": 7,
+            "shards_number": 2
+          },
+          {
+            "shard_key": "us"
+          },
+          {
+            "shard_key": "9"
+          }
+        ],
+        "shard_key_plan": {
+          "create": [
+            {
+              "shard_key": "us"
+            },
+            {
+              "shard_key": "9"
+            }
+          ],
+          "keys": [
+            "eu",
+            7,
+            "manual",
+            "us",
+            "9"
+          ],
+          "manages": true
+        },
+        "single_unnamed": true
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "shardKeys": [
+          {
+            "key": "eu"
+          },
+          {
+            "key": 7,
+            "shardsNumber": 2
+          },
+          {
+            "key": "us"
+          },
+          {
+            "key": "9"
+          }
+        ],
+        "shardingMethod": "custom",
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "existing_shard_keys": [
+        "x"
+      ],
+      "name": "shard-keys-ignored-without-custom-sharding",
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "sharding_method": "auto",
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"sharding_method\":\"auto\",\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "sharding_method": "auto",
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "index_schemas": {},
+        "mutable_config": {},
+        "shard_key_bodies": [
+          {
+            "shard_key": "eu"
+          }
+        ],
+        "shard_key_plan": {
+          "create": [],
+          "keys": [],
+          "manages": false
+        },
+        "single_unnamed": true
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "shardKeys": [
+          {
+            "key": "eu"
+          }
+        ],
+        "shardingMethod": "auto",
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "name": "observe-ready-first-time",
+      "observe": {
+        "current": {
+          "aliases": [
+            "b"
+          ],
+          "appliedFields": {
+            "hnsw": [
+              "m"
+            ],
+            "params": []
+          },
+          "payloadIndexes": [
+            "a"
+          ],
+          "phase": "Pending",
+          "shardKeys": [
+            "eu"
+          ]
+        },
+        "generation": 3,
+        "info": {
+          "indexed_vectors_count": 10,
+          "points_count": 12,
+          "segments_count": 2,
+          "status": "green"
+        },
+        "message": "Collection articles matches the spec",
+        "phase": "Ready",
+        "reason": "CollectionReady"
+      },
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "articles",
+        "create_body": {
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "index_schemas": {},
+        "mutable_config": {},
+        "observed_status": {
+          "aliases": [
+            "b"
+          ],
+          "appliedFields": {
+            "hnsw": [
+              "m"
+            ]
+          },
+          "collectionName": "articles",
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-06-01T12:00:00Z",
+              "message": "Collection articles matches the spec",
+              "reason": "CollectionReady",
+              "status": "True",
+              "type": "Ready"
+            }
+          ],
+          "health": "green",
+          "indexedVectorsCount": 10,
+          "observedGeneration": 3,
+          "payloadIndexes": [
+            "a"
+          ],
+          "phase": "Ready",
+          "pointsCount": 12,
+          "segmentsCount": 2
+        },
+        "shard_key_bodies": [],
+        "single_unnamed": true
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "collectionName": "articles",
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "name": "observe-ready-keeps-transition-time",
+      "observe": {
+        "current": {
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-01-01T00:00:00Z",
+              "message": "m",
+              "reason": "X",
+              "status": "True",
+              "type": "Other"
+            },
+            {
+              "lastTransitionTime": "2026-02-02T02:02:02Z",
+              "message": "old",
+              "reason": "Old",
+              "status": "True",
+              "type": "Ready"
+            }
+          ],
+          "error": "stale",
+          "phase": "Ready"
+        },
+        "generation": 4,
+        "info": {
+          "indexed_vectors_count": 0,
+          "points_count": 0,
+          "segments_count": 0,
+          "status": "yellow"
+        },
+        "message": "Collection docs matches the spec; reset to Qdrant defaults: hnsw_config.m",
+        "phase": "Ready",
+        "reason": "CollectionReady"
+      },
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "index_schemas": {},
+        "mutable_config": {},
+        "observed_status": {
+          "collectionName": "docs",
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-01-01T00:00:00Z",
+              "message": "m",
+              "reason": "X",
+              "status": "True",
+              "type": "Other"
+            },
+            {
+              "lastTransitionTime": "2026-02-02T02:02:02Z",
+              "message": "Collection docs matches the spec; reset to Qdrant defaults: hnsw_config.m",
+              "reason": "CollectionReady",
+              "status": "True",
+              "type": "Ready"
+            }
+          ],
+          "health": "yellow",
+          "observedGeneration": 4,
+          "phase": "Ready"
+        },
+        "shard_key_bodies": [],
+        "single_unnamed": true
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "name": "observe-degraded-flips-condition",
+      "observe": {
+        "current": {
+          "appliedFields": {
+            "optimizers": [
+              "indexing_threshold"
+            ]
+          },
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-02-02T02:02:02Z",
+              "message": "ok",
+              "reason": "CollectionReady",
+              "status": "True",
+              "type": "Ready"
+            }
+          ],
+          "payloadIndexes": [
+            "city"
+          ],
+          "phase": "Ready"
+        },
+        "generation": 5,
+        "info": {
+          "points_count": 5,
+          "status": "red"
+        },
+        "message": "vectors, shardNumber or shardingMethod differ from the live collection; only re-creating the collection can change them",
+        "phase": "Degraded",
+        "reason": "ImmutableFieldMismatch"
+      },
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "index_schemas": {},
+        "mutable_config": {},
+        "observed_status": {
+          "appliedFields": {
+            "optimizers": [
+              "indexing_threshold"
+            ]
+          },
+          "collectionName": "docs",
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-06-01T12:00:00Z",
+              "message": "vectors, shardNumber or shardingMethod differ from the live collection; only re-creating the collection can change them",
+              "reason": "ImmutableFieldMismatch",
+              "status": "False",
+              "type": "Ready"
+            }
+          ],
+          "error": "vectors, shardNumber or shardingMethod differ from the live collection; only re-creating the collection can change them",
+          "health": "red",
+          "observedGeneration": 5,
+          "payloadIndexes": [
+            "city"
+          ],
+          "phase": "Degraded",
+          "pointsCount": 5
+        },
+        "shard_key_bodies": [],
+        "single_unnamed": true
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    },
+    {
+      "name": "observe-failed-without-generation-or-info",
+      "observe": {
+        "current": {
+          "phase": "Pending"
+        },
+        "info": {},
+        "message": "boom",
+        "phase": "Failed",
+        "reason": "ReconcileError"
+      },
+      "outputs": {
+        "alias_names": [],
+        "cluster_ref": {
+          "name": "db",
+          "namespace": "tenant-a"
+        },
+        "collection_name": "docs",
+        "create_body": {
+          "vectors": {
+            "distance": "Dot",
+            "size": 4
+          }
+        },
+        "create_body_exact": "{\"vectors\":{\"distance\":\"Dot\",\"size\":4}}",
+        "declared_fields": {},
+        "deletion_policy": "Retain",
+        "immutable_config": {
+          "params": {
+            "vectors": {
+              "distance": "Dot",
+              "size": 4
+            }
+          }
+        },
+        "index_schemas": {},
+        "mutable_config": {},
+        "observed_status": {
+          "collectionName": "docs",
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-06-01T12:00:00Z",
+              "message": "boom",
+              "reason": "ReconcileError",
+              "status": "False",
+              "type": "Ready"
+            }
+          ],
+          "error": "boom",
+          "phase": "Failed"
+        },
+        "shard_key_bodies": [],
+        "single_unnamed": true
+      },
+      "spec": {
+        "clusterRef": {
+          "name": "db"
+        },
+        "vectors": [
+          {
+            "distance": "Dot",
+            "size": 4
+          }
+        ]
+      }
+    }
+  ],
+  "status_cases": [
+    {
+      "name": "full-roundtrip",
+      "outputs": {
+        "status": {
+          "aliases": [
+            "live"
+          ],
+          "appliedFields": {
+            "optimizers": [
+              "indexing_threshold"
+            ],
+            "params": [
+              "replication_factor",
+              "on_disk_payload"
+            ]
+          },
+          "collectionName": "articles",
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-03-04T05:06:07Z",
+              "message": "m",
+              "reason": "R",
+              "status": "False",
+              "type": "Ready"
+            }
+          ],
+          "error": "oops",
+          "health": "green",
+          "indexedVectorsCount": 90,
+          "observedGeneration": 7,
+          "payloadIndexes": [
+            "body",
+            "city"
+          ],
+          "phase": "Ready",
+          "pointsCount": 100,
+          "segmentsCount": 4,
+          "shardKeys": [
+            "eu",
+            7
+          ]
+        }
+      },
+      "status": {
+        "aliases": [
+          "live"
+        ],
+        "appliedFields": {
+          "optimizers": [
+            "indexing_threshold"
+          ],
+          "params": [
+            "replication_factor",
+            "on_disk_payload"
+          ]
+        },
+        "collectionName": "articles",
+        "conditions": [
+          {
+            "lastTransitionTime": "2026-03-04T05:06:07Z",
+            "message": "m",
+            "reason": "R",
+            "status": "False",
+            "type": "Ready"
+          }
+        ],
+        "error": "oops",
+        "health": "green",
+        "indexedVectorsCount": 90,
+        "observedGeneration": 7,
+        "payloadIndexes": [
+          "body",
+          "city"
+        ],
+        "phase": "Ready",
+        "pointsCount": 100,
+        "segmentsCount": 4,
+        "shardKeys": [
+          "eu",
+          7
+        ]
+      }
+    },
+    {
+      "name": "empty-defaults-to-pending",
+      "outputs": {
+        "status": {
+          "phase": "Pending"
+        }
+      },
+      "status": {}
+    },
+    {
+      "name": "applied-fields-drop-empty-groups",
+      "outputs": {
+        "status": {
+          "appliedFields": {
+            "strict_mode": [
+              "enabled"
+            ]
+          },
+          "phase": "Degraded"
+        }
+      },
+      "status": {
+        "appliedFields": {
+          "hnsw": [],
+          "strict_mode": [
+            "enabled"
+          ]
+        },
+        "phase": "Degraded"
+      }
+    },
+    {
+      "name": "condition-without-reason",
+      "outputs": {
+        "status": {
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-03-04T05:06:07Z",
+              "status": "Unknown",
+              "type": "Ready"
+            }
+          ],
+          "phase": "Failed"
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "lastTransitionTime": "2026-03-04T05:06:07Z",
+            "status": "Unknown",
+            "type": "Ready"
+          }
+        ],
+        "phase": "Failed"
+      }
+    },
+    {
+      "name": "error-unknown-phase",
+      "outputs": {
+        "error": true
+      },
+      "status": {
+        "phase": "Exploded"
+      }
+    }
+  ],
+  "subset_cases": [
+    {
+      "actual": {
+        "params": {
+          "vectors": {
+            "distance": "Dot",
+            "on_disk": null,
+            "size": 4
+          },
+          "x": 1
+        }
+      },
+      "desired": {
+        "params": {
+          "vectors": {
+            "on_disk": false,
+            "size": 4
+          }
+        }
+      },
+      "name": "declared-subset-matches",
+      "want": true
+    },
+    {
+      "actual": {
+        "params": {
+          "vectors": {
+            "size": 4
+          }
+        }
+      },
+      "desired": {
+        "params": {
+          "vectors": {
+            "size": 8
+          }
+        }
+      },
+      "name": "value-differs",
+      "want": false
+    },
+    {
+      "actual": {
+        "params": {
+          "vectors": {}
+        }
+      },
+      "desired": {
+        "params": {
+          "missing": {
+            "a": 1
+          }
+        }
+      },
+      "name": "missing-nested-map",
+      "want": false
+    },
+    {
+      "actual": {
+        "params": {
+          "vectors": {
+            "on_disk": null
+          }
+        }
+      },
+      "desired": {
+        "params": {
+          "vectors": {
+            "on_disk": true
+          }
+        }
+      },
+      "name": "true-needs-true",
+      "want": false
+    },
+    {
+      "actual": {
+        "a": null
+      },
+      "desired": {
+        "a": false
+      },
+      "name": "false-matches-null",
+      "want": true
+    },
+    {
+      "actual": {},
+      "desired": {
+        "a": false
+      },
+      "name": "false-matches-absent",
+      "want": true
+    },
+    {
+      "actual": {
+        "a": true
+      },
+      "desired": {
+        "a": false
+      },
+      "name": "false-differs-from-true",
+      "want": false
+    },
+    {
+      "actual": {
+        "b": 1
+      },
+      "desired": {
+        "a": null,
+        "b": 1
+      },
+      "name": "null-desired-ignored",
+      "want": true
+    },
+    {
+      "actual": null,
+      "desired": {
+        "a": 1
+      },
+      "name": "actual-not-a-map",
+      "want": false
+    },
+    {
+      "actual": 3,
+      "desired": {
+        "a": 1
+      },
+      "name": "actual-scalar",
+      "want": false
+    },
+    {
+      "actual": {},
+      "desired": {},
+      "name": "empty-desired-matches-empty-map",
+      "want": true
+    },
+    {
+      "actual": null,
+      "desired": {},
+      "name": "empty-desired-needs-a-map",
+      "want": false
+    },
+    {
+      "actual": {
+        "a": 1.0
+      },
+      "desired": {
+        "a": 1
+      },
+      "name": "int-equals-float",
+      "want": true
+    },
+    {
+      "actual": {
+        "a": 0.25
+      },
+      "desired": {
+        "a": 0.2
+      },
+      "name": "float-differs",
+      "want": false
+    },
+    {
+      "actual": {
+        "a": [
+          1,
+          2
+        ]
+      },
+      "desired": {
+        "a": [
+          1,
+          2
+        ]
+      },
+      "name": "lists-compare-whole",
+      "want": true
+    },
+    {
+      "actual": {
+        "a": [
+          1,
+          2
+        ]
+      },
+      "desired": {
+        "a": [
+          1
+        ]
+      },
+      "name": "lists-shorter-differs",
+      "want": false
+    },
+    {
+      "actual": {
+        "a": [
+          {
+            "extra": 2,
+            "k": 1
+          }
+        ]
+      },
+      "desired": {
+        "a": [
+          {
+            "k": 1
+          }
+        ]
+      },
+      "name": "lists-of-maps-compare-exactly",
+      "want": false
+    },
+    {
+      "actual": {
+        "a": "x"
+      },
+      "desired": {
+        "a": "x"
+      },
+      "name": "strings",
+      "want": true
+    },
+    {
+      "actual": {
+        "a": 1
+      },
+      "desired": {
+        "a": "1"
+      },
+      "name": "string-vs-number",
+      "want": false
+    },
+    {
+      "actual": 3,
+      "desired": 3,
+      "name": "scalar-desired-equal",
+      "want": true
+    },
+    {
+      "actual": null,
+      "desired": false,
+      "name": "scalar-desired-false-null",
+      "want": true
+    },
+    {
+      "actual": null,
+      "desired": null,
+      "name": "scalar-desired-null-null",
+      "want": true
+    },
+    {
+      "actual": {
+        "a": [
+          1
+        ]
+      },
+      "desired": {
+        "a": {
+          "b": 1
+        }
+      },
+      "name": "map-vs-list",
+      "want": false
+    }
+  ]
+}
