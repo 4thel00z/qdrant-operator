@@ -58,8 +58,7 @@
           "path": "charts/qdrant-operator/Chart.yaml",
           "jsonpath": "$.appVersion"
         }
-      ],
-      "release-as": "0.7.0"
+      ]
     }
   }
 }
