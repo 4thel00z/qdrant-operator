@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.7.0](https://github.com/4thel00z/qdrant-operator/compare/v0.6.2...v0.7.0) (2026-11-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove the Python operator
+* **chart:** leader election replaces kopf peering
+
+### Features
+
+* **chart:** leader election replaces kopf peering ([2751114](https://github.com/4thel00z/qdrant-operator/commit/27511145bfc74d8aca949f7da28d37eec36ee14a))
+* **chart:** settings and leader election RBAC for the Go operator ([51d9287](https://github.com/4thel00z/qdrant-operator/commit/51d92873d79b0096325a20dc7c0082da7ab12dfd))
+* **cmd:** operator entry point with cobra, fang and viper settings ([c0a55b5](https://github.com/4thel00z/qdrant-operator/commit/c0a55b54f7601a4fd05f78a4c1f995c21bf7f373))
+* **controller:** access key and migration reconcilers ([d66d851](https://github.com/4thel00z/qdrant-operator/commit/d66d8511fa88c5a5c32b5b5c06b8298b0ccce61f))
+* **controller:** backup, restore and schedule reconcilers ([a15aa61](https://github.com/4thel00z/qdrant-operator/commit/a15aa6160eb8119665ef79e489fceb4818af26eb))
+* **controller:** QdrantCluster reconciler ([936334f](https://github.com/4thel00z/qdrant-operator/commit/936334fee917f31155f27a607a1155a8513b8809))
+* **controller:** record phase changes as Kubernetes events ([d1a6617](https://github.com/4thel00z/qdrant-operator/commit/d1a6617d0f4241f2e6ef77c4a2f4ea2ab07e03c1))
+* **controller:** register backup, restore and schedule reconcilers ([3ac76f7](https://github.com/4thel00z/qdrant-operator/commit/3ac76f7cd6cd621490e64f3cc26ff6cbe3b75be7))
+* **controller:** register the cluster, access key and migration reconcilers ([d039d93](https://github.com/4thel00z/qdrant-operator/commit/d039d93d0d474a017db54dd3ddaa76a01801d534))
+* **controller:** shared reconciler pieces and the QdrantCollection controller ([ef8a1b1](https://github.com/4thel00z/qdrant-operator/commit/ef8a1b1f51f0642b2c8c1539037d189324e8c1ae))
+* **cron:** port croniter schedules to gronx ([85d8ece](https://github.com/4thel00z/qdrant-operator/commit/85d8ecea522964d60824503075a81f0f2dbbcb32))
+* **domain:** backups, retention, schedules and restores with Python golden tests ([da29ed3](https://github.com/4thel00z/qdrant-operator/commit/da29ed3e5363fa5f6c0d375ec48d439ffe63c395))
+* **domain:** port access key claims and migration rules to Go ([df66ed8](https://github.com/4thel00z/qdrant-operator/commit/df66ed828492fffaab323baeb3bf2cabcb3b6785))
+* **domain:** port cluster runtime state, rollout partitions and volume plans ([9c57fae](https://github.com/4thel00z/qdrant-operator/commit/9c57fae4757dc40e5e6ddc14e1b12fd0a7b4bd7a))
+* **domain:** port peer and shard planning to Go ([3f244ef](https://github.com/4thel00z/qdrant-operator/commit/3f244efbece9fd4766a20d0fafa01bd1e5b01cfb))
+* **domain:** QdrantCluster spec and Helm values with Python golden tests ([1fd2683](https://github.com/4thel00z/qdrant-operator/commit/1fd2683bbff69d6d7450f7d7abae7cc8b1177785))
+* **domain:** QdrantCollection spec, diffing, plans and status with Python golden tests ([af46714](https://github.com/4thel00z/qdrant-operator/commit/af467147788297b93793066df921c23d4c11de17))
+* **domain:** shared conditions, resource refs, time helpers and values digest ([3530780](https://github.com/4thel00z/qdrant-operator/commit/353078062b2ab1c91116480a6ba511fa9d318557))
+* **helm:** in-process Helm v4 adapter with partition post-renderer ([5597c99](https://github.com/4thel00z/qdrant-operator/commit/5597c99a5c2eddb2194c0074c0096f18f4433694))
+* **jwt:** port the HS256 token signer to golang-jwt ([6b948fb](https://github.com/4thel00z/qdrant-operator/commit/6b948fb89f80e1a891ce47280c606423675fa10e))
+* **kubernetes:** implement ports.Kubernetes on controller-runtime ([92fef76](https://github.com/4thel00z/qdrant-operator/commit/92fef76b59c42387e025f9c7cc99831cb0a5200f))
+* **ports:** Kubernetes port and in-memory fake ([614bbb2](https://github.com/4thel00z/qdrant-operator/commit/614bbb2e15d575bd35f2f08083d348ecd111d990))
+* **qdrant:** add the Qdrant REST adapter, port and in-memory fake ([590f51d](https://github.com/4thel00z/qdrant-operator/commit/590f51d9773e0cb621022e3731edcfe5a1440ffb))
+* **s3:** port the S3 storage adapter to aws-sdk-go-v2 ([cfc534d](https://github.com/4thel00z/qdrant-operator/commit/cfc534d819068e9471908124082ad35af3b512c3))
+* **usecases:** backup, volume snapshot backup, restore and schedule use cases ([fdae882](https://github.com/4thel00z/qdrant-operator/commit/fdae88212e9b9a6952115a698e3e9db7dcad7f49))
+* **usecases:** port collection, access key and migration use cases ([621192e](https://github.com/4thel00z/qdrant-operator/commit/621192e184b345c79a022d38df37c823cc2b1708))
+* **usecases:** port the QdrantCluster use cases ([895c04a](https://github.com/4thel00z/qdrant-operator/commit/895c04a0eb873cbdcfc4553b8240e157de13a58a))
+* **usecases:** ResolveCluster, credentials and retryable errors ([af12679](https://github.com/4thel00z/qdrant-operator/commit/af12679f626ef48f5cb1f1bf9c5bf9e771329268))
+
+
+### Bug Fixes
+
+* **app:** release the leader Lease on shutdown ([75e6696](https://github.com/4thel00z/qdrant-operator/commit/75e66969edd4d351267df9dfc3fd7630cae8bb2d))
+* **chart:** let helm v4 watch release resources during uninstall ([98c60b3](https://github.com/4thel00z/qdrant-operator/commit/98c60b3de3279fccbe05b854fe1f3da17f2f3bbb))
+* **usecases:** keep integers exact in every status patch body ([9c36be4](https://github.com/4thel00z/qdrant-operator/commit/9c36be49debb9483d535f4528a025d359530b82f))
+
+
+### Documentation
+
+* **claude:** Go commands, layout and conventions ([8ede6bc](https://github.com/4thel00z/qdrant-operator/commit/8ede6bcd02b905c62d7ad5223abb73424bf4abfb))
+* describe the Go operator ([ac639aa](https://github.com/4thel00z/qdrant-operator/commit/ac639aa6d9a97e7b20a33da7e8ced351c6173f1c))
+
+
+### Build
+
+* **api:** generate CRDs from Go types in api/v1alpha1 ([4a86d32](https://github.com/4thel00z/qdrant-operator/commit/4a86d32c5b33bb28901192e6c20c5cb72a64396f))
+* remove the Python operator ([26db8aa](https://github.com/4thel00z/qdrant-operator/commit/26db8aab5869c35777cafb30b9298787981e004c))
+
 ## [0.6.2](https://github.com/4thel00z/qdrant-operator/compare/v0.6.1...v0.6.2) (2026-11-23)
 
 
