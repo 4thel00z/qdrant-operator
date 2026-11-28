@@ -1,6 +1,9 @@
+---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: qdrantrestores.qdrant.io
 spec:
   group: qdrant.io
@@ -8,189 +11,230 @@ spec:
     kind: QdrantRestore
     listKind: QdrantRestoreList
     plural: qdrantrestores
-    singular: qdrantrestore
     shortNames:
-      - qr
+    - qr
+    singular: qdrantrestore
   scope: Namespaced
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      subresources:
-        status: {}
-      additionalPrinterColumns:
-        - name: Source
-          type: string
-          jsonPath: .spec.backupRef.name
-        - name: Target
-          type: string
-          jsonPath: .spec.targetClusterRef.name
-        - name: Phase
-          type: string
-          jsonPath: .status.phase
-        - name: Age
-          type: date
-          jsonPath: .metadata.creationTimestamp
-      schema:
-        openAPIV3Schema:
-          type: object
-          required:
-            - spec
-          properties:
-            spec:
-              type: object
-              required:
-                - targetClusterRef
-              x-kubernetes-validations:
-                - rule: "has(self.backupRef) != has(self.source)"
-                  message: "set exactly one of backupRef or source"
-                - rule: "self == oldSelf"
-                  message: "spec is immutable; create a new QdrantRestore instead"
-              properties:
-                backupRef:
-                  type: object
-                  description: Reference to a QdrantBackup resource
-                  properties:
-                    name:
-                      type: string
-                    namespace:
-                      type: string
-                source:
-                  type: object
-                  description: Direct S3 source (alternative to backupRef)
-                  properties:
-                    s3:
-                      type: object
-                      required:
-                        - bucket
-                        - path
-                        - credentialsSecretRef
-                      properties:
-                        bucket:
-                          type: string
-                        path:
-                          type: string
-                          description: Key prefix of the backup root (holds manifest.json)
-                        region:
-                          type: string
-                          default: "us-east-1"
-                        endpoint:
-                          type: string
-                        forcePathStyle:
-                          type: boolean
-                          default: false
-                        credentialsSecretRef:
-                          type: object
-                          required:
-                            - name
-                          properties:
-                            name:
-                              type: string
-                            accessKeyIdKey:
-                              type: string
-                              default: "AWS_ACCESS_KEY_ID"
-                            secretAccessKeyKey:
-                              type: string
-                              default: "AWS_SECRET_ACCESS_KEY"
-                targetClusterRef:
-                  type: object
-                  required:
-                    - name
-                  properties:
-                    name:
-                      type: string
-                    namespace:
-                      type: string
-                collections:
-                  type: array
-                  items:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.backupRef.name
+      name: Source
+      type: string
+    - jsonPath: .spec.targetClusterRef.name
+      name: Target
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              backupRef:
+                description: Reference to a QdrantBackup resource
+                properties:
+                  name:
                     type: string
-                  description: List of collections to restore (empty = all from backup)
-                collectionMapping:
-                  type: object
-                  additionalProperties:
+                  namespace:
                     type: string
-                  description: Rename collections during restore (source -> target)
-                priority:
+                type: object
+              collectionMapping:
+                additionalProperties:
                   type: string
-                  enum: ["snapshot", "replica", "no_sync"]
-                  default: "snapshot"
-                  description: Recovery priority mode
-                waitForIndexing:
-                  type: boolean
-                  default: true
-                  description: Wait for HNSW index to be built after restore
-                indexingTimeoutSeconds:
-                  type: integer
-                  minimum: 0
-                  default: 3600
-                  description: How long to wait for each restored collection to turn green
-            status:
-              type: object
-              properties:
-                phase:
+                description: Rename collections during restore (source -> target)
+                type: object
+              collections:
+                description: List of collections to restore (empty = all from backup)
+                items:
                   type: string
-                  enum: ["Pending", "Downloading", "Restoring", "Indexing", "Completed", "Failed"]
-                startTime:
-                  type: string
-                  format: date-time
-                completionTime:
-                  type: string
-                  format: date-time
-                sourceBackup:
-                  type: string
-                  description: Resolved backup name or S3 path
-                restoredCollections:
-                  type: array
-                  items:
-                    type: object
+                type: array
+              indexingTimeoutSeconds:
+                default: 3600
+                description: How long to wait for each restored collection to turn
+                  green
+                format: int32
+                minimum: 0
+                type: integer
+              priority:
+                default: snapshot
+                description: Recovery priority mode
+                enum:
+                - snapshot
+                - replica
+                - no_sync
+                type: string
+              source:
+                description: Direct S3 source (alternative to backupRef)
+                properties:
+                  s3:
                     properties:
-                      name:
+                      bucket:
                         type: string
-                      originalName:
+                      credentialsSecretRef:
+                        properties:
+                          accessKeyIdKey:
+                            default: AWS_ACCESS_KEY_ID
+                            type: string
+                          name:
+                            type: string
+                          secretAccessKeyKey:
+                            default: AWS_SECRET_ACCESS_KEY
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      endpoint:
                         type: string
-                        description: Original name if remapped
-                      status:
+                      forcePathStyle:
+                        default: false
+                        type: boolean
+                      path:
+                        description: Key prefix of the backup root (holds manifest.json)
                         type: string
-                        enum: ["Pending", "Downloading", "Restoring", "Indexing", "Completed", "Failed"]
-                      size:
+                      region:
+                        default: us-east-1
                         type: string
-                      pointsCount:
-                        type: integer
-                      error:
-                        type: string
-                progress:
-                  type: object
-                  properties:
-                    collectionsTotal:
-                      type: integer
-                    collectionsCompleted:
-                      type: integer
-                    currentCollection:
-                      type: string
-                    percentage:
-                      type: integer
-                      minimum: 0
-                      maximum: 100
-                error:
-                  type: string
-                conditions:
-                  type: array
-                  items:
-                    type: object
                     required:
-                      - type
-                      - status
-                    properties:
-                      type:
-                        type: string
-                      status:
-                        type: string
-                        enum: ["True", "False", "Unknown"]
-                      lastTransitionTime:
-                        type: string
-                        format: date-time
-                      reason:
-                        type: string
-                      message:
-                        type: string
+                    - bucket
+                    - credentialsSecretRef
+                    - path
+                    type: object
+                type: object
+              targetClusterRef:
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - name
+                type: object
+              waitForIndexing:
+                default: true
+                description: Wait for HNSW index to be built after restore
+                type: boolean
+            required:
+            - targetClusterRef
+            type: object
+            x-kubernetes-validations:
+            - message: set exactly one of backupRef or source
+              rule: has(self.backupRef) != has(self.source)
+            - message: spec is immutable; create a new QdrantRestore instead
+              rule: self == oldSelf
+          status:
+            properties:
+              completionTime:
+                format: date-time
+                type: string
+              conditions:
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                    reason:
+                      type: string
+                    status:
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              error:
+                type: string
+              phase:
+                enum:
+                - Pending
+                - Downloading
+                - Restoring
+                - Indexing
+                - Completed
+                - Failed
+                type: string
+              progress:
+                properties:
+                  collectionsCompleted:
+                    format: int32
+                    type: integer
+                  collectionsTotal:
+                    format: int32
+                    type: integer
+                  currentCollection:
+                    type: string
+                  percentage:
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
+                type: object
+              restoredCollections:
+                items:
+                  properties:
+                    error:
+                      type: string
+                    name:
+                      type: string
+                    originalName:
+                      description: Original name if remapped
+                      type: string
+                    pointsCount:
+                      format: int64
+                      type: integer
+                    size:
+                      type: string
+                    status:
+                      enum:
+                      - Pending
+                      - Downloading
+                      - Restoring
+                      - Indexing
+                      - Completed
+                      - Failed
+                      type: string
+                  type: object
+                type: array
+              sourceBackup:
+                description: Resolved backup name or S3 path
+                type: string
+              startTime:
+                format: date-time
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

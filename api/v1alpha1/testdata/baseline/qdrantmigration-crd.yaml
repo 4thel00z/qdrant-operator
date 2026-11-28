@@ -1,0 +1,275 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: qdrantmigrations.qdrant.io
+spec:
+  group: qdrant.io
+  names:
+    kind: QdrantMigration
+    listKind: QdrantMigrationList
+    plural: qdrantmigrations
+    singular: qdrantmigration
+    shortNames:
+      - qmig
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Source
+          type: string
+          jsonPath: .status.source
+        - name: Target
+          type: string
+          jsonPath: .spec.targetClusterRef.name
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Progress
+          type: string
+          jsonPath: .status.progress.percentage
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - source
+                - targetClusterRef
+              x-kubernetes-validations:
+                - rule: "has(self.source.clusterRef) != has(self.source.endpoint)"
+                  message: "source needs exactly one of clusterRef or endpoint"
+                - rule: "self == oldSelf"
+                  message: "spec is immutable; create a new QdrantMigration instead"
+                - rule: "!has(self.target) || !(has(self.target.shardKey) && has(self.target.shardKeyField))"
+                  message: "target.shardKey and target.shardKeyField are mutually exclusive"
+              properties:
+                source:
+                  type: object
+                  properties:
+                    clusterRef:
+                      type: object
+                      required:
+                        - name
+                      description: A QdrantCluster managed by this operator
+                      properties:
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                    endpoint:
+                      type: object
+                      required:
+                        - url
+                      description: Any reachable Qdrant, e.g. Qdrant Cloud or a cluster outside Kubernetes
+                      properties:
+                        url:
+                          type: string
+                          pattern: '^https?://'
+                        apiKeySecretRef:
+                          type: object
+                          required:
+                            - name
+                            - key
+                          properties:
+                            name:
+                              type: string
+                            key:
+                              type: string
+                        caSecretRef:
+                          type: object
+                          required:
+                            - name
+                            - key
+                          description: PEM bundle to trust when the endpoint uses a private CA
+                          properties:
+                            name:
+                              type: string
+                            key:
+                              type: string
+                targetClusterRef:
+                  type: object
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                collections:
+                  type: array
+                  items:
+                    type: string
+                  description: Collections to copy (empty = every collection on the source)
+                collectionMapping:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Rename collections while copying (source -> target)
+                batchSize:
+                  type: integer
+                  minimum: 1
+                  maximum: 10000
+                  default: 256
+                  description: Points per scroll/upsert round trip
+                batchDelayMs:
+                  type: integer
+                  minimum: 0
+                  default: 0
+                  description: Pause between batches to throttle load on both clusters
+                checkpointBatches:
+                  type: integer
+                  minimum: 1
+                  default: 20
+                  description: Batches between progress checkpoints in status; a crash re-copies at most this many batches
+                verifyPasses:
+                  type: integer
+                  minimum: 0
+                  default: 1
+                  description: Extra scroll passes over the source when the target has fewer points than the source after the copy (writes made during the copy are picked up); 0 disables them but the counts are still compared
+                sync:
+                  type: boolean
+                  default: false
+                  description: After the copy, walk source and target by point ID, re-upsert points that are missing or differ in payload or vectors and delete target points the source no longer has; replaces the verify passes. Catches up fully only once writes to the source stop
+                syncMaxPasses:
+                  type: integer
+                  minimum: 1
+                  maximum: 20
+                  default: 1
+                  description: Upper bound on sync passes; a further pass runs only while the previous one changed something
+                createMissing:
+                  type: boolean
+                  default: true
+                  description: Create target collections from the source configuration when absent
+                ensurePayloadIndexes:
+                  type: boolean
+                  default: true
+                  description: Create the source's payload indexes on the target even when the target collection already exists
+                target:
+                  type: object
+                  description: Sharding, replication and shard-key routing on the target
+                  properties:
+                    shardNumber:
+                      type: integer
+                      minimum: 1
+                    replicationFactor:
+                      type: integer
+                      minimum: 1
+                    writeConsistencyFactor:
+                      type: integer
+                      minimum: 1
+                    shardKey:
+                      x-kubernetes-int-or-string: true
+                      description: Route every point to this shard key (default - keep each point's source shard key)
+                    shardKeyField:
+                      type: string
+                      description: Route each point by this payload field (string or non-negative integer)
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: ["Pending", "Running", "Completed", "Failed"]
+                startTime:
+                  type: string
+                  format: date-time
+                completionTime:
+                  type: string
+                  format: date-time
+                source:
+                  type: string
+                  description: Resolved source (cluster name or endpoint URL)
+                collections:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      targetName:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["Pending", "Running", "Completed", "Failed"]
+                      pointsTotal:
+                        type: integer
+                      pointsCopied:
+                        type: integer
+                      offset:
+                        x-kubernetes-preserve-unknown-fields: true
+                        description: Scroll offset to resume from after an interruption
+                      error:
+                        type: string
+                      message:
+                        type: string
+                        description: Note on the outcome, such as the target holding more points than the source
+                      verifyPass:
+                        type: integer
+                        description: Extra verify passes started so far
+                      pointsUpdated:
+                        type: integer
+                        description: Points the sync pass re-upserted because they were missing or different on the target
+                      pointsDeleted:
+                        type: integer
+                        description: Points the sync pass deleted from the target because the source no longer has them
+                      syncPasses:
+                        type: integer
+                        description: Sync passes started so far
+                      syncOffset:
+                        x-kubernetes-preserve-unknown-fields: true
+                        description: Point ID the running sync pass resumes from after an interruption
+                      syncPassChanges:
+                        type: integer
+                        description: Points the running sync pass has changed so far
+                      sourceCount:
+                        type: integer
+                        description: Exact source point count at the last verification
+                      targetCount:
+                        type: integer
+                        description: Exact target point count at the last verification
+                progress:
+                  type: object
+                  properties:
+                    collectionsTotal:
+                      type: integer
+                    collectionsCompleted:
+                      type: integer
+                    pointsTotal:
+                      type: integer
+                    pointsCopied:
+                      type: integer
+                    percentage:
+                      type: integer
+                      minimum: 0
+                      maximum: 100
+                error:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

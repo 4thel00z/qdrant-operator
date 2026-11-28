@@ -1,6 +1,9 @@
+---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: qdrantcollections.qdrant.io
 spec:
   group: qdrant.io
@@ -8,296 +11,385 @@ spec:
     kind: QdrantCollection
     listKind: QdrantCollectionList
     plural: qdrantcollections
-    singular: qdrantcollection
     shortNames:
-      - qcol
+    - qcol
+    singular: qdrantcollection
   scope: Namespaced
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      subresources:
-        status: {}
-      additionalPrinterColumns:
-        - name: Cluster
-          type: string
-          jsonPath: .spec.clusterRef.name
-        - name: Collection
-          type: string
-          jsonPath: .status.collectionName
-        - name: Phase
-          type: string
-          jsonPath: .status.phase
-        - name: Points
-          type: integer
-          jsonPath: .status.pointsCount
-        - name: Health
-          type: string
-          jsonPath: .status.health
-        - name: Age
-          type: date
-          jsonPath: .metadata.creationTimestamp
-      schema:
-        openAPIV3Schema:
-          type: object
-          required:
-            - spec
-          properties:
-            spec:
-              type: object
-              required:
-                - clusterRef
-              x-kubernetes-validations:
-                - rule: "has(self.vectors) || has(self.sparseVectors)"
-                  message: "declare at least one of vectors or sparseVectors"
-                - rule: "!has(self.vectors) || self.vectors.size() == 1 || self.vectors.all(v, has(v.name))"
-                  message: "an unnamed vector must be the only vector; name every vector otherwise"
-                - rule: "self.clusterRef == oldSelf.clusterRef"
-                  message: "clusterRef is immutable"
-                - rule: "(has(self.collectionName) ? self.collectionName : '') == (has(oldSelf.collectionName) ? oldSelf.collectionName : '')"
-                  message: "collectionName is immutable"
-                - rule: "!has(self.shardKeys) || (has(self.shardingMethod) && self.shardingMethod == 'custom')"
-                  message: "shardKeys need shardingMethod: custom"
-              properties:
-                clusterRef:
-                  type: object
-                  required:
-                    - name
-                  properties:
-                    name:
-                      type: string
-                    namespace:
-                      type: string
-                collectionName:
-                  type: string
+  - additionalPrinterColumns:
+    - jsonPath: .spec.clusterRef.name
+      name: Cluster
+      type: string
+    - jsonPath: .status.collectionName
+      name: Collection
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.pointsCount
+      name: Points
+      type: integer
+    - jsonPath: .status.health
+      name: Health
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              aliases:
+                description: Aliases that must point at this collection
+                items:
                   maxLength: 255
-                  description: Name inside Qdrant (defaults to metadata.name; may use characters Kubernetes names cannot)
-                vectors:
-                  type: array
-                  maxItems: 64
-                  description: Dense vector spaces. One entry without a name is Qdrant's single unnamed vector.
-                  items:
-                    type: object
-                    required:
-                      - size
-                      - distance
-                    properties:
-                      name:
-                        type: string
-                        maxLength: 255
-                      size:
-                        type: integer
-                        minimum: 1
-                      distance:
-                        type: string
-                        enum: ["Cosine", "Euclid", "Dot", "Manhattan"]
-                      onDisk:
-                        type: boolean
-                      datatype:
-                        type: string
-                        enum: ["float32", "float16", "uint8", "turbo4"]
-                        description: turbo4 needs Qdrant 1.19+
-                      memory:
-                        type: string
-                        enum: ["cold", "cached"]
-                        description: RAM placement of the vector storage (Qdrant 1.19+; supersedes onDisk; pinned is not allowed for dense vectors)
-                      multivector:
-                        type: object
-                        required:
-                          - comparator
-                        properties:
-                          comparator:
-                            type: string
-                            enum: ["max_sim"]
-                      hnsw:
-                        type: object
-                        description: Per-vector HNSW overrides (Qdrant HnswConfigDiff field names)
-                        x-kubernetes-preserve-unknown-fields: true
-                      quantization:
-                        type: object
-                        description: "Per-vector quantization (Qdrant QuantizationConfig, e.g. {scalar: {type: int8}})"
-                        x-kubernetes-preserve-unknown-fields: true
-                sparseVectors:
-                  type: array
-                  maxItems: 64
-                  items:
-                    type: object
-                    required:
-                      - name
-                    properties:
-                      name:
-                        type: string
-                        maxLength: 255
-                      modifier:
-                        type: string
-                        enum: ["none", "idf"]
-                      index:
-                        type: object
-                        description: Sparse index settings (Qdrant SparseIndexParams field names)
-                        x-kubernetes-preserve-unknown-fields: true
-                shardNumber:
-                  type: integer
-                  minimum: 1
-                  description: Immutable after creation; defaults to the node count in distributed mode
-                shardingMethod:
                   type: string
-                  enum: ["auto", "custom"]
-                  description: Immutable after creation
-                replicationFactor:
-                  type: integer
-                  minimum: 1
-                writeConsistencyFactor:
-                  type: integer
-                  minimum: 1
-                readFanOutFactor:
-                  type: integer
-                  minimum: 0
-                readFanOutDelayMs:
-                  type: integer
-                  minimum: 0
-                  description: Delay before fanning reads out to remote replicas
-                onDiskPayload:
-                  type: boolean
-                payloadMemory:
-                  type: string
-                  enum: ["cold", "cached"]
-                  description: RAM placement of the payload storage (Qdrant 1.19+; supersedes onDiskPayload)
-                shardKeys:
-                  type: array
-                  maxItems: 1024
-                  description: Shard keys to create for custom sharding. Never dropped by the operator - dropping a key deletes its points.
-                  items:
-                    type: object
-                    required:
-                      - key
-                    properties:
-                      key:
-                        x-kubernetes-int-or-string: true
-                        description: Keyword or non-negative integer shard key
-                      shardsNumber:
-                        type: integer
-                        minimum: 1
-                      replicationFactor:
-                        type: integer
-                        minimum: 1
-                metadata:
-                  type: object
-                  description: Arbitrary collection metadata (merged into the live collection; keys you drop stay)
-                  x-kubernetes-preserve-unknown-fields: true
-                hnsw:
-                  type: object
-                  description: Collection-wide HNSW settings (Qdrant HnswConfigDiff field names)
-                  x-kubernetes-preserve-unknown-fields: true
-                optimizers:
-                  type: object
-                  description: Optimizer settings (Qdrant OptimizersConfigDiff field names)
-                  x-kubernetes-preserve-unknown-fields: true
-                quantization:
-                  type: object
-                  description: Collection-wide quantization (Qdrant QuantizationConfig)
-                  x-kubernetes-preserve-unknown-fields: true
-                wal:
-                  type: object
-                  description: Write-ahead log settings, applied at creation only (Qdrant WalConfigDiff)
-                  x-kubernetes-preserve-unknown-fields: true
-                strictMode:
-                  type: object
-                  description: Strict mode limits (Qdrant StrictModeConfig field names)
-                  x-kubernetes-preserve-unknown-fields: true
-                payloadIndexes:
-                  type: array
-                  maxItems: 256
-                  x-kubernetes-list-type: map
-                  x-kubernetes-list-map-keys: ["field"]
-                  items:
-                    type: object
-                    required:
-                      - field
-                      - type
-                    properties:
-                      field:
-                        type: string
-                        maxLength: 255
-                        description: Payload key (JSON path) to index
-                      type:
-                        type: string
-                        enum: ["keyword", "integer", "float", "geo", "text", "bool", "datetime", "uuid"]
-                      params:
-                        type: object
-                        description: "Type-specific index parameters (e.g. {tokenizer: word, lowercase: true} for text)"
-                        x-kubernetes-preserve-unknown-fields: true
-                aliases:
-                  type: array
-                  maxItems: 64
-                  items:
+                maxItems: 64
+                type: array
+              clusterRef:
+                properties:
+                  name:
                     type: string
-                    maxLength: 255
-                  description: Aliases that must point at this collection
-                deletionPolicy:
-                  type: string
-                  enum: ["Retain", "Delete"]
-                  default: "Retain"
-                  description: Whether deleting the resource drops the Qdrant collection
-            status:
-              type: object
-              properties:
-                phase:
-                  type: string
-                  enum: ["Pending", "Ready", "Degraded", "Failed"]
-                collectionName:
-                  type: string
-                health:
-                  type: string
-                  description: Qdrant collection status (green, yellow, grey, red)
-                pointsCount:
-                  type: integer
-                indexedVectorsCount:
-                  type: integer
-                segmentsCount:
-                  type: integer
-                payloadIndexes:
-                  type: array
-                  items:
+                  namespace:
                     type: string
-                  description: Payload fields whose indexes the operator manages
-                aliases:
-                  type: array
-                  items:
-                    type: string
-                  description: Aliases the operator manages
-                appliedFields:
-                  type: object
-                  additionalProperties:
-                    type: array
-                    items:
+                required:
+                - name
+                type: object
+              collectionName:
+                description: Name inside Qdrant (defaults to metadata.name; may use
+                  characters Kubernetes names cannot)
+                maxLength: 255
+                type: string
+              deletionPolicy:
+                default: Retain
+                description: Whether deleting the resource drops the Qdrant collection
+                enum:
+                - Retain
+                - Delete
+                type: string
+              hnsw:
+                description: Collection-wide HNSW settings (Qdrant HnswConfigDiff
+                  field names)
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              metadata:
+                description: Arbitrary collection metadata (merged into the live collection;
+                  keys you drop stay)
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              onDiskPayload:
+                type: boolean
+              optimizers:
+                description: Optimizer settings (Qdrant OptimizersConfigDiff field
+                  names)
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              payloadIndexes:
+                items:
+                  properties:
+                    field:
+                      description: Payload key (JSON path) to index
+                      maxLength: 255
                       type: string
-                  description: Config fields per block the operator last applied; one dropped from the spec is reset to Qdrant's default
-                shardKeys:
-                  type: array
-                  items:
-                    x-kubernetes-int-or-string: true
-                  description: Shard keys present on the collection
-                error:
+                    params:
+                      description: 'Type-specific index parameters (e.g. {tokenizer:
+                        word, lowercase: true} for text)'
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    type:
+                      enum:
+                      - keyword
+                      - integer
+                      - float
+                      - geo
+                      - text
+                      - bool
+                      - datetime
+                      - uuid
+                      type: string
+                  required:
+                  - field
+                  - type
+                  type: object
+                maxItems: 256
+                type: array
+                x-kubernetes-list-map-keys:
+                - field
+                x-kubernetes-list-type: map
+              payloadMemory:
+                description: RAM placement of the payload storage (Qdrant 1.19+; supersedes
+                  onDiskPayload)
+                enum:
+                - cold
+                - cached
+                type: string
+              quantization:
+                description: Collection-wide quantization (Qdrant QuantizationConfig)
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              readFanOutDelayMs:
+                description: Delay before fanning reads out to remote replicas
+                format: int64
+                minimum: 0
+                type: integer
+              readFanOutFactor:
+                format: int32
+                minimum: 0
+                type: integer
+              replicationFactor:
+                format: int32
+                minimum: 1
+                type: integer
+              shardKeys:
+                description: Shard keys to create for custom sharding. Never dropped
+                  by the operator - dropping a key deletes its points.
+                items:
+                  properties:
+                    key:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: Keyword or non-negative integer shard key
+                      x-kubernetes-int-or-string: true
+                    replicationFactor:
+                      format: int32
+                      minimum: 1
+                      type: integer
+                    shardsNumber:
+                      format: int32
+                      minimum: 1
+                      type: integer
+                  required:
+                  - key
+                  type: object
+                maxItems: 1024
+                type: array
+              shardNumber:
+                description: Immutable after creation; defaults to the node count
+                  in distributed mode
+                format: int32
+                minimum: 1
+                type: integer
+              shardingMethod:
+                description: Immutable after creation
+                enum:
+                - auto
+                - custom
+                type: string
+              sparseVectors:
+                items:
+                  properties:
+                    index:
+                      description: Sparse index settings (Qdrant SparseIndexParams
+                        field names)
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    modifier:
+                      enum:
+                      - none
+                      - idf
+                      type: string
+                    name:
+                      maxLength: 255
+                      type: string
+                  required:
+                  - name
+                  type: object
+                maxItems: 64
+                type: array
+              strictMode:
+                description: Strict mode limits (Qdrant StrictModeConfig field names)
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              vectors:
+                description: Dense vector spaces. One entry without a name is Qdrant's
+                  single unnamed vector.
+                items:
+                  properties:
+                    datatype:
+                      description: turbo4 needs Qdrant 1.19+
+                      enum:
+                      - float32
+                      - float16
+                      - uint8
+                      - turbo4
+                      type: string
+                    distance:
+                      enum:
+                      - Cosine
+                      - Euclid
+                      - Dot
+                      - Manhattan
+                      type: string
+                    hnsw:
+                      description: Per-vector HNSW overrides (Qdrant HnswConfigDiff
+                        field names)
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    memory:
+                      description: RAM placement of the vector storage (Qdrant 1.19+;
+                        supersedes onDisk; pinned is not allowed for dense vectors)
+                      enum:
+                      - cold
+                      - cached
+                      type: string
+                    multivector:
+                      properties:
+                        comparator:
+                          enum:
+                          - max_sim
+                          type: string
+                      required:
+                      - comparator
+                      type: object
+                    name:
+                      maxLength: 255
+                      type: string
+                    onDisk:
+                      type: boolean
+                    quantization:
+                      description: 'Per-vector quantization (Qdrant QuantizationConfig,
+                        e.g. {scalar: {type: int8}})'
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    size:
+                      format: int32
+                      minimum: 1
+                      type: integer
+                  required:
+                  - distance
+                  - size
+                  type: object
+                maxItems: 64
+                type: array
+              wal:
+                description: Write-ahead log settings, applied at creation only (Qdrant
+                  WalConfigDiff)
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              writeConsistencyFactor:
+                format: int32
+                minimum: 1
+                type: integer
+            required:
+            - clusterRef
+            type: object
+            x-kubernetes-validations:
+            - message: declare at least one of vectors or sparseVectors
+              rule: has(self.vectors) || has(self.sparseVectors)
+            - message: an unnamed vector must be the only vector; name every vector
+                otherwise
+              rule: '!has(self.vectors) || self.vectors.size() == 1 || self.vectors.all(v,
+                has(v.name))'
+            - message: clusterRef is immutable
+              rule: self.clusterRef == oldSelf.clusterRef
+            - message: collectionName is immutable
+              rule: '(has(self.collectionName) ? self.collectionName : '''') == (has(oldSelf.collectionName)
+                ? oldSelf.collectionName : '''')'
+            - message: 'shardKeys need shardingMethod: custom'
+              rule: '!has(self.shardKeys) || (has(self.shardingMethod) && self.shardingMethod
+                == ''custom'')'
+          status:
+            properties:
+              aliases:
+                description: Aliases the operator manages
+                items:
                   type: string
-                observedGeneration:
-                  type: integer
-                conditions:
-                  type: array
+                type: array
+              appliedFields:
+                additionalProperties:
                   items:
-                    type: object
-                    required:
-                      - type
-                      - status
-                    properties:
-                      type:
-                        type: string
-                      status:
-                        type: string
-                        enum: ["True", "False", "Unknown"]
-                      lastTransitionTime:
-                        type: string
-                        format: date-time
-                      reason:
-                        type: string
-                      message:
-                        type: string
+                    type: string
+                  type: array
+                description: Config fields per block the operator last applied; one
+                  dropped from the spec is reset to Qdrant's default
+                type: object
+              collectionName:
+                type: string
+              conditions:
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                    reason:
+                      type: string
+                    status:
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              error:
+                type: string
+              health:
+                description: Qdrant collection status (green, yellow, grey, red)
+                type: string
+              indexedVectorsCount:
+                format: int64
+                type: integer
+              observedGeneration:
+                format: int64
+                type: integer
+              payloadIndexes:
+                description: Payload fields whose indexes the operator manages
+                items:
+                  type: string
+                type: array
+              phase:
+                enum:
+                - Pending
+                - Ready
+                - Degraded
+                - Failed
+                type: string
+              pointsCount:
+                format: int64
+                type: integer
+              segmentsCount:
+                format: int64
+                type: integer
+              shardKeys:
+                description: Shard keys present on the collection
+                items:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  x-kubernetes-int-or-string: true
+                type: array
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

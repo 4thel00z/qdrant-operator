@@ -1,4 +1,4 @@
-.PHONY: help dev lint format test test-integration e2e-image e2e-deploy test-e2e dist logo build push install uninstall crds-sync clean
+.PHONY: help dev lint format test test-integration e2e-image e2e-deploy test-e2e dist logo build push install uninstall crds-sync manifests clean
 
 # Variables
 IMAGE_REPO ?= ghcr.io/4thel00z/qdrant-operator
@@ -96,6 +96,10 @@ uninstall: ## Uninstall operator
 	helm uninstall $(HELM_RELEASE) --namespace $(NAMESPACE)
 
 # CRDs
+manifests: ## Generate deepcopy methods and CRDs from api/v1alpha1 into manifests/crds and the chart
+	hack/gen-crds.sh manifests/crds
+	$(MAKE) crds-sync
+
 crds-sync: ## Copy manifests/crds into the Helm chart
 	cp manifests/crds/*.yaml charts/qdrant-operator/crds/
 
