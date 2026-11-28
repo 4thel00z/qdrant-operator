@@ -7,7 +7,7 @@ metadata:
     {{- include "qdrant-operator.labels" . | nindent 4 }}
 spec:
   {{- if and (gt (int .Values.replicaCount) 1) (not .Values.ha.enabled) }}
-  {{- fail "replicaCount above 1 needs ha.enabled=true; without peering every replica would reconcile" }}
+  {{- fail "replicaCount above 1 needs ha.enabled=true; without leader election every replica would reconcile" }}
   {{- end }}
   replicas: {{ .Values.replicaCount }}
   strategy:
@@ -36,30 +36,6 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
-            - name: LOG_LEVEL
-              value: {{ .Values.operator.logLevel | quote }}
-            - name: LOG_FORMAT
-              value: {{ .Values.operator.logFormat | quote }}
-            {{- with .Values.watchNamespaces }}
-            - name: WATCH_NAMESPACES
-              value: {{ join "," . | quote }}
-            {{- end }}
-            {{- with .Values.operator.chartRepo }}
-            - name: QDRANT_CHART_REPO
-              value: {{ . | quote }}
-            {{- end }}
-            {{- if .Values.ha.enabled }}
-            - name: POD_ID
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            - name: PEERING_NAME
-              value: {{ include "qdrant-operator.peeringName" . | quote }}
-            - name: PEERING_LIFETIME
-              value: {{ .Values.ha.lifetime | quote }}
-            {{- end }}
-            - name: METRICS_PORT
-              value: {{ ternary .Values.metrics.port 0 .Values.metrics.enabled | quote }}
             - name: QDRANT_OPERATOR_LOGGING_LEVEL
               value: {{ .Values.operator.logLevel | lower | quote }}
             - name: QDRANT_OPERATOR_LOGGING_FORMAT
@@ -69,7 +45,9 @@ spec:
             - name: QDRANT_OPERATOR_MANAGER_LEADER_ELECTION
               value: {{ .Values.ha.enabled | quote }}
             - name: QDRANT_OPERATOR_MANAGER_LEADER_ELECTION_ID
-              value: {{ include "qdrant-operator.peeringName" . | quote }}
+              value: {{ include "qdrant-operator.leaseName" . | quote }}
+            - name: QDRANT_OPERATOR_MANAGER_LEASE_DURATION
+              value: {{ .Values.ha.leaseDuration | quote }}
             - name: QDRANT_OPERATOR_METRICS_ADDRESS
               value: {{ ternary (printf ":%v" .Values.metrics.port) "0" .Values.metrics.enabled | quote }}
             {{- with .Values.operator.chartRepo }}
@@ -97,6 +75,11 @@ spec:
               port: health
             initialDelaySeconds: 10
             periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:

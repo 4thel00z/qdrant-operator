@@ -41,26 +41,17 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
-{{- define "qdrant-operator.peeringName" -}}
-{{- default (include "qdrant-operator.fullname" .) .Values.ha.peeringName }}
+{{- define "qdrant-operator.leaseName" -}}
+{{- default (include "qdrant-operator.fullname" .) .Values.ha.leaseName }}
 {{- end }}
 
 {{- define "qdrant-operator.clusterRules" -}}
-- apiGroups: ["apiextensions.k8s.io"]
-  resources: ["customresourcedefinitions"]
-  verbs: ["list", "watch"]
 - apiGroups: [""]
   resources: ["persistentvolumes"]
   verbs: ["get"]
 - apiGroups: [""]
   resources: ["nodes"]
   verbs: ["list"]
-{{- end }}
-
-{{- define "qdrant-operator.peeringRules" -}}
-- apiGroups: ["kopf.dev"]
-  resources: [{{ ternary "\"kopfpeerings\"" "\"clusterkopfpeerings\"" (not (empty .Values.watchNamespaces)) }}]
-  verbs: ["get", "list", "watch", "patch"]
 {{- end }}
 
 {{- define "qdrant-operator.namespacedRules" -}}
@@ -73,8 +64,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 - apiGroups: ["qdrant.io"]
   resources: ["qdrantclusters/status", "qdrantbackups/status", "qdrantbackupschedules/status", "qdrantrestores/status", "qdrantcollections/status", "qdrantaccesskeys/status", "qdrantmigrations/status"]
   verbs: ["get", "patch"]
-{{ include "qdrant-operator.peeringRules" . }}
-- apiGroups: [""]
+- apiGroups: ["", "events.k8s.io"]
   resources: ["events"]
   verbs: ["create", "patch"]
 - apiGroups: [""]

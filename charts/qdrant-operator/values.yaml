@@ -1,9 +1,9 @@
 replicaCount: 1  # above 1 only with ha.enabled; otherwise every replica would reconcile
 
 ha:
-  enabled: false  # kopf peering: one replica is active, the others wait as standbys; the Deployment rolls instead of recreating
-  peeringName: ""  # empty uses the release full name
-  lifetime: 60  # seconds before a standby takes over from an active pod that died without a clean exit; a clean shutdown hands over at once
+  enabled: false  # leader election: one replica holds a Lease and reconciles, the others wait as standbys; the Deployment rolls instead of recreating
+  leaseName: ""  # empty uses the release full name
+  leaseDuration: 15s  # how long a standby waits before taking over from a leader that stopped renewing; a clean shutdown releases the Lease at once
 
 image:
   repository: ghcr.io/4thel00z/qdrant-operator
@@ -19,13 +19,13 @@ watchNamespaces: []  # empty: watch every namespace under a ClusterRole; otherwi
 resources:
   limits:
     cpu: 500m
-    memory: 1Gi   # interpreter and kopf's per-resource state; a migration loop alone held ~320Mi, a backup ~280Mi, and both can run at once (S3 upload parts: 8MiB x 2; Qdrant stream chunks: 1MiB)
+    memory: 1Gi   # backups, restores and migrations stream through the operator and can run at once (S3 upload parts: 8MiB x 2; Qdrant stream chunks: 1MiB)
   requests:
     cpu: 100m
     memory: 128Mi
 
 operator:
-  logLevel: INFO
+  logLevel: info  # debug | info | warn | error
   logFormat: json  # json | text
   chartRepo: ""  # qdrant-helm repository for mirrored or air-gapped installs; an oci:// URL also works. Empty uses https://qdrant.github.io/qdrant-helm
 
